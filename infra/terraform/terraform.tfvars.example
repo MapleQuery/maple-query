@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+
+gcp_project_id = "your-gcp-project-id"
+
+# User emails granted roles/storage.admin on the bucket.
+# Small-team deviation from 2.1 §5.2 (groups-only) — see variable docs.
+admin_users = [
+  "you@example.com",
+  # "teammate@example.com",
+]
