@@ -1,0 +1,14 @@
+# Canonical source/org registry consumed by services/ingest.
+# Schema: services/ingest/src/ingest/config/sources.py
+# See PRD docs/product-specs/milestone-1/2.2-ingestion-pipeline.md §5.2.
+
+- country: ca
+  source: ckan-opencanada
+  api_base: https://open.canada.ca/data/api/3/action
+  organizations:
+    - code: fin
+      display_name: Department of Finance Canada
+    - code: statcan
+      display_name: Statistics Canada
+    - code: tbs-sct
+      display_name: Treasury Board of Canada Secretariat

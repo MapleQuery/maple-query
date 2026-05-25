@@ -1,0 +1,113 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ingest"
+version = "0.1.0"
+description = "MapleQuery ingest service — pulls open-government data into GCS + BigQuery."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  # HTTP + retries
+  "httpx>=0.27,<0.29",
+  "tenacity>=8.3,<9",
+
+  # Config + data validation
+  "pydantic>=2.7,<3",
+  "pydantic-settings>=2.3,<3",
+  "PyYAML>=6.0,<7",
+
+  # Logging + observability
+  "structlog>=24.1,<26",
+  "google-cloud-logging>=3.10,<4",
+  "opentelemetry-api>=1.25,<2",
+  "opentelemetry-sdk>=1.25,<2",
+  "opentelemetry-exporter-gcp-monitoring>=1.7,<2",
+
+  # GCP clients. BigQuery comes back in Phase A2 (separate task).
+  "google-cloud-storage>=2.16,<3",
+
+  # Format detection
+  "puremagic>=1.27,<2",
+
+  # CLI. typer<0.15 is incompatible with click>=8.2 (Parameter.make_metavar
+  # signature change); bumping the upper bound so the resolver picks a
+  # version that handles it. PRD originally pinned <0.14.
+  "typer>=0.15,<1",
+]
+
+[project.scripts]
+ingest = "ingest.entrypoint:app"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2,<9",
+  "pytest-asyncio>=0.23,<1",
+  "pytest-cov>=5.0,<6",
+  "hypothesis>=6.103,<7",
+  "vcrpy>=6.0,<7",
+  "respx>=0.22,<0.24",  # PRD originally pinned <0.22; bumped because respx 0.21 is incompatible with httpx 0.28.
+  "ruff>=0.5,<1",
+  "mypy>=1.10,<2",
+  "import-linter>=2.0,<3",
+  "types-PyYAML",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ingest"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Typer documents `Option(...)` in defaults as the idiomatic pattern; B008 is a
+# false positive for typer commands.
+"src/ingest/entrypoint.py" = ["B008"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+packages = ["ingest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["src/ingest"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+[tool.importlinter]
+root_packages = ["ingest"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture"
+type = "layers"
+layers = [
+  "ingest.entrypoint",
+  "ingest.core",
+  "ingest.clients",
+  "ingest.providers",
+  "ingest.config",
+  "ingest.types",
+]
+
+# PRD 2.2 §12.1 originally specified a `forbidden` contract banning core from
+# importing httpx / google.cloud.*. import-linter's forbidden contracts are
+# transitive, which makes this unenforceable for our layout (core.pipeline
+# legitimately imports clients.http for its parameter types, and clients.http
+# imports httpx — so a transitive forbidden contract trips). The layered
+# contract above plus code review cover the intent ("core uses clients via
+# parameters, never constructs concrete SDKs").
