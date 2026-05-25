@@ -11,7 +11,7 @@ application-default login` once).
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 import typer
 from google.cloud import storage as gcs_sdk
@@ -70,7 +70,10 @@ def main(
     )
 
     runlog_path = default_runlog_path(
-        run_id=settings.run_id, override_dir=settings.runlog_dir
+        run_id=settings.run_id,
+        subject=subject,
+        started_at=datetime.now(UTC),
+        override_dir=settings.runlog_dir,
     )
 
     log.info(

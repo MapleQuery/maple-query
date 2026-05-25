@@ -6,18 +6,28 @@ file. A follow-up loader reads the JSONL into `raw.documents` — no
 need to re-fetch from CKAN or re-derive metadata from GCS paths.
 
 File layout:
-- Default: `runlog/<run_id>.jsonl` relative to the operator's cwd.
-- Override with `INGEST_RUNLOG_DIR=/path/to/dir`.
+- Default: `runlog/<timestamp>-<subject>-<short-uuid>.jsonl` relative
+  to the operator's cwd — sortable by time, identifiable at a glance.
+- If `INGEST_RUN_ID` is set explicitly (i.e. not a generated UUID),
+  the filename becomes `<run_id>.jsonl` and multiple invocations with
+  the same `INGEST_RUN_ID` append to the same file.
+- Override the parent directory with `INGEST_RUNLOG_DIR=/path/to/dir`.
 """
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 from ingest.types import DocumentRow
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+_UNSAFE_SUBJECT_CHARS = re.compile(r"[^a-z0-9_-]+")
 
 
 class RunLogWriter:
@@ -75,6 +85,31 @@ def _row_to_dict(row: DocumentRow) -> dict[str, Any]:
     return d
 
 
-def default_runlog_path(*, run_id: str, override_dir: Path | None = None) -> Path:
+def default_runlog_path(
+    *,
+    run_id: str,
+    subject: str,
+    started_at: datetime,
+    override_dir: Path | None = None,
+) -> Path:
+    """Build the JSONL path for this run.
+
+    - If `run_id` looks like a generated UUID (the default), the
+      filename is `<timestamp>-<subject>-<short-uuid>.jsonl` so a
+      bare `ls runlog/` tells you what each file is.
+    - If `run_id` is an explicit user override (e.g.
+      `INGEST_RUN_ID=backfill-2026-05-25`), the filename is
+      `<run_id>.jsonl` verbatim — multiple invocations with the same
+      `run_id` append to the same file.
+    """
     base = override_dir or Path("runlog")
+
+    if _UUID_RE.match(run_id):
+        ts = started_at.strftime("%Y-%m-%dT%H-%M-%SZ")
+        safe_subject = _UNSAFE_SUBJECT_CHARS.sub("-", subject.lower()).strip("-")
+        if not safe_subject:
+            safe_subject = "subject"
+        short = run_id[:8]
+        return base / f"{ts}-{safe_subject}-{short}.jsonl"
+
     return base / f"{run_id}.jsonl"
