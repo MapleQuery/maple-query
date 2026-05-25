@@ -514,12 +514,14 @@ def _resource_partition_date(resource: Resource, dataset: Dataset) -> date:
     """Date used to partition this resource in GCS.
 
     Prefers the resource's own `last_modified`; falls back to the
-    dataset's `metadata_modified` (always present per CKAN). Anchors
-    the path to a property of the data — so re-ingesting the same
-    unchanged resource hits the same key and the GCS md5 dedup fires
-    across days.
+    dataset's `metadata_created`, which CKAN sets at dataset creation
+    and never updates. `metadata_modified` is **not** used as a
+    fallback: it bumps on any dataset edit (sibling resources, title
+    fixes, etc.), so an unchanged resource without its own
+    `last_modified` would land on a new key on the next run and the
+    GCS md5 dedup would never fire.
     """
-    dt = resource.last_modified or dataset.metadata_modified
+    dt = resource.last_modified or dataset.metadata_created
     return dt.date()
 
 

@@ -109,6 +109,7 @@ def _make_dataset(*, id_: str, org: str, subjects: list[str], resources: list[di
             "name": id_,
             "title": f"Dataset {id_}",
             "organization": {"name": org},
+            "metadata_created": "2020-01-01T00:00:00",
             "metadata_modified": "2026-05-01T00:00:00",
             "subject": subjects,
             "resources": resources,
@@ -201,6 +202,63 @@ def test_rerun_is_idempotent_via_gcs(
             settings=settings, sources=sources,
             request=RunRequest(subject="x", formats=("csv",)),
             ckans={"ckan-opencanada": ckan}, http=http, gcs=gcs, runlog=runlog,
+        )
+
+    assert summary2.skipped_by_gcs_dedup == 1
+    assert summary2.success == 0
+    assert gcs.uploads == uploads_after_first
+
+
+def test_rerun_dedups_when_resource_lacks_last_modified_and_dataset_was_touched(
+    settings: Settings, sources: SourcesConfig, runlog_path: Path
+) -> None:
+    """Regression: partition must be stable across runs when
+    `resource.last_modified` is absent and the dataset's
+    `metadata_modified` bumps between runs (e.g. sibling edited).
+    Falls back to `metadata_created`, which is immutable.
+    """
+    csv_url = "https://x.example/data/report-en.csv"
+    csv_body = b"a,b,c\n1,2,3\n"
+
+    # Note: resource has no `last_modified` — forces fallback to a
+    # dataset-level field.
+    ds_v1 = _make_dataset(
+        id_="d1",
+        org="fin",
+        subjects=["x"],
+        resources=[{"id": "r1", "url": csv_url, "format": "CSV", "language": ["en"]}],
+    )
+    # Second pass: same bytes, same resource, but the dataset was
+    # edited (sibling resource added, title fixed, anything) — so
+    # `metadata_modified` is newer. `metadata_created` is unchanged.
+    ds_v2 = Dataset.model_validate(
+        {
+            **ds_v1.model_dump(by_alias=True, mode="json"),
+            "metadata_modified": "2026-06-15T00:00:00",
+        }
+    )
+    assert ds_v2.metadata_modified != ds_v1.metadata_modified
+    assert ds_v2.metadata_created == ds_v1.metadata_created
+
+    http = FakeHttp(bodies={csv_url: csv_body})
+    gcs = FakeGcs()
+
+    with RunLogWriter(path=runlog_path) as runlog:
+        run(
+            settings=settings, sources=sources,
+            request=RunRequest(subject="x", formats=("csv",)),
+            ckans={"ckan-opencanada": FakeCkan(datasets=[ds_v1])},
+            http=http, gcs=gcs, runlog=runlog,
+        )
+
+    uploads_after_first = dict(gcs.uploads)
+
+    with RunLogWriter(path=runlog_path) as runlog:
+        summary2 = run(
+            settings=settings, sources=sources,
+            request=RunRequest(subject="x", formats=("csv",)),
+            ckans={"ckan-opencanada": FakeCkan(datasets=[ds_v2])},
+            http=http, gcs=gcs, runlog=runlog,
         )
 
     assert summary2.skipped_by_gcs_dedup == 1

@@ -25,6 +25,7 @@ def _dataset(resources: list[Resource]) -> Dataset:
             "name": "ds",
             "title": "Ds",
             "organization": {"name": "fin"},
+            "metadata_created": "2020-01-01T00:00:00",
             "metadata_modified": "2026-05-01T00:00:00",
             "subject": ["x"],
             "resources": [r.model_dump(by_alias=True) for r in resources],

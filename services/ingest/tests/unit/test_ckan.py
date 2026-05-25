@@ -86,6 +86,7 @@ SAMPLE_PKG = {
     "name": "some-dataset-slug",
     "title": "Some Dataset",
     "organization": {"name": "tbs-sct", "title": "Treasury Board"},
+    "metadata_created": "2022-02-17T04:03:10.508785",
     "metadata_modified": "2026-05-25T00:20:45.366217",
     "subject": ["government_and_politics", "information_and_communications"],
     "resources": [
@@ -109,6 +110,8 @@ def test_dataset_parses_real_shape() -> None:
     assert d.organization_code == "tbs-sct"
     assert d.subjects == ["government_and_politics", "information_and_communications"]
     assert d.metadata_modified.tzinfo is not None
+    assert d.metadata_created.tzinfo is not None
+    assert d.metadata_created < d.metadata_modified
     assert len(d.resources) == 1
 
 

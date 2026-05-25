@@ -12,13 +12,14 @@ Canonical quarantine path:
         /resource_last_modified=<YYYY-MM-DD>/reason=<reason>
         /__id=<doc_id12>__<safe_filename>
 
-The partition is keyed on a property of the resource (its own
-`last_modified` if present, else the dataset's `metadata_modified`) —
-not the wallclock when we happened to ingest. This makes the path
-content-addressed: re-ingesting the same unchanged resource lands on
-the same key, so the GCS md5-match dedup fires across days. See the
-`_resource_partition_date` helper in `core/pipeline.py` for the
-selection chain.
+The partition is keyed on a stable property of the resource: its own
+`last_modified` if present, else the dataset's `metadata_created` (the
+dataset's creation timestamp, immutable per CKAN). Not wallclock, and
+not `metadata_modified` — that one floats on any dataset edit and
+would break dedup for resources without their own `last_modified`.
+Because the partition is stable, re-ingesting the same unchanged
+resource lands on the same key, and the GCS md5-match dedup fires
+across days. See `_resource_partition_date` in `core/pipeline.py`.
 
 `doc_id12` is the first 12 hex chars of the full sha256 document_id —
 defence-in-depth against accidental collisions; the actual uniqueness

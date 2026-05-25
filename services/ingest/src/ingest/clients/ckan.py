@@ -54,6 +54,7 @@ class Dataset(BaseModel):
     name: str
     title: str
     organization_code: str
+    metadata_created: datetime
     metadata_modified: datetime
     subjects: list[str] = Field(default_factory=list, alias="subject")
     resources: list[Resource] = Field(default_factory=list)
@@ -81,7 +82,7 @@ class Dataset(BaseModel):
             return [v]
         return list(v)
 
-    @field_validator("metadata_modified", mode="after")
+    @field_validator("metadata_created", "metadata_modified", mode="after")
     @classmethod
     def _ensure_utc(cls, v: datetime) -> datetime:
         if v.tzinfo is None:

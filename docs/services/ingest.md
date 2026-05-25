@@ -8,7 +8,7 @@ The canonical GCS object key shape is:
 raw/country=<cc>/source=<src>/organization=<org>/resource_last_modified=<YYYY-MM-DD>/fmt=<ext>__id=<doc_id12>__<safe_filename>
 ```
 
-The partition is the resource's own `last_modified` (CKAN), falling back to the dataset's `metadata_modified` — *not* wallclock ingest time. This makes the path content-addressed: re-ingesting an unchanged resource hits the same key, so GCS md5-match dedup fires across days. Path building, slug rules, and the write-time collision contract (HEAD → `if_generation_match=0` → on existing object, compare md5) live in `core/path_builder.py`, `core/slugify.py`, and `clients/gcs.py`.
+The partition is the resource's own `last_modified` (CKAN), falling back to the dataset's `metadata_created` — *not* wallclock ingest time, and *not* `metadata_modified` (which bumps on any dataset edit and would silently break dedup for resources lacking their own `last_modified`). `metadata_created` is set at dataset creation and never updated, so the partition is stable; re-ingesting an unchanged resource hits the same key, and GCS md5-match dedup fires across days. Path building, slug rules, and the write-time collision contract (HEAD → `if_generation_match=0` → on existing object, compare md5) live in `core/path_builder.py`, `core/slugify.py`, and `clients/gcs.py`.
 
 ## Layering
 
