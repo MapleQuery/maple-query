@@ -22,6 +22,23 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _find_sources_yaml() -> Path:
+    """Walk up from cwd looking for `infra/ingest_sources.yaml`.
+
+    Lets the operator run `uv run ingest` from `services/ingest/` (or
+    anywhere else inside the repo) without having to set
+    `INGEST_SOURCES_CONFIG_PATH` by hand. Falls back to the bare
+    relative path if no candidate is found — `load_sources()` will then
+    raise a clear FileNotFoundError pointing at the missing path.
+    """
+    cwd = Path.cwd().resolve()
+    for parent in [cwd, *cwd.parents]:
+        candidate = parent / "infra" / "ingest_sources.yaml"
+        if candidate.is_file():
+            return candidate
+    return Path("infra/ingest_sources.yaml")
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="INGEST_",
@@ -33,7 +50,7 @@ class Settings(BaseSettings):
 
     gcs_bucket: str = "maplequery-raw"
 
-    sources_config_path: Path = Path("infra/ingest_sources.yaml")
+    sources_config_path: Path = Field(default_factory=_find_sources_yaml)
 
     # The pipeline appends per-resource records here; the follow-up BQ
     # loader reads them to populate `raw.documents`.
