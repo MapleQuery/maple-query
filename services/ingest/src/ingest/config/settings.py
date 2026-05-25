@@ -18,7 +18,7 @@ import uuid
 from pathlib import Path
 
 from dotenv import find_dotenv
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -46,7 +46,12 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    gcp_project_id: str
+    # Project-wide concept — same value across every service in this repo —
+    # so we accept both the service-prefixed and the unprefixed env names.
+    # `INGEST_GCP_PROJECT_ID` wins if both are set.
+    gcp_project_id: str = Field(
+        validation_alias=AliasChoices("INGEST_GCP_PROJECT_ID", "GCP_PROJECT_ID"),
+    )
 
     gcs_bucket: str = "maplequery-raw"
 
