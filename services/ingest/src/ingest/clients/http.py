@@ -4,6 +4,7 @@ The retry policy itself lives in `providers/retry.py`.
 """
 from __future__ import annotations
 
+import ssl
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -12,6 +13,30 @@ from typing import Any
 import httpx
 
 from ingest.providers.retry import RetryableHttpError, http_retry_policy
+
+
+def _build_ssl_context() -> ssl.SSLContext:
+    """Default-secure SSL context, forced to TLS 1.3 minimum.
+
+    Why TLS 1.3 minimum: `open.canada.ca` sits behind an F5 BIG-IP WAF
+    that silently stalls on certain TLS 1.2 Client Hello fingerprints
+    produced by uv's bundled OpenSSL build. Negotiating directly at 1.3
+    skips the 1.2 handshake the WAF is inspecting. Empirically verified
+    2026-05-25: same request hangs at 1.2, succeeds in <1s at 1.3.
+
+    All Government of Canada CDNs and modern open-data portals support
+    TLS 1.3, so this is safe for our use case. If a future source
+    requires TLS 1.2, lower the minimum or scope a separate client to
+    that host.
+
+    Last resort if a future WAF blocks Python's TLS fingerprint
+    entirely (cipher list, extensions, etc.): swap this client for
+    `curl_cffi.Session(impersonate="chrome")` — copies a real browser's
+    full fingerprint.
+    """
+    ctx = ssl.create_default_context()
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_3
+    return ctx
 
 
 @dataclass(frozen=True)
@@ -39,6 +64,7 @@ class HttpClient:
         max_retries: int = 3,
     ) -> None:
         self._client = httpx.Client(
+            verify=_build_ssl_context(),
             timeout=httpx.Timeout(
                 connect=request_timeout_seconds,
                 read=request_timeout_seconds * 5,
