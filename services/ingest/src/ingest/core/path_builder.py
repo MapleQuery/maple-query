@@ -3,14 +3,22 @@
 Canonical raw path:
 
     raw/country=<cc>/source=<src>/organization=<org>
-        /ingest_date=<YYYY-MM-DD>
+        /resource_last_modified=<YYYY-MM-DD>
         /fmt=<ext>__id=<doc_id12>__<safe_filename>
 
 Canonical quarantine path:
 
     quarantine/country=<cc>/source=<src>
-        /ingest_date=<YYYY-MM-DD>/reason=<reason>
+        /resource_last_modified=<YYYY-MM-DD>/reason=<reason>
         /__id=<doc_id12>__<safe_filename>
+
+The partition is keyed on a property of the resource (its own
+`last_modified` if present, else the dataset's `metadata_modified`) —
+not the wallclock when we happened to ingest. This makes the path
+content-addressed: re-ingesting the same unchanged resource lands on
+the same key, so the GCS md5-match dedup fires across days. See the
+`_resource_partition_date` helper in `core/pipeline.py` for the
+selection chain.
 
 `doc_id12` is the first 12 hex chars of the full sha256 document_id —
 defence-in-depth against accidental collisions; the actual uniqueness
@@ -50,7 +58,7 @@ def build_raw_path(
     country: str,
     source: str,
     organization: str,
-    ingest_date: date,
+    resource_last_modified: date,
     fmt: str,
     document_id: str,
     resource_url: str,
@@ -70,7 +78,7 @@ def build_raw_path(
 
     key = (
         f"raw/country={country}/source={source}/organization={organization}"
-        f"/ingest_date={ingest_date.isoformat()}"
+        f"/resource_last_modified={resource_last_modified.isoformat()}"
         f"/fmt={fmt}__id={doc_id12}__{safe_filename}"
     )
     _validate_key_length(key)
@@ -81,7 +89,7 @@ def build_quarantine_path(
     *,
     country: str,
     source: str,
-    ingest_date: date,
+    resource_last_modified: date,
     reason: QuarantineReason,
     document_id: str,
     resource_url: str,
@@ -98,7 +106,7 @@ def build_quarantine_path(
 
     key = (
         f"quarantine/country={country}/source={source}"
-        f"/ingest_date={ingest_date.isoformat()}/reason={reason}"
+        f"/resource_last_modified={resource_last_modified.isoformat()}/reason={reason}"
         f"/__id={doc_id12}__{safe_filename}"
     )
     _validate_key_length(key)

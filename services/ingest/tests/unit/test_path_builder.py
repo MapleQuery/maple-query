@@ -12,20 +12,20 @@ from ingest.core.path_builder import (
 )
 
 VALID_DOC_ID = "a" * 64
-INGEST_DATE = date(2026, 5, 19)
+RESOURCE_LAST_MODIFIED = date(2026, 5, 19)
 
 _RAW_GRAMMAR = re.compile(
     r"^raw/country=[a-z]{2}"
     r"/source=[a-z0-9][a-z0-9-]{1,38}[a-z0-9]"
     r"/organization=[a-z0-9][a-z0-9-]{0,39}"
-    r"/ingest_date=\d{4}-\d{2}-\d{2}"
+    r"/resource_last_modified=\d{4}-\d{2}-\d{2}"
     r"/fmt=[a-z0-9]{1,10}__id=[0-9a-f]{12}__[a-z0-9][a-z0-9._-]*$"
 )
 
 _QUARANTINE_GRAMMAR = re.compile(
     r"^quarantine/country=[a-z]{2}"
     r"/source=[a-z0-9][a-z0-9-]{1,38}[a-z0-9]"
-    r"/ingest_date=\d{4}-\d{2}-\d{2}"
+    r"/resource_last_modified=\d{4}-\d{2}-\d{2}"
     r"/reason=(download_failed|oversize|truncated_body|unreadable_encoding|path_collision)"
     r"/__id=[0-9a-f]{12}__[a-z0-9][a-z0-9._-]*$"
 )
@@ -36,7 +36,7 @@ def _build_raw(**overrides: object) -> str:
         "country": "ca",
         "source": "ckan-opencanada",
         "organization": "fin",
-        "ingest_date": INGEST_DATE,
+        "resource_last_modified": RESOURCE_LAST_MODIFIED,
         "fmt": "csv",
         "document_id": VALID_DOC_ID,
         "resource_url": "https://open.canada.ca/data/dataset/x/report.csv",
@@ -49,7 +49,7 @@ def _build_quarantine(**overrides: object) -> str:
     kwargs: dict[str, object] = {
         "country": "ca",
         "source": "ckan-opencanada",
-        "ingest_date": INGEST_DATE,
+        "resource_last_modified": RESOURCE_LAST_MODIFIED,
         "reason": "oversize",
         "document_id": VALID_DOC_ID,
         "resource_url": "https://example.gov/foo.pdf",
@@ -62,7 +62,7 @@ def test_build_raw_path_matches_canonical_template() -> None:
     key = _build_raw()
     assert key == (
         "raw/country=ca/source=ckan-opencanada/organization=fin"
-        "/ingest_date=2026-05-19/fmt=csv__id=aaaaaaaaaaaa__report.csv"
+        "/resource_last_modified=2026-05-19/fmt=csv__id=aaaaaaaaaaaa__report.csv"
     )
 
 
@@ -74,7 +74,7 @@ def test_build_quarantine_path_matches_canonical_template() -> None:
     key = _build_quarantine()
     assert key == (
         "quarantine/country=ca/source=ckan-opencanada"
-        "/ingest_date=2026-05-19/reason=oversize"
+        "/resource_last_modified=2026-05-19/reason=oversize"
         "/__id=aaaaaaaaaaaa__foo.pdf"
     )
 

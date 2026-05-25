@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
 
@@ -89,8 +89,6 @@ def run(
         runlog_path=str(runlog.path),
     )
 
-    ingest_date = clock().date()
-
     for source_cfg in sources:
         ckan = ckans.get(source_cfg.source)
         if ckan is None:
@@ -109,7 +107,6 @@ def run(
                 http=http,
                 gcs=gcs,
                 runlog=runlog,
-                ingest_date=ingest_date,
                 clock=clock,
                 summary=summary,
             )
@@ -140,7 +137,6 @@ def _process_org(
     http: HttpClient,
     gcs: GcsClient,
     runlog: RunLogWriter,
-    ingest_date: Any,
     clock: Callable[[], datetime],
     summary: RunSummary,
 ) -> None:
@@ -196,7 +192,6 @@ def _process_org(
                     request=request,
                     http=http,
                     gcs=gcs,
-                    ingest_date=ingest_date,
                     clock=clock,
                 )
 
@@ -274,7 +269,6 @@ def _process_resource(
     request: RunRequest,
     http: HttpClient,
     gcs: GcsClient,
-    ingest_date: Any,
     clock: Callable[[], datetime],
 ) -> tuple[DocumentRow | None, str]:
     """Process one resource. Returns (row_or_none, outcome).
@@ -315,7 +309,6 @@ def _process_resource(
             settings=settings,
             request=request,
             gcs=gcs,
-            ingest_date=ingest_date,
             decision_reason=decision.reason or "download_failed",
             decision_note=decision.note,
             body=download.body if download else b"",
@@ -342,7 +335,7 @@ def _process_resource(
         country=source_cfg.country,
         source=source_cfg.source,
         organization=org.code,
-        ingest_date=ingest_date,
+        resource_last_modified=_resource_partition_date(resource, dataset),
         fmt=sniff.fmt,
         document_id=document_id,
         resource_url=resource.url,
@@ -376,7 +369,6 @@ def _process_resource(
                 settings=settings,
                 request=request,
                 gcs=gcs,
-                ingest_date=ingest_date,
                 decision_reason="path_collision",
                 decision_note=(
                     f"existing md5 {upload.existing_md5_b64} "
@@ -439,7 +431,6 @@ def _build_quarantine_row(
     settings: Settings,
     request: RunRequest,
     gcs: GcsClient,
-    ingest_date: Any,
     decision_reason: str,
     decision_note: str,
     body: bytes,
@@ -450,7 +441,7 @@ def _build_quarantine_row(
     path = build_quarantine_path(
         country=source_cfg.country,
         source=source_cfg.source,
-        ingest_date=ingest_date,
+        resource_last_modified=_resource_partition_date(resource, dataset),
         reason=decision_reason,  # type: ignore[arg-type]
         document_id=document_id,
         resource_url=resource.url,
@@ -517,6 +508,19 @@ def _build_quarantine_row(
 def _resource_matches_formats(resource: Resource, formats: tuple[str, ...]) -> bool:
     declared = (resource.format_declared or "").lower()
     return declared in formats
+
+
+def _resource_partition_date(resource: Resource, dataset: Dataset) -> date:
+    """Date used to partition this resource in GCS.
+
+    Prefers the resource's own `last_modified`; falls back to the
+    dataset's `metadata_modified` (always present per CKAN). Anchors
+    the path to a property of the data — so re-ingesting the same
+    unchanged resource hits the same key and the GCS md5 dedup fires
+    across days.
+    """
+    dt = resource.last_modified or dataset.metadata_modified
+    return dt.date()
 
 
 def _header(headers: Any, name: str) -> str | None:
