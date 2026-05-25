@@ -87,6 +87,27 @@ class GcsClient:
 
         raise RuntimeError("unreachable: upload loop exhausted without returning")
 
+    def upload_overwrite(
+        self,
+        *,
+        object_name: str,
+        body: bytes,
+        content_type: str | None = None,
+    ) -> str:
+        """Unconditional upload — overwrites the existing object if any.
+
+        Used for per-run artifacts like the JSONL run log, where each
+        run produces a new authoritative version and the write-time
+        collision protocol of `upload()` would wrongly route the
+        overwrite to a `quarantine/path_collision/` prefix.
+        """
+        blob = self._bucket.blob(object_name)
+        blob.upload_from_string(
+            body,
+            content_type=content_type or "application/octet-stream",
+        )
+        return f"gs://{self._bucket_name}/{object_name}"
+
     def exists(self, object_name: str) -> bool:
         blob = self._bucket.blob(object_name)
         return _reload_or_none(blob) is not None

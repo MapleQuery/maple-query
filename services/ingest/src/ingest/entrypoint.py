@@ -4,7 +4,10 @@
 
 Writes bytes to GCS and one per-resource record to
 `runlog/<run_id>.jsonl` (override the directory with `INGEST_RUNLOG_DIR`).
-A follow-up task loads the JSONL into BigQuery's `raw.documents` table.
+At end of run, the JSONL is also uploaded to
+`gs://<bucket>/runlog/<filename>.jsonl` so the artifact survives the
+local filesystem (Cloud Run, CI runners). A follow-up task loads the
+JSONL into BigQuery's `raw.documents` table.
 
 GCP clients use application-default credentials (run `gcloud auth
 application-default login` once).
@@ -50,7 +53,10 @@ def main(
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run/--no-dry-run",
-        help="Skip GCS uploads and run-log writes; emit would_have_* log events.",
+        help=(
+            "Skip GCS uploads (raw bytes + run-log mirror) and run-log writes; "
+            "emit would_have_* log events."
+        ),
     ),
 ) -> None:
     """Run one ingest pass."""
@@ -124,6 +130,35 @@ def main(
             runlog=runlog,
         )
 
+    # Mirror the JSONL to GCS so the run-log survives ephemeral
+    # filesystems (Cloud Run, CI). Local file stays as the source of
+    # truth for tailing/debug. Dry-run skips this — the local file is
+    # empty since pipeline.run() didn't write any rows.
+    runlog_gcs_uri: str | None = None
+    runlog_upload_error: str | None = None
+    if not dry_run and runlog_path.exists() and runlog_path.stat().st_size > 0:
+        try:
+            runlog_gcs_uri = gcs.upload_overwrite(
+                object_name=f"runlog/{runlog_path.name}",
+                body=runlog_path.read_bytes(),
+                content_type="application/x-ndjson",
+            )
+            log.info("runlog_uploaded", local=str(runlog_path), gcs_uri=runlog_gcs_uri)
+        except Exception as exc:
+            runlog_upload_error = f"{type(exc).__name__}: {exc}"
+            log.error(
+                "runlog_upload_failed",
+                local=str(runlog_path),
+                error=runlog_upload_error,
+                exc_info=True,
+            )
+
+    runlog_suffix = ""
+    if runlog_gcs_uri:
+        runlog_suffix = f" -> {runlog_gcs_uri}"
+    elif runlog_upload_error:
+        runlog_suffix = f" (GCS upload FAILED: {runlog_upload_error})"
+
     typer.echo(
         f"Done in {summary.duration_ms / 1000:.1f}s — "
         f"{summary.success} success, "
@@ -131,7 +166,7 @@ def main(
         f"{summary.failed} failed, "
         f"{summary.skipped_by_gcs_dedup} gcs-dedup-skipped, "
         f"{summary.skipped_by_pairing} pairing-skipped. "
-        f"Run log: {runlog_path}"
+        f"Run log: {runlog_path}{runlog_suffix}"
     )
 
 

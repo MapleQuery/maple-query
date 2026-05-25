@@ -37,7 +37,13 @@ class _FakeBlob:
         if not self._exists:
             raise gcp_exceptions.NotFound("not found")
 
-    def upload_from_string(self, body: bytes, *, content_type: str, if_generation_match: int) -> None:
+    def upload_from_string(
+        self,
+        body: bytes,
+        *,
+        content_type: str,
+        if_generation_match: int | None = None,
+    ) -> None:
         self.upload_calls += 1
         if self._exists and if_generation_match == 0:
             raise gcp_exceptions.PreconditionFailed("object already exists")
@@ -97,3 +103,22 @@ def test_path_collision_when_md5_differs() -> None:
     assert isinstance(result, PathCollision)
     assert result.existing_md5_b64 == _md5(b"DIFFERENT")
     assert result.attempted_md5_b64 == _md5(b"hello")
+
+
+def test_upload_overwrite_writes_new_object(empty_bucket: _FakeBucket) -> None:
+    client = GcsClient(client=_FakeStorageClient(empty_bucket), bucket="maplequery-raw")
+    uri = client.upload_overwrite(object_name="runlog/x.jsonl", body=b"{}\n")
+    assert uri == "gs://maplequery-raw/runlog/x.jsonl"
+    assert empty_bucket._blobs["runlog/x.jsonl"].uploaded_body == b"{}\n"
+
+
+def test_upload_overwrite_replaces_existing_object_without_collision() -> None:
+    bucket = _FakeBucket(
+        {"runlog/x.jsonl": _FakeBlob(
+            name="runlog/x.jsonl", exists=True, md5_hash=_md5(b"old contents")
+        )}
+    )
+    client = GcsClient(client=_FakeStorageClient(bucket), bucket="maplequery-raw")
+    uri = client.upload_overwrite(object_name="runlog/x.jsonl", body=b"new contents")
+    assert uri == "gs://maplequery-raw/runlog/x.jsonl"
+    assert bucket._blobs["runlog/x.jsonl"].uploaded_body == b"new contents"
