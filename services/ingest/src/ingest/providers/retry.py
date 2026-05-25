@@ -30,6 +30,11 @@ class RetryableHttpError(Exception):
 
 
 def http_retry_policy(*, max_attempts: int = 3) -> Retrying:
+    # httpx.TransportError is the base for ConnectError, ReadTimeout,
+    # NetworkError, ProtocolError, ProxyError — everything that's safe to
+    # retry. Deliberately NOT catching HTTPStatusError: raise_for_status
+    # raises it on 4xx, and 4xx is fatal in our model. 5xx / 429 are
+    # surfaced as RetryableHttpError by the client.
     return Retrying(
         stop=stop_after_attempt(max_attempts),
         wait=wait_exponential_jitter(initial=1.0, max=8.0, jitter=0.25),

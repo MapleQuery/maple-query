@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import httpx
 import pytest
-import respx
+from pytest_httpserver import HTTPServer
 
 from ingest.clients.ckan import CkanClient, CkanError, Dataset, Resource
 from ingest.clients.http import HttpClient
@@ -153,65 +152,95 @@ def http_client() -> HttpClient:
     c.close()
 
 
-def _ckan_response(*, results: list[dict], count: int) -> httpx.Response:
-    return httpx.Response(200, json={"success": True, "result": {"count": count, "results": results}})
+def _ckan_payload(*, results: list[dict], count: int) -> dict:
+    return {"success": True, "result": {"count": count, "results": results}}
 
 
-@respx.mock
-def test_search_yields_datasets_from_single_page(http_client: HttpClient) -> None:
-    respx.get("https://ckan.example/package_search").mock(
-        return_value=_ckan_response(results=[SAMPLE_PKG], count=1)
+def test_search_yields_datasets_from_single_page(
+    http_client: HttpClient, httpserver: HTTPServer
+) -> None:
+    httpserver.expect_request("/package_search").respond_with_json(
+        _ckan_payload(results=[SAMPLE_PKG], count=1)
     )
-    ckan = CkanClient(http=http_client, api_base="https://ckan.example", inter_request_delay_seconds=0)
+    ckan = CkanClient(
+        http=http_client,
+        api_base=httpserver.url_for(""),
+        inter_request_delay_seconds=0,
+    )
     datasets = list(ckan.search(subject="government_and_politics"))
     assert len(datasets) == 1
     assert datasets[0].organization_code == "tbs-sct"
 
 
-@respx.mock
-def test_search_paginates_until_partial_page(http_client: HttpClient) -> None:
+def test_search_paginates_until_partial_page(
+    http_client: HttpClient, httpserver: HTTPServer
+) -> None:
     # 3 total, page_size 2 ⇒ page 1 has 2 results, page 2 has 1.
-    page1 = _ckan_response(results=[SAMPLE_PKG, SAMPLE_PKG], count=3)
-    page2 = _ckan_response(results=[SAMPLE_PKG], count=3)
-    route = respx.get("https://ckan.example/package_search").mock(side_effect=[page1, page2])
+    httpserver.expect_ordered_request("/package_search").respond_with_json(
+        _ckan_payload(results=[SAMPLE_PKG, SAMPLE_PKG], count=3)
+    )
+    httpserver.expect_ordered_request("/package_search").respond_with_json(
+        _ckan_payload(results=[SAMPLE_PKG], count=3)
+    )
 
-    ckan = CkanClient(http=http_client, api_base="https://ckan.example", inter_request_delay_seconds=0)
+    ckan = CkanClient(
+        http=http_client,
+        api_base=httpserver.url_for(""),
+        inter_request_delay_seconds=0,
+    )
     datasets = list(ckan.search(subject="government_and_politics", page_size=2))
 
     assert len(datasets) == 3
-    assert route.call_count == 2
+    assert len(httpserver.log) == 2
     # Second call should have start=2
-    assert route.calls[1].request.url.params["start"] == "2"
+    second_request, _ = httpserver.log[1]
+    assert second_request.args["start"] == "2"
 
 
-@respx.mock
-def test_search_stops_when_start_meets_count(http_client: HttpClient) -> None:
-    page1 = _ckan_response(results=[SAMPLE_PKG, SAMPLE_PKG], count=2)
-    route = respx.get("https://ckan.example/package_search").mock(side_effect=[page1])
+def test_search_stops_when_start_meets_count(
+    http_client: HttpClient, httpserver: HTTPServer
+) -> None:
+    httpserver.expect_request("/package_search").respond_with_json(
+        _ckan_payload(results=[SAMPLE_PKG, SAMPLE_PKG], count=2)
+    )
 
-    ckan = CkanClient(http=http_client, api_base="https://ckan.example", inter_request_delay_seconds=0)
+    ckan = CkanClient(
+        http=http_client,
+        api_base=httpserver.url_for(""),
+        inter_request_delay_seconds=0,
+    )
     datasets = list(ckan.search(subject="x", page_size=2))
 
     assert len(datasets) == 2
-    assert route.call_count == 1
+    assert len(httpserver.log) == 1
 
 
-@respx.mock
-def test_search_raises_on_success_false(http_client: HttpClient) -> None:
-    respx.get("https://ckan.example/package_search").mock(
-        return_value=httpx.Response(200, json={"success": False, "error": {"message": "boom"}})
+def test_search_raises_on_success_false(
+    http_client: HttpClient, httpserver: HTTPServer
+) -> None:
+    httpserver.expect_request("/package_search").respond_with_json(
+        {"success": False, "error": {"message": "boom"}}
     )
-    ckan = CkanClient(http=http_client, api_base="https://ckan.example", inter_request_delay_seconds=0)
+    ckan = CkanClient(
+        http=http_client,
+        api_base=httpserver.url_for(""),
+        inter_request_delay_seconds=0,
+    )
     with pytest.raises(CkanError):
         list(ckan.search(subject="x"))
 
 
-@respx.mock
-def test_search_sends_built_fq(http_client: HttpClient) -> None:
-    route = respx.get("https://ckan.example/package_search").mock(
-        return_value=_ckan_response(results=[], count=0)
+def test_search_sends_built_fq(
+    http_client: HttpClient, httpserver: HTTPServer
+) -> None:
+    httpserver.expect_request("/package_search").respond_with_json(
+        _ckan_payload(results=[], count=0)
     )
-    ckan = CkanClient(http=http_client, api_base="https://ckan.example", inter_request_delay_seconds=0)
+    ckan = CkanClient(
+        http=http_client,
+        api_base=httpserver.url_for(""),
+        inter_request_delay_seconds=0,
+    )
     list(
         ckan.search(
             subject="government_and_politics",
@@ -219,8 +248,8 @@ def test_search_sends_built_fq(http_client: HttpClient) -> None:
             organization="fin",
         )
     )
-    fq = route.calls.last.request.url.params["fq"]
-    assert fq == (
+    last_request, _ = httpserver.log[-1]
+    assert last_request.args["fq"] == (
         "subject:government_and_politics "
         "AND (res_format:CSV OR res_format:XLSX) "
         "AND organization:fin"

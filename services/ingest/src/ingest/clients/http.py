@@ -1,4 +1,4 @@
-"""Thin httpx wrapper with conditional GET and retry policy.
+"""httpx wrapper with TLS pinning, conditional GET, rate limiting, and retries.
 
 The retry policy itself lives in `providers/retry.py`.
 """
@@ -13,6 +13,8 @@ from typing import Any
 import httpx
 
 from ingest.providers.retry import RetryableHttpError, http_retry_policy
+
+_MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
 
 
 def _build_ssl_context() -> ssl.SSLContext:
@@ -62,7 +64,12 @@ class HttpClient:
         user_agent: str,
         request_timeout_seconds: float,
         max_retries: int = 3,
+        download_delay_seconds: float = 0.5,
     ) -> None:
+        # download_delay_seconds: trace-ca's pacing trick. open.canada.ca's
+        # Akamai WAF tarpits clients that drive its rate threshold; sleeping
+        # 0.5s before each download keeps us well under it. Set to 0 in
+        # tests so the suite stays fast.
         self._client = httpx.Client(
             verify=_build_ssl_context(),
             timeout=httpx.Timeout(
@@ -78,6 +85,7 @@ class HttpClient:
             follow_redirects=True,
         )
         self._max_retries = max_retries
+        self._download_delay = download_delay_seconds
 
     def __enter__(self) -> HttpClient:
         return self
@@ -105,7 +113,14 @@ class HttpClient:
         etag: str | None = None,
         last_modified: str | None = None,
     ) -> DownloadResult:
-        """Conditional GET. Streams the body fully into memory before returning."""
+        """Conditional GET. Streams the body fully into memory before returning.
+
+        Caps body at 100 MB — guarded twice: a cheap Content-Length check
+        before reading, and a running counter during stream consumption
+        for servers that omit the header.
+        """
+        if self._download_delay > 0:
+            time.sleep(self._download_delay)
         retrier = http_retry_policy(max_attempts=self._max_retries)
         return retrier(self._do_download, url, etag, last_modified)
 
@@ -134,13 +149,38 @@ class HttpClient:
             _raise_if_retryable(response)
             response.raise_for_status()
 
-            body = b"".join(response.iter_bytes())
+            declared = response.headers.get("Content-Length")
+            if declared and int(declared) > _MAX_DOWNLOAD_BYTES:
+                raise OversizedResourceError(url, int(declared))
+
+            chunks: list[bytes] = []
+            total = 0
+            for chunk in response.iter_bytes():
+                if not chunk:
+                    continue
+                total += len(chunk)
+                if total > _MAX_DOWNLOAD_BYTES:
+                    raise OversizedResourceError(url, total)
+                chunks.append(chunk)
+
             return Downloaded(
-                body=body,
+                body=b"".join(chunks),
                 status=response.status_code,
                 headers=dict(response.headers),
                 elapsed_ms=int((time.monotonic() - start) * 1000),
             )
+
+
+class OversizedResourceError(Exception):
+    """Raised when a download body exceeds the 100 MB cap."""
+
+    def __init__(self, url: str, observed_bytes: int) -> None:
+        super().__init__(
+            f"resource exceeds {_MAX_DOWNLOAD_BYTES} byte cap "
+            f"(observed={observed_bytes}): {url}"
+        )
+        self.url = url
+        self.observed_bytes = observed_bytes
 
 
 def _raise_if_retryable(response: httpx.Response) -> None:

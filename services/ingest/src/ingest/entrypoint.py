@@ -87,7 +87,14 @@ def main(
         runlog_path=str(runlog_path),
     )
 
-    user_agent = f"maplequery-ingest/{VERSION}"
+    # Mozilla-compatible bot format is the convention for well-behaved
+    # crawlers (Googlebot, Bingbot, etc.). open.canada.ca's WAF rejects
+    # bare custom UAs like "maplequery-ingest/0.1" but accepts this
+    # format. Empirically verified 2026-05-25.
+    user_agent = (
+        f"Mozilla/5.0 (compatible; maplequery-ingest/{VERSION}; "
+        "+https://github.com/MapleQuery/maple-query)"
+    )
 
     with HttpClient(
         user_agent=user_agent,
