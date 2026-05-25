@@ -169,6 +169,16 @@ def _process_org(
             kept = filter_resources_by_pairing(dataset)
             counts.skipped_pairing += len(dataset.resources) - len(kept)
 
+            log.info(
+                "dataset_start",
+                dataset_id=dataset.id,
+                dataset_name=dataset.name,
+                title=dataset.title,
+                metadata_modified=dataset.metadata_modified.isoformat(),
+                resources_total=len(dataset.resources),
+                resources_kept=len(kept),
+            )
+
             for resource, lang in kept:
                 if request.formats and not _resource_matches_formats(
                     resource, request.formats
@@ -272,6 +282,14 @@ def _process_resource(
     Outcomes: "row", "skipped_gcs_dedup". `row.ingestion_status`
     distinguishes success / quarantined / failed.
     """
+    log.info(
+        "resource_attempt",
+        resource_id=resource.id,
+        url=resource.url,
+        declared_format=resource.format_declared,
+        size_declared=resource.size_declared,
+    )
+
     download: Downloaded | None = None
     download_error: Exception | None = None
     try:
