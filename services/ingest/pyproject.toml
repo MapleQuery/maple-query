@@ -15,6 +15,7 @@ dependencies = [
   # Config + data validation
   "pydantic>=2.7,<3",
   "pydantic-settings>=2.3,<3",
+  "python-dotenv>=1.0,<2",  # explicit; pydantic-settings already pulls it transitively
   "PyYAML>=6.0,<7",
 
   # Logging + observability

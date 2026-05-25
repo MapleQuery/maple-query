@@ -4,6 +4,11 @@ Per-run intent (subject, formats, dry-run, limit-orgs) is **not** here —
 that lives on the CLI as a `RunRequest`. Env is for things that change
 between deploys; CLI is for things that change between invocations.
 
+A `.env` file at the repo root (or anywhere up the cwd chain) is also
+loaded — so you can set `INGEST_GCP_PROJECT_ID=...` once and stop
+typing it on every invocation. Real environment variables still
+override `.env` values; `.env` overrides the class defaults.
+
 BigQuery-related settings (dataset / table names) are absent for now;
 they return when the BQ catalog task lands.
 """
@@ -12,12 +17,17 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+from dotenv import find_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="INGEST_", env_file=None)
+    model_config = SettingsConfigDict(
+        env_prefix="INGEST_",
+        env_file=find_dotenv(usecwd=True) or None,
+        extra="ignore",
+    )
 
     gcp_project_id: str
 
