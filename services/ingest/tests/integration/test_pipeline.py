@@ -6,6 +6,7 @@ EN/FR pairing, limit-orgs filter, and the JSONL run-log writer.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -75,11 +76,15 @@ class FakeGcs:
 
 
 @pytest.fixture
-def settings(tmp_path: Path) -> Settings:
+def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
+    for key in list(os.environ):
+        if key.startswith("INGEST_"):
+            monkeypatch.delenv(key)
     return Settings(
         gcp_project_id="test-project",
         gcs_bucket="test-bucket",
         runlog_dir=tmp_path / "runlog",
+        _env_file=None,
     )
 
 

@@ -44,6 +44,7 @@ class Settings(BaseSettings):
         env_prefix="INGEST_",
         env_file=find_dotenv(usecwd=True) or None,
         extra="ignore",
+        populate_by_name=True,
     )
 
     # Project-wide concept — same value across every service in this repo —
