@@ -1,36 +1,45 @@
 ## Summary
-<!-- Brief description of what this PR does -->
+<!-- One sentence. What this PR does, in plain language. -->
 
-## Spec / Plan Link
-<!-- Link the relevant domain spec or execution plan for substantial changes -->
+## Context
+<!-- 2-4 sentences. Why now, what prior state, what problem this solves.
+     Skip only if truly obvious from Summary. -->
+
+## Implementation
+<!-- Prose, not just bullets. For each meaningful piece: what it does +
+     how it works + anything subtle a reviewer should pay attention to.
+     Use sub-headers if the PR has substantial work in multiple
+     categories. -->
+
+### Added
 -
 
-## Domains Affected
-<!-- Example: lead-enrichment, career-tracking, future-founders -->
+### Changed
 -
 
-## Changes
-<!-- List the key changes -->
+### Removed
 -
 
-## Documentation Updates
-- [ ] I updated the relevant docs in `docs/` (or this change does not require docs updates).
-
-## Architecture Rules
-- [ ] I changed package boundary rules or architecture tests in this PR.
-- [ ] No architecture rule changes in this PR.
-
-## Agent-Facing Changes / New Enforcement
-<!-- If this PR changes AGENTS.md, docs read order, required docs updates, or CI rules that affect agent/human workflows, summarize that here. Write "None" if not applicable. -->
+## Key Decisions
+<!-- The interesting calls — alternatives considered, tradeoffs accepted.
+     The single most valuable section for review. Skip only if there were
+     no real design decisions (rare for non-trivial PRs). -->
 -
 
-## Testing Acknowledgment
-<!-- You MUST check this box for the PR to be mergeable -->
-- [ ] I have considered whether tests are necessary for this change. If tests are needed, I have added them. If not, I have explained why below.
+## Out of Scope
+<!-- What's deliberately NOT in this PR. Prevents "you forgot X" comments
+     and signals intentional scope. -->
+-
 
-**If no tests added, explain why:**
-<!-- e.g., "Pure refactor covered by existing tests", "Config-only change", "One-off script" -->
+## Documentation
+- [ ] Updated `docs/` where relevant (or N/A).
 
-## Test Plan
-<!-- How did you verify this works? -->
+## Architecture
+- [ ] Changed package boundaries or architecture tests in this PR.
+
+## Testing
+- [ ] Tests added where needed (or explained why not).
+
+### How verified
+<!-- Commands run, manual checks, anything NOT covered by automated tests. -->
 -
