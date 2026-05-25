@@ -1,12 +1,12 @@
 """GCS client wrapping google-cloud-storage.
 
-Implements the write-time collision contract from PRD 2.1 §8.4:
+Write-time collision protocol — never silently overwrite an existing object:
 1. HEAD the target object.
 2. If absent → upload with `if_generation_match=0` (precondition: must not exist).
-   On 412 Precondition Failed, restart.
+   On 412 Precondition Failed (a TOCTOU race), restart from step 1.
 3. If present and md5 matches → idempotent skip (re-run safe).
-4. If present and md5 differs → signal PathCollision; caller routes to
-   `quarantine/.../reason=path_collision/`.
+4. If present and md5 differs → signal PathCollision; the caller routes
+   the body to a `quarantine/.../reason=path_collision/` prefix instead.
 """
 from __future__ import annotations
 

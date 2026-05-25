@@ -1,10 +1,11 @@
-"""Quarantine decision per PRD 2.2 §10.
+"""Quarantine decision: given a download attempt, decide whether the
+result should be quarantined and with what reason.
 
 `path_collision` and `unreadable_encoding` are part of the on-disk
 schema (defined in `ingest.types.QuarantineReason`) but are NOT emitted
 by this module:
-- `path_collision` is emitted by the GCS writer when the write-time
-  existence check fails (PRD 2.1 §8.4).
+- `path_collision` is emitted by the GCS writer when its write-time
+  existence check finds a different body already at the target path.
 - `unreadable_encoding` is reserved for a future encoding-aware step.
 """
 from __future__ import annotations

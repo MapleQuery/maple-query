@@ -1,7 +1,8 @@
 """Source / organization config loaded from YAML.
 
-Per PRD 2.2 §5.2 — the YAML at `infra/ingest_sources.yaml` is the
-canonical instance; this module validates it eagerly.
+The YAML at `infra/ingest_sources.yaml` is the canonical instance; this
+module validates it eagerly on startup and exits non-zero on schema
+failure.
 """
 from __future__ import annotations
 
@@ -20,9 +21,9 @@ class OrganizationConfig(BaseModel):
 
 class SourceConfig(BaseModel):
     country: str = Field(pattern=r"^[a-z]{2}$")
-    # Matches PRD 2.1 §3.1 SOURCE_CODE grammar (no leading/trailing dash).
-    # Stricter than the original PRD 2.2 §5.2 sketch — aligned with path_builder
-    # so an invalid value fails at config-load, not later at path-build time.
+    # 3-40 chars, [a-z0-9-], no leading/trailing dash. Matches the same
+    # rule path_builder enforces, so an invalid value fails at config-load
+    # rather than later when we try to build an object key with it.
     source: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$")
     api_base: HttpUrl
     organizations: list[OrganizationConfig]
@@ -42,7 +43,7 @@ def load_sources(path: Path) -> SourcesConfig:
     """Load and validate `infra/ingest_sources.yaml`.
 
     Raises `pydantic.ValidationError` on schema failure; the CLI catches
-    and exits non-zero per PRD §5.2.
+    and exits non-zero.
     """
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     return SourcesConfig.model_validate(raw)

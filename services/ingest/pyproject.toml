@@ -24,15 +24,14 @@ dependencies = [
   "opentelemetry-sdk>=1.25,<2",
   "opentelemetry-exporter-gcp-monitoring>=1.7,<2",
 
-  # GCP clients. BigQuery comes back in Phase A2 (separate task).
+  # GCP clients. google-cloud-bigquery comes back when the BQ loader lands.
   "google-cloud-storage>=2.16,<3",
 
   # Format detection
   "puremagic>=1.27,<2",
 
   # CLI. typer<0.15 is incompatible with click>=8.2 (Parameter.make_metavar
-  # signature change); bumping the upper bound so the resolver picks a
-  # version that handles it. PRD originally pinned <0.14.
+  # signature change); pin >=0.15 so the resolver picks a compatible build.
   "typer>=0.15,<1",
 ]
 
@@ -46,7 +45,7 @@ dev = [
   "pytest-cov>=5.0,<6",
   "hypothesis>=6.103,<7",
   "vcrpy>=6.0,<7",
-  "respx>=0.22,<0.24",  # PRD originally pinned <0.22; bumped because respx 0.21 is incompatible with httpx 0.28.
+  "respx>=0.22,<0.24",  # respx 0.21 silently fails to match requests with httpx 0.28; 0.22 fixes it.
   "ruff>=0.5,<1",
   "mypy>=1.10,<2",
   "import-linter>=2.0,<3",
@@ -104,10 +103,9 @@ layers = [
   "ingest.types",
 ]
 
-# PRD 2.2 §12.1 originally specified a `forbidden` contract banning core from
-# importing httpx / google.cloud.*. import-linter's forbidden contracts are
-# transitive, which makes this unenforceable for our layout (core.pipeline
-# legitimately imports clients.http for its parameter types, and clients.http
-# imports httpx — so a transitive forbidden contract trips). The layered
-# contract above plus code review cover the intent ("core uses clients via
-# parameters, never constructs concrete SDKs").
+# A `forbidden` contract banning core from importing httpx / google.cloud.*
+# is tempting but unenforceable: import-linter's `forbidden` is transitive,
+# and core.pipeline legitimately imports clients.http for parameter types,
+# which transitively imports httpx — so the contract trips on legitimate
+# code. The layered contract above plus code review cover the intent: core
+# uses clients via parameters, never constructs concrete SDKs.

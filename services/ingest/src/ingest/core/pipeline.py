@@ -1,9 +1,9 @@
-"""Pipeline orchestrator. See PRD 2.2 §11.
+"""Pipeline orchestrator.
 
-Phase A1: serial execution, filter-driven via `RunRequest`, writes
-bytes to GCS and a per-resource JSONL record to the run log. No
-BigQuery, no watermark, no scheduler. A2 (a separate task) will load
-the JSONL into `raw.documents`.
+Serial execution, filter-driven via `RunRequest`, writes bytes to GCS
+and one JSONL record per resource to the run log. No BigQuery, no
+watermark, no scheduler — a follow-up task loads the JSONL into BQ and
+adds the metadata-/conditional-GET-based dedup layers.
 
 Re-run idempotency comes from `gcs.upload()`'s write-time existence
 check (`if_generation_match=0` + md5 compare) — same bytes go to the
@@ -145,7 +145,7 @@ def _process_org(
     summary: RunSummary,
 ) -> None:
     org_start = time.monotonic()
-    since = request.since  # Phase A1: no watermark; --since is the only cursor.
+    since = request.since  # No watermark yet — --since is the only cursor.
 
     log.info(
         "org_start",
@@ -276,7 +276,7 @@ def _process_resource(
     download_error: Exception | None = None
     try:
         download = http.download(resource.url)
-        # Phase A1 doesn't send conditional headers (no etag store yet), so
+        # We don't send conditional headers yet (no etag store), so
         # http.download() never returns NotModified in normal operation.
     except OversizeError as exc:
         download_error = exc

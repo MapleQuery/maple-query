@@ -1,4 +1,4 @@
-"""Tenacity retry policy for outbound HTTP per PRD 2.2 §6.4.
+"""Tenacity retry policy for outbound HTTP.
 
 3 attempts, exponential backoff (1s, 2s, 4s) with ±25% jitter. Retries on
 transport errors and on `RetryableHttpError` (raised by the HTTP client

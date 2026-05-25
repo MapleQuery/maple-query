@@ -1,9 +1,9 @@
-"""CKAN client. See PRD 2.2 §6.
+"""CKAN client.
 
 Single endpoint used by default: `package_search`. `package_show` is
 exposed as an escape hatch but not called by the pipeline — empirical
 verification on `open.canada.ca` (2026-05-24) showed `package_search`
-returns every field we need.
+returns every field we need, including fully populated `resources`.
 """
 from __future__ import annotations
 
@@ -116,7 +116,8 @@ class CkanClient:
     ) -> Iterator[Dataset]:
         """Yield datasets matching the filter, sorted by metadata_modified asc.
 
-        Pagination is internal. See PRD §6.2.
+        Pagination is internal — callers iterate until the generator is
+        exhausted.
         """
         fq = self._build_fq(
             subject=subject, formats=formats, organization=organization, since=since

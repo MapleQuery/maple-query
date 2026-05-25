@@ -1,10 +1,11 @@
 """Deploy-time configuration loaded from environment variables.
 
 Per-run intent (subject, formats, dry-run, limit-orgs) is **not** here —
-that lives on the CLI as a `RunRequest`. See PRD 2.2 §5.1, §11.1.
+that lives on the CLI as a `RunRequest`. Env is for things that change
+between deploys; CLI is for things that change between invocations.
 
-BigQuery-related settings (dataset / table names) are absent in Phase A1;
-they'll return in A2 when the BQ catalog task lands.
+BigQuery-related settings (dataset / table names) are absent for now;
+they return when the BQ catalog task lands.
 """
 from __future__ import annotations
 
@@ -24,7 +25,8 @@ class Settings(BaseSettings):
 
     sources_config_path: Path = Path("infra/ingest_sources.yaml")
 
-    # Phase A1 writes the per-resource run log here. A2 reads it to populate BQ.
+    # The pipeline appends per-resource records here; the follow-up BQ
+    # loader reads them to populate `raw.documents`.
     runlog_dir: Path = Path("runlog")
 
     max_file_size_mb: int = 512

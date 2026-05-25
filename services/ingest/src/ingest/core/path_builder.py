@@ -1,6 +1,20 @@
 """Build canonical GCS object keys.
 
-Implements PRD docs/product-specs/milestone-1/2.1-gcs-storage-layer.md §3, §8.
+Canonical raw path:
+
+    raw/country=<cc>/source=<src>/organization=<org>
+        /ingest_date=<YYYY-MM-DD>
+        /fmt=<ext>__id=<doc_id12>__<safe_filename>
+
+Canonical quarantine path:
+
+    quarantine/country=<cc>/source=<src>
+        /ingest_date=<YYYY-MM-DD>/reason=<reason>
+        /__id=<doc_id12>__<safe_filename>
+
+`doc_id12` is the first 12 hex chars of the full sha256 document_id —
+defence-in-depth against accidental collisions; the actual uniqueness
+guarantee comes from the write-time existence check in `clients/gcs.py`.
 """
 from __future__ import annotations
 
@@ -41,7 +55,7 @@ def build_raw_path(
     document_id: str,
     resource_url: str,
 ) -> str:
-    """Build a `raw/...` object key per PRD 2.1 §3.1.
+    """Build a canonical `raw/...` object key.
 
     Returns a bucket-relative key (no `gs://`, no bucket name).
     """
@@ -72,7 +86,7 @@ def build_quarantine_path(
     document_id: str,
     resource_url: str,
 ) -> str:
-    """Build a `quarantine/...` object key per PRD 2.1 §3.2."""
+    """Build a `quarantine/...` object key."""
     _validate_country(country)
     _validate_source(source)
     _validate_reason(reason)

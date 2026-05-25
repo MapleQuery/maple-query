@@ -1,10 +1,9 @@
 """Per-run JSONL log of every ingested resource.
 
-Phase A1 doesn't write to BigQuery yet. Instead, the pipeline appends
-one JSON record per resource (success / quarantined / failed) to a
-local file. When Phase A2 (the BQ catalog task) lands, that JSONL is
-the input — load it into `raw.documents`, no need to re-fetch from
-CKAN or re-derive metadata from GCS paths.
+The pipeline doesn't write to BigQuery yet. Instead, it appends one
+JSON record per resource (success / quarantined / failed) to a local
+file. A follow-up loader reads the JSONL into `raw.documents` — no
+need to re-fetch from CKAN or re-derive metadata from GCS paths.
 
 File layout:
 - Default: `runlog/<run_id>.jsonl` relative to the operator's cwd.
@@ -56,9 +55,9 @@ class RunLogWriter:
 def _row_to_dict(row: DocumentRow) -> dict[str, Any]:
     """Convert DocumentRow to a JSON-serialisable dict.
 
-    Datetimes/dates become ISO strings — same shape Phase A2 will hand
-    to `bigquery.Client.insert_rows_json`, so no transformation step
-    needed at load time.
+    Datetimes/dates become ISO strings — same shape the eventual BQ
+    loader will hand to `bigquery.Client.insert_rows_json`, so no
+    transformation step needed at load time.
     """
     d = asdict(row)
     for k in (

@@ -39,7 +39,7 @@ def _dataset(resources: list[Resource]) -> Dataset:
     (["eng"], "en"),
     (["fr"], "fr"),
     (["fra"], "fr"),
-    (["en", "fr"], "en"),       # English wins (PRD §4.2)
+    (["en", "fr"], "en"),       # English wins ties
     (["fr", "en"], "en"),       # Order-independent
     (["EN"], "en"),             # Case-insensitive
 ])
@@ -51,7 +51,7 @@ def test_detect_language_from_declared(langs: list[str], expected: str) -> None:
     ("https://example.gov/data/report-fra.csv", "fr"),
     ("https://example.gov/data/report-fr.csv", "fr"),
     ("https://example.gov/fr/report.csv", "fr"),
-    # PRD regex deliberately doesn't match mid-path `-fr-` to avoid false positives.
+    # Mid-path `-fr-` deliberately doesn't match — too prone to false positives.
     ("https://example.gov/data-fr-2024/file.csv", "unknown"),
     ("https://example.gov/data/report-eng.csv", "en"),
     ("https://example.gov/data/report-en.csv", "en"),

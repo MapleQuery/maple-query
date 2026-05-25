@@ -1,8 +1,7 @@
 """Integration test for the pipeline using in-memory fakes.
 
-Phase A1: covers happy path, GCS-based dedup on re-run, dry-run,
-format filter, EN/FR pairing, limit-orgs filter, and the JSONL run-log
-writer.
+Covers: happy path, GCS-based dedup on re-run, dry-run, format filter,
+EN/FR pairing, limit-orgs filter, and the JSONL run-log writer.
 """
 from __future__ import annotations
 

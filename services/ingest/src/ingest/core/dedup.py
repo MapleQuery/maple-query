@@ -1,12 +1,13 @@
 """Dedup helpers.
 
-Phase A1 scope: we use GCS's write-time existence check (`if_generation_match=0`
-with md5 comparison in `clients/gcs.py`) as the dedup mechanism — a re-run
-hits the network but `IdempotentSkip` prevents duplicate writes.
+Today, dedup happens at upload time: `clients/gcs.py` does a HEAD before
+each write and skips when the existing object's md5 matches the body
+about to be uploaded. A re-run still pays the network cost to download,
+but no duplicate writes happen.
 
-Layer 1 (metadata) and Layer 2 (conditional GET) are stubs here so the
-pipeline can call them; both will land in A2 once we have BQ to track
-prior ingests. Layer 3 (content-hash against BQ) is also A2.
+A future iteration will add cheaper dedup layers (metadata check before
+download, HTTP conditional GET with stored ETags, content-hash lookup
+before upload) once BigQuery is wired in to track prior ingests.
 """
 from __future__ import annotations
 

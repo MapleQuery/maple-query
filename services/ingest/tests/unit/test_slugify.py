@@ -8,7 +8,7 @@ from ingest.core.slugify import slugify
 @pytest.mark.parametrize(
     ("url", "fmt", "expected"),
     [
-        # Pinned from PRD 2.1 §7.2.
+        # Canonical examples covering the main slugify transforms.
         (
             "https://open.canada.ca/data/dataset/abc/Budget%202023%20%E2%80%93%20EN.xlsx",
             "xlsx",

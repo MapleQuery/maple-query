@@ -1,6 +1,18 @@
 """Slugify the last URL path segment into a safe filename.
 
-Implements PRD docs/product-specs/milestone-1/2.1-gcs-storage-layer.md §7.
+Deterministic transform — same input always produces the same output:
+1. Take the last URL path segment, percent-decoded (UTF-8).
+2. Lowercase.
+3. NFKD-normalize; strip combining marks (so `é` → `e`).
+4. Replace any character not in `[a-z0-9._-]` with `-`.
+5. Collapse runs of `-` to a single `-`.
+6. Strip leading and trailing `-`, `.`, `_`.
+7. If the result is empty, use the literal `file`.
+8. Ensure the result ends with `.<fmt>` (no extension when fmt is
+   `unknown`).
+9. Truncate to 150 characters total, preserving the extension — drop
+   from the basename, not the suffix.
+10. Final regex check: matches `^[a-z0-9][a-z0-9._-]*$`.
 """
 from __future__ import annotations
 
@@ -17,7 +29,8 @@ _FINAL_CHECK_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 def slugify(*, resource_url: str, fmt: str) -> str:
     """Return a safe filename derived from `resource_url` and the canonical `fmt`.
 
-    `fmt` of `"unknown"` skips extension enforcement (see PRD 2.1 §6).
+    `fmt` of `"unknown"` skips extension enforcement — we don't know
+    what to append, so we leave the basename as-is.
     """
     path = urlparse(resource_url).path
     last_segment = path.rsplit("/", 1)[-1]
@@ -27,8 +40,9 @@ def slugify(*, resource_url: str, fmt: str) -> str:
     s = unicodedata.normalize("NFKD", s)
     s = "".join(c for c in s if not unicodedata.combining(c))
 
-    # Strip a matching extension up front so step 8 reapplies it canonically.
-    # Without this, "$$$.csv" slugifies to "csv.csv"; PRD §7.2 expects "file.csv".
+    # Strip a matching extension up front so the step-8 re-apply produces
+    # the canonical form. Without this, "$$$.csv" slugifies to "csv.csv"
+    # instead of the intuitively-correct "file.csv".
     if fmt != "unknown" and s.endswith(f".{fmt.lower()}"):
         s = s[: -(len(fmt) + 1)]
 

@@ -1,10 +1,14 @@
 # services/ingest
 
-The ingestion job: pulls qualifying resources from configured CKAN sources, writes raw bytes to `gs://maplequery-raw/raw/...`, and appends a per-resource JSONL record to `runlog/<run_id>.jsonl` (the Phase A2 BQ-catalog task loads this into `raw.documents`).
+The ingestion job: pulls qualifying resources from configured CKAN sources, writes raw bytes to `gs://maplequery-raw/raw/...`, and appends a per-resource JSONL record to `runlog/<run_id>.jsonl`. A separate follow-up task loads the JSONL into BigQuery's `raw.documents` table.
 
-**Spec:** [`docs/product-specs/milestone-1/2.2-ingestion-pipeline.md`](../product-specs/milestone-1/2.2-ingestion-pipeline.md). Read it before changing anything in `services/ingest/`.
+The canonical GCS object key shape is:
 
-The storage-layer contracts this service writes against (path grammar, slugify rules, write-time collision check) live in [`2.1-gcs-storage-layer.md`](../product-specs/milestone-1/2.1-gcs-storage-layer.md).
+```
+raw/country=<cc>/source=<src>/organization=<org>/ingest_date=<YYYY-MM-DD>/fmt=<ext>__id=<doc_id12>__<safe_filename>
+```
+
+Path building, slug rules, and the write-time collision contract (HEAD → `if_generation_match=0` → on existing object, compare md5) live in `core/path_builder.py`, `core/slugify.py`, and `clients/gcs.py`.
 
 ## Layering
 
@@ -18,7 +22,7 @@ types → config → providers → clients → core → entrypoint
 
 ## Layout
 
-See spec §3 for the canonical tree. Subpackages exist as they're implemented; missing modules aren't stubs — they don't exist yet.
+Subpackages exist as they're implemented; missing modules aren't stubs — they don't exist yet. Walk `src/ingest/` to see the current shape.
 
 ## Running locally
 
@@ -40,9 +44,8 @@ INGEST_GCP_PROJECT_ID=<your-project> \
 
 `uv.lock` is committed; don't regenerate casually.
 
-## Phase A1 vs A2
+## Scope of this service
 
-Phase A1 (current): GCS writes + JSONL run log. **No BigQuery.**
-Phase A2 (future task): load JSONL → `raw.documents`, wire Layer 1 / Layer 3 dedup against BQ.
+Today: GCS writes + JSONL run log. **No BigQuery.**
 
-The JSONL shape matches the eventual `raw.documents` schema so A2 is a load job, not a re-ingest.
+Follow-up: a loader reads JSONL files and inserts rows into `raw.documents`; the metadata- and content-hash-based dedup ladder lands at the same time. The JSONL shape matches the eventual table schema so the follow-up is load-only — no re-ingest from CKAN.

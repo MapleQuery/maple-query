@@ -1,8 +1,8 @@
-"""structlog configuration per PRD 2.2 §12.3.
+"""structlog configuration.
 
 JSON to stdout by default (Cloud Logging picks this up automatically
-when the Phase B Cloud Run job runs); pretty console renderer when
-`INGEST_DEV=1` so local runs are readable.
+when the service eventually runs as a Cloud Run job); pretty console
+renderer when `INGEST_DEV=1` so local runs are readable.
 """
 from __future__ import annotations
 

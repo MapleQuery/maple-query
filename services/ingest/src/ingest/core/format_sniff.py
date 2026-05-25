@@ -1,6 +1,17 @@
 """Magic-byte format sniff with URL + declared-format fallbacks.
 
-See PRD 2.2 §8. Canonical fmt list in PRD 2.1 §6.
+Algorithm:
+1. Run puremagic on the first 8 KiB of body. Map MIME / extension hits
+   to the canonical fmt list in `CANONICAL_FMTS`.
+2. If nothing matched, fall back to the URL's file extension.
+3. If still nothing, fall back to the resource's declared format.
+4. If still nothing, return "unknown" — recorded for visibility, never
+   silently dropped.
+
+When puremagic returns multiple plausible matches (common for zip-based
+formats: docx, xlsx, pptx, zip all share `PK\\x03\\x04`), prefer the
+candidate that matches `declared_format` or the URL extension before
+falling back to puremagic's top guess.
 """
 from __future__ import annotations
 
@@ -55,13 +66,7 @@ class SniffResult:
 
 
 def sniff_format(*, body: bytes, declared_format: str | None, url: str) -> SniffResult:
-    """Determine canonical fmt by magic bytes, then URL suffix, then declared.
-
-    When puremagic returns multiple plausible matches (common for
-    zip-based formats — docx/xlsx/pptx/zip all share `PK\\x03\\x04`),
-    prefer the candidate that matches `declared_format` or the URL
-    extension before falling back to puremagic's top guess.
-    """
+    """Determine canonical fmt by magic bytes, then URL suffix, then declared."""
     declared_low = declared_format.lower() if declared_format else None
     url_ext = _extension_from_url(url)
 

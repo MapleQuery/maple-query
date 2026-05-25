@@ -1,7 +1,8 @@
 """Shared type aliases + frozen dataclasses used across layers.
 
-Per PRD §3, this module only carries pure data shapes — no business
-logic, no external imports beyond stdlib.
+This module only carries pure data shapes — no business logic, no
+external imports beyond stdlib. Other layers (`config`, `clients`,
+`core`) import from here.
 """
 from __future__ import annotations
 
@@ -22,9 +23,10 @@ QuarantineReason = Literal[
 class DocumentRow:
     """One ingested-resource record.
 
-    In Phase A1 these are serialised as JSONL to a local run log
-    (see `core/runlog.py`). Phase A2 loads the JSONL into
-    `raw.documents` in BigQuery; the shape matches the PRD §14.2 schema.
+    Serialised as JSONL to a local run log (see `core/runlog.py`). A
+    follow-up loader reads the JSONL into BigQuery's `raw.documents`
+    table — the shape here matches the eventual table schema so the
+    loader is a straight read-and-insert.
     """
 
     country_code: str

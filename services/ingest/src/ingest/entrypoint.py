@@ -2,9 +2,9 @@
 
 `uv run ingest -s <subject> -f csv -f xlsx --limit-orgs fin --dry-run`
 
-Phase A1: writes bytes to GCS and a per-resource record to
-`runlog/<run_id>.jsonl` (override the dir with `INGEST_RUNLOG_DIR`).
-The JSONL is the input to the future Phase A2 BQ catalog task.
+Writes bytes to GCS and one per-resource record to
+`runlog/<run_id>.jsonl` (override the directory with `INGEST_RUNLOG_DIR`).
+A follow-up task loads the JSONL into BigQuery's `raw.documents` table.
 
 GCP clients use application-default credentials (run `gcloud auth
 application-default login` once).

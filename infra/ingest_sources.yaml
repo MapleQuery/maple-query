@@ -1,6 +1,5 @@
 # Canonical source/org registry consumed by services/ingest.
 # Schema: services/ingest/src/ingest/config/sources.py
-# See PRD docs/product-specs/milestone-1/2.2-ingestion-pipeline.md §5.2.
 
 - country: ca
   source: ckan-opencanada

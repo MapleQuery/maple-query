@@ -1,6 +1,6 @@
 """Thin httpx wrapper with conditional GET, size cap, and retry policy.
 
-See PRD 2.2 §7. The retry policy itself lives in `providers/retry.py`.
+The retry policy itself lives in `providers/retry.py`.
 """
 from __future__ import annotations
 
