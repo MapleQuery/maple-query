@@ -148,7 +148,7 @@ def test_dataset_organization_as_string_also_works() -> None:
 
 @pytest.fixture
 def http_client() -> HttpClient:
-    c = HttpClient(user_agent="test/1.0", request_timeout_seconds=5.0, max_file_size_mb=10)
+    c = HttpClient(user_agent="test/1.0", request_timeout_seconds=5.0)
     yield c
     c.close()
 

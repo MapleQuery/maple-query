@@ -25,7 +25,7 @@ from ingest.clients.gcs import (
     PathCollision,
     Uploaded,
 )
-from ingest.clients.http import Downloaded, HttpClient, OversizeError
+from ingest.clients.http import Downloaded, HttpClient
 from ingest.config.settings import Settings
 from ingest.config.sources import OrganizationConfig, SourceConfig, SourcesConfig
 from ingest.core.dedup import compute_checksum, compute_document_id
@@ -278,8 +278,6 @@ def _process_resource(
         download = http.download(resource.url)
         # We don't send conditional headers yet (no etag store), so
         # http.download() never returns NotModified in normal operation.
-    except OversizeError as exc:
-        download_error = exc
     except Exception as exc:
         download_error = exc
         log.warning("download_failed", url=resource.url, error=str(exc))
@@ -287,7 +285,6 @@ def _process_resource(
     decision = quarantine_decide(
         download=download,
         download_error=download_error,
-        max_size_bytes=settings.max_file_size_mb * 1024 * 1024,
     )
 
     if decision.quarantine:

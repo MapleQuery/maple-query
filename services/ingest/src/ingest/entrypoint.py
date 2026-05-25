@@ -89,7 +89,6 @@ def main(
     with HttpClient(
         user_agent=user_agent,
         request_timeout_seconds=settings.request_timeout_seconds,
-        max_file_size_mb=settings.max_file_size_mb,
         max_retries=settings.max_retries,
     ) as http, RunLogWriter(path=runlog_path) as runlog:
         ckans = {

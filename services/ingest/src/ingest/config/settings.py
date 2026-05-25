@@ -29,7 +29,6 @@ class Settings(BaseSettings):
     # loader reads them to populate `raw.documents`.
     runlog_dir: Path = Path("runlog")
 
-    max_file_size_mb: int = 512
     request_timeout_seconds: float = 60.0
     inter_request_delay_seconds: float = 0.5
     max_retries: int = 3

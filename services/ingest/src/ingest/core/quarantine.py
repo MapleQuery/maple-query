@@ -1,9 +1,11 @@
 """Quarantine decision: given a download attempt, decide whether the
 result should be quarantined and with what reason.
 
-`path_collision` and `unreadable_encoding` are part of the on-disk
-schema (defined in `ingest.types.QuarantineReason`) but are NOT emitted
-by this module:
+`oversize`, `path_collision`, and `unreadable_encoding` are part of the
+on-disk schema (defined in `ingest.types.QuarantineReason`) but are NOT
+emitted by this module:
+- `oversize` is reserved — there's no runtime size cap today; reinstate
+  the check here if/when one returns.
 - `path_collision` is emitted by the GCS writer when its write-time
   existence check finds a different body already at the target path.
 - `unreadable_encoding` is reserved for a future encoding-aware step.
@@ -15,7 +17,7 @@ from typing import Literal
 
 from ingest.clients.http import Downloaded
 
-DecideReason = Literal["download_failed", "oversize", "truncated_body"]
+DecideReason = Literal["download_failed", "truncated_body"]
 
 
 @dataclass(frozen=True)
@@ -29,7 +31,6 @@ def decide(
     *,
     download: Downloaded | None,
     download_error: Exception | None,
-    max_size_bytes: int,
 ) -> QuarantineDecision:
     if download_error is not None:
         return QuarantineDecision(True, "download_failed", str(download_error))
@@ -53,11 +54,6 @@ def decide(
                 True, "truncated_body",
                 f"received {body_len} bytes, Content-Length declared {declared_int}",
             )
-
-    if body_len > max_size_bytes:
-        return QuarantineDecision(
-            True, "oversize", f"{body_len} bytes > cap {max_size_bytes}",
-        )
 
     return QuarantineDecision(False, None, "")
 

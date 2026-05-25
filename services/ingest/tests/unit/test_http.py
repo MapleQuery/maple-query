@@ -4,12 +4,7 @@ import httpx
 import pytest
 import respx
 
-from ingest.clients.http import (
-    Downloaded,
-    HttpClient,
-    NotModified,
-    OversizeError,
-)
+from ingest.clients.http import Downloaded, HttpClient, NotModified
 
 
 @pytest.fixture
@@ -17,7 +12,6 @@ def client() -> HttpClient:
     c = HttpClient(
         user_agent="test/1.0",
         request_timeout_seconds=5.0,
-        max_file_size_mb=1,  # 1 MB cap for size tests
         max_retries=3,
     )
     yield c
@@ -109,25 +103,3 @@ def test_download_sends_conditional_headers(client: HttpClient) -> None:
     request = route.calls.last.request
     assert request.headers["if-none-match"] == '"abc"'
     assert request.headers["if-modified-since"] == "Mon, 01 Jan 2026 00:00:00 GMT"
-
-
-@respx.mock
-def test_download_raises_oversize_on_content_length(client: HttpClient) -> None:
-    over = 2 * 1024 * 1024  # 2 MB > 1 MB cap
-    respx.get("https://files.example.com/big").mock(
-        return_value=httpx.Response(200, headers={"Content-Length": str(over)}, content=b"")
-    )
-    with pytest.raises(OversizeError) as exc:
-        client.download("https://files.example.com/big")
-    assert exc.value.actual_bytes == over
-
-
-@respx.mock
-def test_download_raises_oversize_when_stream_exceeds(client: HttpClient) -> None:
-    # Server lies about Content-Length (or omits it) — we still abort while streaming.
-    huge = b"x" * (2 * 1024 * 1024)
-    respx.get("https://files.example.com/big").mock(
-        return_value=httpx.Response(200, content=huge)
-    )
-    with pytest.raises(OversizeError):
-        client.download("https://files.example.com/big")
