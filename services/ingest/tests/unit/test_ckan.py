@@ -257,3 +257,66 @@ def test_search_sends_built_fq(
         "AND (res_format:CSV OR res_format:XLSX) "
         "AND organization:fin"
     )
+
+
+# --- relative resource URL resolution -------------------------------------
+
+def test_search_absolutizes_path_only_resource_urls(
+    http_client: HttpClient, httpserver: HTTPServer
+) -> None:
+    pkg = {
+        **SAMPLE_PKG,
+        "resources": [
+            {
+                **SAMPLE_PKG["resources"][0],
+                "id": "rel-1",
+                "url": "/data/dataset/abc/resource/rel-1/download/file.csv",
+            },
+            {
+                **SAMPLE_PKG["resources"][0],
+                "id": "abs-1",
+                "url": "https://www.canada.ca/dam/file.csv",
+            },
+        ],
+    }
+    # api_base is nested under /api/3/action — the portal origin is the
+    # scheme+host alone, which is what relative URLs must resolve against.
+    httpserver.expect_request("/api/3/action/package_search").respond_with_json(
+        _ckan_payload(results=[pkg], count=1)
+    )
+    api_base = httpserver.url_for("/api/3/action")
+    ckan = CkanClient(http=http_client, api_base=api_base, inter_request_delay_seconds=0)
+
+    datasets = list(ckan.search(subject="x"))
+    urls = {r.id: r.url for r in datasets[0].resources}
+
+    expected_origin = api_base.rsplit("/api/3/action", 1)[0]
+    assert urls["rel-1"] == f"{expected_origin}/data/dataset/abc/resource/rel-1/download/file.csv"
+    # Absolute URLs pass through untouched (to the publisher's origin, not the portal's).
+    assert urls["abs-1"] == "https://www.canada.ca/dam/file.csv"
+
+
+def test_show_absolutizes_path_only_resource_urls(
+    http_client: HttpClient, httpserver: HTTPServer
+) -> None:
+    pkg = {
+        **SAMPLE_PKG,
+        "resources": [
+            {
+                **SAMPLE_PKG["resources"][0],
+                "id": "rel-show",
+                "url": "/data/dataset/abc/resource/rel-show/download/x.csv",
+            },
+        ],
+    }
+    httpserver.expect_request("/api/3/action/package_show").respond_with_json(
+        {"success": True, "result": pkg}
+    )
+    api_base = httpserver.url_for("/api/3/action")
+    ckan = CkanClient(http=http_client, api_base=api_base, inter_request_delay_seconds=0)
+
+    dataset = ckan.show("abc")
+    expected_origin = api_base.rsplit("/api/3/action", 1)[0]
+    assert dataset.resources[0].url == (
+        f"{expected_origin}/data/dataset/abc/resource/rel-show/download/x.csv"
+    )

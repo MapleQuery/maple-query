@@ -11,6 +11,7 @@ import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -104,6 +105,13 @@ class CkanClient:
     ) -> None:
         self._http = http
         self._api_base = api_base.rstrip("/")
+        # CKAN's `package_search` returns resource URLs in two shapes:
+        # absolute (`https://...`) for publisher-hosted files, and
+        # path-only (`/data/dataset/<id>/resource/<id>/download/...`)
+        # for files uploaded into CKAN's own datastore. The path-only
+        # form resolves against the portal origin, not the API base.
+        parsed = urlparse(self._api_base)
+        self._portal_origin = f"{parsed.scheme}://{parsed.netloc}"
         self._delay = inter_request_delay_seconds
 
     def search(
@@ -144,6 +152,7 @@ class CkanClient:
             total = result.get("count", 0)
 
             for raw in results:
+                self._absolutize_resource_urls(raw)
                 yield Dataset.model_validate(raw)
 
             if len(results) < page_size:
@@ -162,7 +171,15 @@ class CkanClient:
         )
         if not payload.get("success"):
             raise CkanError(f"CKAN returned success=false: {payload.get('error')}")
-        return Dataset.model_validate(payload["result"])
+        raw = payload["result"]
+        self._absolutize_resource_urls(raw)
+        return Dataset.model_validate(raw)
+
+    def _absolutize_resource_urls(self, raw_dataset: dict[str, Any]) -> None:
+        for resource in raw_dataset.get("resources", []) or []:
+            url = resource.get("url")
+            if isinstance(url, str) and url.startswith("/"):
+                resource["url"] = urljoin(self._portal_origin, url)
 
     @staticmethod
     def _build_fq(
