@@ -14,7 +14,7 @@ import httpx
 
 from ingest.providers.retry import RetryableHttpError, http_retry_policy
 
-_MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
+_MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
 
 
 def _default_ssl_context() -> ssl.SSLContext:
