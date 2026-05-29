@@ -17,19 +17,27 @@ from ingest.providers.retry import RetryableHttpError, http_retry_policy
 _MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
 
 
-def _build_ssl_context() -> ssl.SSLContext:
-    """Default-secure SSL context, forced to TLS 1.3 minimum.
+def _default_ssl_context() -> ssl.SSLContext:
+    """TLS 1.2 minimum — broadly compatible across GoC infrastructure.
 
-    Why TLS 1.3 minimum: `open.canada.ca` sits behind an F5 BIG-IP WAF
-    that silently stalls on certain TLS 1.2 Client Hello fingerprints
-    produced by uv's bundled OpenSSL build. Negotiating directly at 1.3
-    skips the 1.2 handshake the WAF is inspecting. Empirically verified
-    2026-05-25: same request hangs at 1.2, succeeds in <1s at 1.3.
+    Used for every host *not* listed in `_STRICT_HOSTS`. TLS 1.2 with
+    modern ciphers (ECDHE + AES-GCM) is the industry-standard secure
+    minimum and works with legacy GoC hosts like
+    `www150.statcan.gc.ca` that do not yet negotiate TLS 1.3.
+    """
+    ctx = ssl.create_default_context()
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    return ctx
 
-    All Government of Canada CDNs and modern open-data portals support
-    TLS 1.3, so this is safe for our use case. If a future source
-    requires TLS 1.2, lower the minimum or scope a separate client to
-    that host.
+
+def _strict_ssl_context() -> ssl.SSLContext:
+    """TLS 1.3 minimum — for hosts behind the F5 BIG-IP WAF.
+
+    `open.canada.ca` sits behind an F5 BIG-IP WAF that silently stalls
+    on certain TLS 1.2 ClientHello fingerprints produced by uv's
+    bundled OpenSSL build. Negotiating directly at 1.3 skips the 1.2
+    handshake the WAF is inspecting. Empirically verified 2026-05-25:
+    same request hangs at 1.2, succeeds in <1s at 1.3.
 
     Last resort if a future WAF blocks Python's TLS fingerprint
     entirely (cipher list, extensions, etc.): swap this client for
@@ -39,6 +47,14 @@ def _build_ssl_context() -> ssl.SSLContext:
     ctx = ssl.create_default_context()
     ctx.minimum_version = ssl.TLSVersion.TLSv1_3
     return ctx
+
+
+# Hosts that require the strict (TLS 1.3 minimum) context. Add a host
+# here when the default context produces a hang or WAF-side rejection
+# and probing confirms TLS 1.3 fixes it.
+_STRICT_HOSTS: tuple[str, ...] = (
+    "open.canada.ca",
+)
 
 
 @dataclass(frozen=True)
@@ -70,8 +86,14 @@ class HttpClient:
         # Akamai WAF tarpits clients that drive its rate threshold; sleeping
         # 0.5s before each download keeps us well under it. Set to 0 in
         # tests so the suite stays fast.
+        strict_ctx = _strict_ssl_context()
+        mounts = {
+            f"https://{host}": httpx.HTTPTransport(verify=strict_ctx)
+            for host in _STRICT_HOSTS
+        }
         self._client = httpx.Client(
-            verify=_build_ssl_context(),
+            verify=_default_ssl_context(),
+            mounts=mounts,
             timeout=httpx.Timeout(
                 connect=request_timeout_seconds,
                 read=request_timeout_seconds * 5,
