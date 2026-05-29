@@ -45,6 +45,7 @@ class FakeHttp:
 class FakeCkan:
     datasets: list[Dataset]
     calls: list[dict] = field(default_factory=list)
+    discover_calls: list[dict] = field(default_factory=list)
 
     def search(
         self, *, subject, formats=None, organization=None, since=None, page_size=200
@@ -56,6 +57,15 @@ class FakeCkan:
             if organization and d.organization_code != organization:
                 continue
             yield d
+
+    def discover_organizations(
+        self, *, subject, formats=None, since=None
+    ) -> list[str]:
+        self.discover_calls.append(
+            {"subject": subject, "formats": formats, "since": since}
+        )
+        # Stable order for assertions.
+        return sorted({d.organization_code for d in self.datasets})
 
 
 @dataclass
@@ -96,7 +106,6 @@ def sources() -> SourcesConfig:
                 "country": "ca",
                 "source": "ckan-opencanada",
                 "api_base": "https://x.example/api/3/action",
-                "organizations": [{"code": "fin"}],
             },
         ]
     )
@@ -358,17 +367,64 @@ def test_french_sibling_skipped_when_english_present(
     assert entries[0]["language"] == "en"
 
 
-def test_limit_orgs_filters_out_unrequested(
+def test_limit_orgs_pins_set_and_skips_discovery(
     settings: Settings, sources: SourcesConfig, runlog_path: Path
 ) -> None:
-    ckan = FakeCkan(datasets=[])
+    """`--limit-orgs` overrides discovery — only the listed orgs are
+    iterated, and `discover_organizations` isn't called at all."""
+    csv_url = "https://x.example/data/report-en.csv"
+    ds_fin = _make_dataset(
+        id_="d_fin", org="fin", subjects=["x"],
+        resources=[{"id": "r_fin", "url": csv_url, "format": "CSV", "language": ["en"]}],
+    )
+    ds_stat = _make_dataset(
+        id_="d_stat", org="statcan", subjects=["x"],
+        resources=[{"id": "r_stat", "url": csv_url + "?2", "format": "CSV", "language": ["en"]}],
+    )
+    ckan = FakeCkan(datasets=[ds_fin, ds_stat])
+    http = FakeHttp(bodies={csv_url: b"a\n", csv_url + "?2": b"b\n"})
+
     with RunLogWriter(path=runlog_path) as runlog:
         summary = run(
             settings=settings, sources=sources,
             request=RunRequest(subject="x", limit_orgs=("statcan",)),
-            ckans={"ckan-opencanada": ckan}, http=FakeHttp({}), gcs=FakeGcs(), runlog=runlog,
+            ckans={"ckan-opencanada": ckan}, http=http, gcs=FakeGcs(), runlog=runlog,
         )
-    assert summary.datasets_seen == 0
-    assert summary.success == 0
-    assert ckan.calls == []
-    assert _read_runlog(runlog_path) == []
+
+    # Only statcan was iterated — fin's dataset is invisible.
+    assert summary.datasets_seen == 1
+    assert summary.success == 1
+    assert ckan.discover_calls == []
+    assert {c["organization"] for c in ckan.calls} == {"statcan"}
+
+
+def test_default_discovers_orgs_from_ckan_facet(
+    settings: Settings, sources: SourcesConfig, runlog_path: Path
+) -> None:
+    """With no --limit-orgs, the pipeline calls `discover_organizations`
+    and iterates whatever it returns."""
+    csv_url_a = "https://x.example/data/a.csv"
+    csv_url_b = "https://x.example/data/b.csv"
+    ds_fin = _make_dataset(
+        id_="d_fin", org="fin", subjects=["x"],
+        resources=[{"id": "r_fin", "url": csv_url_a, "format": "CSV", "language": ["en"]}],
+    )
+    ds_dfo = _make_dataset(
+        id_="d_dfo", org="dfo-mpo", subjects=["x"],
+        resources=[{"id": "r_dfo", "url": csv_url_b, "format": "CSV", "language": ["en"]}],
+    )
+    ckan = FakeCkan(datasets=[ds_fin, ds_dfo])
+    http = FakeHttp(bodies={csv_url_a: b"a\n", csv_url_b: b"b\n"})
+
+    with RunLogWriter(path=runlog_path) as runlog:
+        summary = run(
+            settings=settings, sources=sources,
+            request=RunRequest(subject="x", formats=("csv",)),
+            ckans={"ckan-opencanada": ckan}, http=http, gcs=FakeGcs(), runlog=runlog,
+        )
+
+    # Discovery ran exactly once for the source.
+    assert len(ckan.discover_calls) == 1
+    # Both orgs got iterated and ingested.
+    assert summary.success == 2
+    assert {c["organization"] for c in ckan.calls} == {"fin", "dfo-mpo"}

@@ -1,13 +1,11 @@
-# Canonical source/org registry consumed by services/ingest.
+# Canonical source registry consumed by services/ingest.
 # Schema: services/ingest/src/ingest/config/sources.py
+#
+# Organizations are NOT listed here. By default the pipeline discovers
+# every org that has matching data for the run's `subject + formats`
+# via the CKAN facet endpoint. To restrict, pass `--limit-orgs` on the
+# CLI.
 
 - country: ca
   source: ckan-opencanada
   api_base: https://open.canada.ca/data/api/3/action
-  organizations:
-    - code: fin
-      display_name: Department of Finance Canada
-    - code: statcan
-      display_name: Statistics Canada
-    - code: tbs-sct
-      display_name: Treasury Board of Canada Secretariat

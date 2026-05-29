@@ -27,7 +27,7 @@ from ingest.clients.gcs import (
 )
 from ingest.clients.http import Downloaded, HttpClient
 from ingest.config.settings import Settings
-from ingest.config.sources import OrganizationConfig, SourceConfig, SourcesConfig
+from ingest.config.sources import SourceConfig, SourcesConfig
 from ingest.core.dedup import compute_checksum, compute_document_id
 from ingest.core.format_sniff import sniff_format
 from ingest.core.language import Language, filter_resources_by_pairing
@@ -95,12 +95,13 @@ def run(
             log.warning("source_skipped_no_client", source=source_cfg.source)
             continue
 
-        for org in source_cfg.organizations:
-            if request.limit_orgs and org.code not in request.limit_orgs:
-                continue
+        org_codes = _resolve_orgs(
+            source_cfg=source_cfg, request=request, ckan=ckan,
+        )
+        for org_code in org_codes:
             _process_org(
                 source_cfg=source_cfg,
-                org=org,
+                org_code=org_code,
                 settings=settings,
                 request=request,
                 ckan=ckan,
@@ -127,10 +128,38 @@ def run(
     return summary
 
 
+def _resolve_orgs(
+    *,
+    source_cfg: SourceConfig,
+    request: RunRequest,
+    ckan: CkanClient,
+) -> list[str]:
+    """Resolve org slugs to iterate for this source.
+
+    `--limit-orgs` pins the set when set. Otherwise discover via the
+    CKAN facet endpoint scoped to the run's `subject + formats` so we
+    only iterate orgs with matching data.
+    """
+    if request.limit_orgs:
+        return list(request.limit_orgs)
+    discovered = ckan.discover_organizations(
+        subject=request.subject,
+        formats=list(request.formats) or None,
+        since=request.since,
+    )
+    log.info(
+        "orgs_discovered",
+        source=source_cfg.source,
+        count=len(discovered),
+        orgs=discovered,
+    )
+    return discovered
+
+
 def _process_org(
     *,
     source_cfg: SourceConfig,
-    org: OrganizationConfig,
+    org_code: str,
     settings: Settings,
     request: RunRequest,
     ckan: CkanClient,
@@ -147,7 +176,7 @@ def _process_org(
         "org_start",
         country=source_cfg.country,
         source=source_cfg.source,
-        organization=org.code,
+        organization=org_code,
         since=since.isoformat() if since else None,
     )
 
@@ -157,7 +186,7 @@ def _process_org(
         for dataset in ckan.search(
             subject=request.subject,
             formats=list(request.formats) or None,
-            organization=org.code,
+            organization=org_code,
             since=since,
             page_size=source_cfg.page_size,
         ):
@@ -184,7 +213,7 @@ def _process_org(
 
                 row, outcome = _process_resource(
                     source_cfg=source_cfg,
-                    org=org,
+                    org_code=org_code,
                     dataset=dataset,
                     resource=resource,
                     lang=lang,
@@ -218,7 +247,7 @@ def _process_org(
             "org_aborted",
             country=source_cfg.country,
             source=source_cfg.source,
-            organization=org.code,
+            organization=org_code,
             error=str(exc),
             exc_info=True,
         )
@@ -235,7 +264,7 @@ def _process_org(
         "org_finish",
         country=source_cfg.country,
         source=source_cfg.source,
-        organization=org.code,
+        organization=org_code,
         datasets_seen=counts.datasets,
         resources_seen=counts.resources,
         success=counts.success,
@@ -261,7 +290,7 @@ class _OrgCounts:
 def _process_resource(
     *,
     source_cfg: SourceConfig,
-    org: OrganizationConfig,
+    org_code: str,
     dataset: Dataset,
     resource: Resource,
     lang: Language,
@@ -302,7 +331,7 @@ def _process_resource(
     if decision.quarantine:
         return _build_quarantine_row(
             source_cfg=source_cfg,
-            org=org,
+            org_code=org_code,
             dataset=dataset,
             resource=resource,
             lang=lang,
@@ -334,7 +363,7 @@ def _process_resource(
     path = build_raw_path(
         country=source_cfg.country,
         source=source_cfg.source,
-        organization=org.code,
+        organization=org_code,
         resource_last_modified=_resource_partition_date(resource, dataset),
         fmt=sniff.fmt,
         document_id=document_id,
@@ -362,7 +391,7 @@ def _process_resource(
         if isinstance(upload, PathCollision):
             return _build_quarantine_row(
                 source_cfg=source_cfg,
-                org=org,
+                org_code=org_code,
                 dataset=dataset,
                 resource=resource,
                 lang=lang,
@@ -396,7 +425,7 @@ def _process_resource(
         DocumentRow(
             country_code=source_cfg.country,
             source_code=source_cfg.source,
-            organization_code=org.code,
+            organization_code=org_code,
             document_id=document_id,
             source_url=resource.url,
             gcs_uri=gcs_uri,
@@ -424,7 +453,7 @@ def _process_resource(
 def _build_quarantine_row(
     *,
     source_cfg: SourceConfig,
-    org: OrganizationConfig,
+    org_code: str,
     dataset: Dataset,
     resource: Resource,
     lang: Language,
@@ -482,7 +511,7 @@ def _build_quarantine_row(
     return DocumentRow(
         country_code=source_cfg.country,
         source_code=source_cfg.source,
-        organization_code=org.code,
+        organization_code=org_code,
         document_id=document_id,
         source_url=resource.url,
         gcs_uri=gcs_uri if body else None,

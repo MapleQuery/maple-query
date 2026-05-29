@@ -259,6 +259,58 @@ def test_search_sends_built_fq(
     )
 
 
+# --- discover_organizations ----------------------------------------------
+
+def test_discover_organizations_returns_org_slugs_with_data(
+    http_client: HttpClient, httpserver: HTTPServer
+) -> None:
+    facet_payload = {
+        "success": True,
+        "result": {
+            "count": 1234,
+            "results": [],
+            "search_facets": {
+                "organization": {
+                    "items": [
+                        {"name": "statcan", "count": 800},
+                        {"name": "fin", "count": 200},
+                        {"name": "dead-org", "count": 0},  # filtered out
+                    ],
+                },
+            },
+        },
+    }
+    httpserver.expect_request("/package_search").respond_with_json(facet_payload)
+    ckan = CkanClient(
+        http=http_client,
+        api_base=httpserver.url_for(""),
+        inter_request_delay_seconds=0,
+    )
+
+    orgs = ckan.discover_organizations(subject="law", formats=["csv"])
+
+    assert orgs == ["statcan", "fin"]
+    last_request, _ = httpserver.log[-1]
+    assert last_request.args["rows"] == "0"
+    assert last_request.args["facet.field"] == '["organization"]'
+    assert last_request.args["fq"] == "subject:law AND res_format:CSV"
+
+
+def test_discover_organizations_raises_on_success_false(
+    http_client: HttpClient, httpserver: HTTPServer
+) -> None:
+    httpserver.expect_request("/package_search").respond_with_json(
+        {"success": False, "error": {"message": "boom"}}
+    )
+    ckan = CkanClient(
+        http=http_client,
+        api_base=httpserver.url_for(""),
+        inter_request_delay_seconds=0,
+    )
+    with pytest.raises(CkanError):
+        ckan.discover_organizations(subject="law")
+
+
 # --- relative resource URL resolution -------------------------------------
 
 def test_search_absolutizes_path_only_resource_urls(

@@ -163,6 +163,38 @@ class CkanClient:
             if self._delay > 0:
                 time.sleep(self._delay)
 
+    def discover_organizations(
+        self,
+        *,
+        subject: str,
+        formats: list[str] | None = None,
+        since: datetime | None = None,
+    ) -> list[str]:
+        """Org slugs that have at least one dataset matching the filter.
+
+        Uses CKAN's facet endpoint instead of `organization_list` so we
+        only see orgs that actually have data for the current
+        `subject + formats` request. Avoids wasted per-org searches on
+        orgs that publish nothing relevant to this run.
+        """
+        fq = self._build_fq(
+            subject=subject, formats=formats, organization=None, since=since
+        )
+        payload = self._http.get_json(
+            f"{self._api_base}/package_search",
+            params={
+                "fq": fq,
+                "rows": "0",
+                "facet.field": '["organization"]',
+                "facet.limit": "500",
+            },
+        )
+        if not payload.get("success"):
+            raise CkanError(f"CKAN returned success=false: {payload.get('error')}")
+        facets = payload["result"].get("search_facets", {})
+        items = facets.get("organization", {}).get("items", [])
+        return [i["name"] for i in items if i.get("count", 0) > 0]
+
     def show(self, dataset_id: str) -> Dataset:
         """Escape-hatch fetch of a single dataset by id. Not used by the pipeline."""
         payload = self._http.get_json(
