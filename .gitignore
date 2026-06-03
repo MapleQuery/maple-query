@@ -43,3 +43,4 @@ product-specs/
 
 # Per-run JSONL logs
 runlog/
+services/ingest/raw/
