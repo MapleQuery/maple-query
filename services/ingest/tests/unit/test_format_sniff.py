@@ -84,3 +84,33 @@ def test_canonical_fmts_includes_expected_entries() -> None:
     # Belt-and-braces: regression guard if anyone trims the list.
     expected = {"csv", "pdf", "xlsx", "png", "json", "zip", "unknown"} - {"unknown"}
     assert expected.issubset(CANONICAL_FMTS)
+
+
+def test_verified_true_when_magic_matches() -> None:
+    r = sniff_format(body=PDF, declared_format=None, url="https://example.gov/x")
+    assert r.fmt == "pdf"
+    assert r.verified is True
+
+
+def test_verified_true_when_url_extension_matches() -> None:
+    body = b"a,b,c\n1,2,3\n"
+    r = sniff_format(body=body, declared_format=None, url="https://example.gov/data.csv")
+    assert r.fmt == "csv"
+    assert r.verified is True
+
+
+def test_verified_false_when_only_declared_format_helps() -> None:
+    """Declared CSV + opaque body + no URL extension: fmt resolves via the
+    declared-format fallback, but we have no byte/URL evidence. The `-f`
+    gate should treat this as low-confidence."""
+    body = b"\x00\x01opaque"
+    r = sniff_format(body=body, declared_format="csv", url="https://example.gov/data")
+    assert r.fmt == "csv"
+    assert r.verified is False
+
+
+def test_verified_false_when_fmt_is_unknown() -> None:
+    body = b"\x00\x01opaque"
+    r = sniff_format(body=body, declared_format=None, url="https://example.gov/data")
+    assert r.fmt == "unknown"
+    assert r.verified is False

@@ -63,6 +63,10 @@ class SniffResult:
     fmt: str
     magic_hit: bool
     mismatch_with_declared: bool
+    # True iff `fmt` was determined by magic bytes or URL extension.
+    # False when we only had the CKAN-declared format to go on — caller
+    # should treat that as low-confidence (e.g. for `-f` gating).
+    verified: bool
 
 
 def sniff_format(*, body: bytes, declared_format: str | None, url: str) -> SniffResult:
@@ -84,6 +88,7 @@ def sniff_format(*, body: bytes, declared_format: str | None, url: str) -> Sniff
 
     fmt = "unknown"
     magic_hit = bool(candidates)
+    verified = False
     if candidates:
         if declared_low and declared_low in candidates:
             fmt = declared_low
@@ -91,19 +96,24 @@ def sniff_format(*, body: bytes, declared_format: str | None, url: str) -> Sniff
             fmt = url_ext
         else:
             fmt = candidates[0]
+        verified = True
 
     if fmt == "unknown" and url_ext in CANONICAL_FMTS:
         fmt = url_ext
+        verified = True
 
     if fmt == "unknown" and declared_low and declared_low in CANONICAL_FMTS:
         fmt = declared_low
+        # verified stays False — declared format alone is not byte/URL evidence.
 
     mismatch = (
         declared_low is not None
         and declared_low != fmt
         and fmt != "unknown"
     )
-    return SniffResult(fmt=fmt, magic_hit=magic_hit, mismatch_with_declared=mismatch)
+    return SniffResult(
+        fmt=fmt, magic_hit=magic_hit, mismatch_with_declared=mismatch, verified=verified
+    )
 
 
 def _magic_matches(sample: bytes) -> list[puremagic.PureMagic]:

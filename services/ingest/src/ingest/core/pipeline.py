@@ -60,6 +60,7 @@ class RunSummary:
     failed: int = 0
     skipped_by_pairing: int = 0
     skipped_by_gcs_dedup: int = 0  # GCS IdempotentSkip on re-upload
+    skipped_by_format: int = 0  # sniffed fmt not in -f filter (or unknown)
     duration_ms: int = 0
 
 
@@ -124,6 +125,7 @@ def run(
         failed=summary.failed,
         skipped_by_pairing=summary.skipped_by_pairing,
         skipped_by_gcs_dedup=summary.skipped_by_gcs_dedup,
+        skipped_by_format=summary.skipped_by_format,
     )
     return summary
 
@@ -228,6 +230,10 @@ def _process_org(
                     counts.skipped_gcs_dedup += 1
                     continue
 
+                if outcome == "skipped_format":
+                    counts.skipped_format += 1
+                    continue
+
                 if row is None:
                     counts.failed += 1
                     continue
@@ -259,6 +265,7 @@ def _process_org(
     summary.failed += counts.failed
     summary.skipped_by_pairing += counts.skipped_pairing
     summary.skipped_by_gcs_dedup += counts.skipped_gcs_dedup
+    summary.skipped_by_format += counts.skipped_format
 
     log.info(
         "org_finish",
@@ -272,6 +279,7 @@ def _process_org(
         failed=counts.failed,
         skipped_by_pairing=counts.skipped_pairing,
         skipped_by_gcs_dedup=counts.skipped_gcs_dedup,
+        skipped_by_format=counts.skipped_format,
         duration_ms=int((time.monotonic() - org_start) * 1000),
     )
 
@@ -285,6 +293,7 @@ class _OrgCounts:
     failed: int = 0
     skipped_pairing: int = 0
     skipped_gcs_dedup: int = 0
+    skipped_format: int = 0
 
 
 def _process_resource(
@@ -302,7 +311,7 @@ def _process_resource(
 ) -> tuple[DocumentRow | None, str]:
     """Process one resource. Returns (row_or_none, outcome).
 
-    Outcomes: "row", "skipped_gcs_dedup". `row.ingestion_status`
+    Outcomes: "row", "skipped_gcs_dedup", "skipped_format". `row.ingestion_status`
     distinguishes success / quarantined / failed.
     """
     log.info(
@@ -358,6 +367,19 @@ def _process_resource(
             declared=resource.format_declared,
             sniffed=sniff.fmt,
         )
+
+    if request.formats and (
+        not sniff.verified or sniff.fmt not in request.formats
+    ):
+        log.info(
+            "skipped_format",
+            url=resource.url,
+            declared=resource.format_declared,
+            sniffed=sniff.fmt,
+            verified=sniff.verified,
+            requested=list(request.formats),
+        )
+        return None, "skipped_format"
 
     document_id = compute_document_id(source_url=resource.url, checksum=checksum)
     path = build_raw_path(

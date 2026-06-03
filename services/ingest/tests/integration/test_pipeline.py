@@ -428,3 +428,50 @@ def test_default_discovers_orgs_from_ckan_facet(
     # Both orgs got iterated and ingested.
     assert summary.success == 2
     assert {c["organization"] for c in ckan.calls} == {"fin", "dfo-mpo"}
+
+
+def test_sniff_skips_when_bytes_dont_match_format_filter(
+    settings: Settings, sources: SourcesConfig, runlog_path: Path
+) -> None:
+    """Resources declared CSV but whose bytes sniff as HTML (landing pages),
+    ZIP (bundles), or unknown must be skipped under `-f csv` — no upload,
+    no run-log row."""
+    html_url = "https://x.example/data/landing.csv"
+    zip_url = "https://x.example/data/bundle.csv"
+    unknown_url = "https://x.example/data/opaque"  # no extension → no URL fallback
+    real_csv_url = "https://x.example/data/real.csv"
+
+    ds = _make_dataset(
+        id_="d1", org="fin", subjects=["x"],
+        resources=[
+            {"id": "html", "url": html_url, "format": "CSV", "language": ["en"]},
+            {"id": "zip", "url": zip_url, "format": "CSV", "language": ["en"]},
+            {"id": "unk", "url": unknown_url, "format": "CSV", "language": ["en"]},
+            {"id": "csv", "url": real_csv_url, "format": "CSV", "language": ["en"]},
+        ],
+    )
+    http = FakeHttp(bodies={
+        html_url: b"<!DOCTYPE html><html><body>not a csv</body></html>",
+        zip_url: b"PK\x03\x04" + b"\x00" * 32,  # ZIP magic
+        unknown_url: b"\x00\x01\x02\x03opaque-bytes",
+        real_csv_url: b"a,b,c\n1,2,3\n",
+    })
+    gcs = FakeGcs()
+
+    with RunLogWriter(path=runlog_path) as runlog:
+        summary = run(
+            settings=settings, sources=sources,
+            request=RunRequest(subject="x", formats=("csv",)),
+            ckans={"ckan-opencanada": FakeCkan(datasets=[ds])},
+            http=http, gcs=gcs, runlog=runlog,
+        )
+
+    # Only the real csv lands; three resources skipped at the sniff gate.
+    assert summary.success == 1
+    assert summary.skipped_by_format == 3
+    assert summary.quarantined == 0
+    assert summary.failed == 0
+    assert len(gcs.uploads) == 1
+    entries = _read_runlog(runlog_path)
+    assert len(entries) == 1
+    assert entries[0]["source_url"] == real_csv_url
