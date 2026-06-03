@@ -137,7 +137,7 @@ class HttpClient:
     ) -> DownloadResult:
         """Conditional GET. Streams the body fully into memory before returning.
 
-        Caps body at 100 MB — guarded twice: a cheap Content-Length check
+        Caps body at 512 MB — guarded twice: a cheap Content-Length check
         before reading, and a running counter during stream consumption
         for servers that omit the header.
         """
@@ -194,7 +194,7 @@ class HttpClient:
 
 
 class OversizedResourceError(Exception):
-    """Raised when a download body exceeds the 100 MB cap."""
+    """Raised when a download body exceeds the 512 MB cap."""
 
     def __init__(self, url: str, observed_bytes: int) -> None:
         super().__init__(
