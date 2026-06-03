@@ -40,3 +40,6 @@ dist/
 build/
 
 product-specs/
+
+# Per-run JSONL logs
+runlog/
