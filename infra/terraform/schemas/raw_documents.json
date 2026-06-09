@@ -1,0 +1,52 @@
+[
+  {"name": "country_code", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "source_code", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "organization_code", "type": "STRING", "mode": "REQUIRED"},
+
+  {"name": "document_id", "type": "STRING", "mode": "REQUIRED",
+   "description": "sha256(source_url + checksum), full 64-hex. Primary key."},
+  {"name": "source_url", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "gcs_uri", "type": "STRING", "mode": "NULLABLE",
+   "description": "Full gs:// URI of the stored body. NULL for rows without bytes (none today; reserved for future)."},
+
+  {"name": "checksum", "type": "STRING", "mode": "NULLABLE",
+   "description": "sha256 hex of the body bytes."},
+  {"name": "etag", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "http_last_modified", "type": "TIMESTAMP", "mode": "NULLABLE"},
+  {"name": "resource_last_modified", "type": "TIMESTAMP", "mode": "NULLABLE"},
+
+  {"name": "file_format", "type": "STRING", "mode": "REQUIRED",
+   "description": "Canonical lowercase format from the magic-byte sniff. Mutable: 3.3's rows loader rewrites csv->tsv when the byte-level delimiter sniff disagrees (master M2 §6 Q5)."},
+  {"name": "declared_format", "type": "STRING", "mode": "NULLABLE",
+   "description": "Format string as CKAN declared it. Kept verbatim for audit."},
+
+  {"name": "language", "type": "STRING", "mode": "REQUIRED",
+   "description": "'en' | 'fr' | 'unknown'. Single value; 2.2's detect_language() collapses CKAN's language list."},
+  {"name": "title", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "document_type", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "subjects", "type": "STRING", "mode": "REPEATED",
+   "description": "CKAN subject list. Query axis (WHERE 'X' IN UNNEST(subjects))."},
+  {"name": "published_date", "type": "DATE", "mode": "NULLABLE"},
+  {"name": "metadata_modified", "type": "TIMESTAMP", "mode": "REQUIRED",
+   "description": "CKAN dataset-level metadata_modified."},
+
+  {"name": "ingested_at", "type": "TIMESTAMP", "mode": "REQUIRED"},
+  {"name": "ingestion_status", "type": "STRING", "mode": "REQUIRED",
+   "description": "'success' | 'quarantined'. 'failed' rows are filtered at load (master M2 disclaimer, 3.2)."},
+  {"name": "quarantine_reason", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "run_id", "type": "STRING", "mode": "REQUIRED",
+   "description": "Ingest run_id - points back to the source JSONL."},
+
+  {"name": "preamble_rows", "type": "JSON", "mode": "NULLABLE",
+   "description": "Rows above the detected header, stored as a JSON array of arrays. NULL until 3.3 processes the file. Master M2 §6 Q2."},
+  {"name": "header_confidence", "type": "STRING", "mode": "NULLABLE",
+   "description": "'single' | 'multi_row' | 'low'. NULL until 3.3 processes the file. Master M2 §4.2 rule 3, §6 Q10."},
+  {"name": "load_status", "type": "STRING", "mode": "REQUIRED",
+   "description": "'pending' | 'loaded' | 'skipped_non_csv' | 'blob_missing' | 'parse_failed' | 'header_unparseable'. Set on every load attempt. Master M2 §5.1."},
+  {"name": "load_attempted_at", "type": "TIMESTAMP", "mode": "NULLABLE",
+   "description": "Last time 3.3 attempted to load this doc into raw.rows. NULL until first attempt."},
+  {"name": "load_error", "type": "STRING", "mode": "NULLABLE",
+   "description": "One-line error message on non-'loaded' load_status. NULL when loaded successfully."},
+  {"name": "row_count", "type": "INT64", "mode": "NULLABLE",
+   "description": "Number of body rows landed in raw.rows. NULL until loaded."}
+]
