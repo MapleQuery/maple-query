@@ -1,0 +1,11 @@
+[
+  {"name": "col_name", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "col_name_lower", "type": "STRING", "mode": "REQUIRED",
+   "description": "LOWER(col_name). Sibling column for cheap case-insensitive lookups; agent contract (master M2 §9 idiom d) filters on this."},
+  {"name": "file_count", "type": "INT64", "mode": "REQUIRED"},
+  {"name": "document_ids", "type": "STRING", "mode": "REPEATED",
+   "description": "Array of document_id values containing this column. Bounded to <=1000; if exceeded, truncated and overflow_truncated set."},
+  {"name": "overflow_truncated", "type": "BOOL", "mode": "REQUIRED",
+   "description": "TRUE when document_ids was truncated at 1000. The full list is recoverable from raw.rows via JSON_KEYS scan."},
+  {"name": "refreshed_at", "type": "TIMESTAMP", "mode": "REQUIRED"}
+]

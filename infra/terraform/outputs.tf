@@ -12,3 +12,18 @@ output "ingest_reader_sa_email" {
   description = "Email of the ingest reader service account, reserved for M2 extract."
   value       = google_service_account.ingest_reader.email
 }
+
+output "bq_raw_dataset" {
+  description = "Fully-qualified raw dataset reference (project.dataset), consumed by services/warehouse-load."
+  value       = "${var.gcp_project_id}.${google_bigquery_dataset.raw.dataset_id}"
+}
+
+output "bq_curated_dataset" {
+  description = "Fully-qualified curated dataset reference (project.dataset)."
+  value       = "${var.gcp_project_id}.${google_bigquery_dataset.curated.dataset_id}"
+}
+
+output "warehouse_load_sa_email" {
+  description = "Email of the warehouse loader service account. Used by 3.2 and 3.3 for impersonation in CI / local runs."
+  value       = google_service_account.warehouse_load.email
+}
