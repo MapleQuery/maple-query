@@ -1,4 +1,4 @@
-"""§12.2 — integration tests for the MERGE pipeline against a FakeBqClient."""
+"""Integration tests for the MERGE pipeline against a FakeBqClient."""
 from __future__ import annotations
 
 import re
@@ -9,7 +9,7 @@ from google.cloud import bigquery
 from tests.conftest import make_row
 from tests.integration.conftest import FakeBqClient
 from warehouse_load.core.documents_merge import (
-    DOCUMENTS_OWNED_BY_33,
+    DOCUMENTS_OWNED_BY_CONTENT_LOADER,
     merge_documents,
 )
 from warehouse_load.core.schema_loader import load_schema
@@ -46,13 +46,13 @@ def test_merge_emits_correct_staging_payload_shape(schemas_dir: Path) -> None:
         f"missing={schema_field_names - payload_keys}, "
         f"extra={payload_keys - schema_field_names}"
     )
-    # 3.3-owned columns are present, set to their pristine values.
+    # Content-loader columns are present, set to their initial values.
     assert sent["load_status"] == "pending"
     assert sent["row_count"] is None
     assert sent["load_attempted_at"] is None
 
 
-def test_merge_update_clause_omits_3_3_owned_columns(schemas_dir: Path) -> None:
+def test_merge_update_clause_omits_content_loader_columns(schemas_dir: Path) -> None:
     """The single most important property of the MERGE statement."""
     bq = FakeBqClient()
     row = make_row()
@@ -80,15 +80,15 @@ def test_merge_update_clause_omits_3_3_owned_columns(schemas_dir: Path) -> None:
     assert update_clause_match, f"could not locate UPDATE clause in:\n{sql}"
     update_clause = update_clause_match.group(1)
 
-    for forbidden in DOCUMENTS_OWNED_BY_33:
+    for forbidden in DOCUMENTS_OWNED_BY_CONTENT_LOADER:
         assert forbidden not in update_clause, (
-            f"3.3-owned column {forbidden!r} must NOT appear in the MERGE UPDATE clause. "
+            f"Content-loader column {forbidden!r} must NOT appear in the MERGE UPDATE clause. "
             f"Full clause:\n{update_clause}"
         )
 
 
 def test_merge_re_run_against_same_payload_inserts_zero(schemas_dir: Path) -> None:
-    """Simulate the §13.6 idempotence acceptance criterion."""
+    """Idempotence: re-running against the same payload inserts zero rows."""
     bq = FakeBqClient()
     row = make_row(document_id="a" * 64, source_url="https://example.org/a.csv")
 

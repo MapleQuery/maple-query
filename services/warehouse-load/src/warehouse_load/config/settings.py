@@ -1,12 +1,12 @@
 """Deploy-time configuration loaded from environment variables.
 
-Per-run intent (--dry-run, --since, --limit-orgs) is CLI-only — same
-split rationale as 2.2 (§5.1 of that PRD): env for things that change
-between deploys, CLI for things that change between invocations.
+Per-run intent (--dry-run, --since, --limit-orgs) is CLI-only: env
+for things that change between deploys, CLI for things that change
+between invocations.
 
 The default `runlog_local_dir` walks up from cwd looking for
-`services/ingest/runlog/` so you can run `uv run warehouse-load
-documents` from anywhere inside the repo without setting an env var.
+`services/ingest/runlog/` so `uv run warehouse-load documents`
+works from anywhere inside the repo without setting an env var.
 """
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     runlog_local_dir: Path | None = Field(default_factory=_find_ingest_runlog_dir)
     runlog_gcs_prefix: str | None = None  # e.g. "gs://maplequery-raw/runlog/"
 
-    # Schema source of truth (matches 3.1 §4.5).
+    # Schema source of truth, shared with Terraform's google_bigquery_table.
     schemas_dir: Path = Field(default_factory=_find_schemas_dir)
 
     # Behaviour

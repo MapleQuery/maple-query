@@ -1,20 +1,18 @@
-"""Stage 3 of §6 + §7: load to staging, MERGE into raw.documents.
+"""Load to staging, then MERGE into raw.documents.
 
-The MERGE is the load-bearing piece of the loader. Two invariants
-worth re-stating because changing them breaks 3.3:
+Two invariants the generated SQL must satisfy (the integration test
+regexes the UPDATE clause to enforce them):
 
-1. The UPDATE clause **does not touch** any column 3.3 owns:
-   `preamble_rows`, `header_confidence`, `load_status`,
-   `load_attempted_at`, `load_error`, `row_count`. If 3.3 has already
-   loaded a doc (`load_status='loaded'`), re-running 3.2 must not
-   reset it to `'pending'`.
-2. The INSERT clause sets 3.3-owned columns to their pristine M2
-   initial values (`load_status='pending'`, rest NULL) — and only on
-   first insert.
+1. The UPDATE clause **does not touch** any column owned by the
+   downstream content loader (`preamble_rows`, `header_confidence`,
+   `load_status`, `load_attempted_at`, `load_error`, `row_count`).
+   Once that loader marks a doc `load_status='loaded'`, re-running
+   this service must not reset it to `'pending'`.
+2. The INSERT clause sets those same columns to their initial values
+   (`load_status='pending'`, rest NULL) — and only on first insert.
 
-The UPDATE condition is `s.metadata_modified > t.metadata_modified
-OR s.ingested_at > t.ingested_at`. Either side moving forward is a
-reason to refresh; if neither moves, the update is a no-op and BQ
+UPDATE fires when `s.metadata_modified > t.metadata_modified OR
+s.ingested_at > t.ingested_at`. Otherwise the row is a no-op and BQ
 skips the write.
 """
 from __future__ import annotations
@@ -29,10 +27,10 @@ from google.cloud import bigquery
 from warehouse_load.clients.bq import BqClient
 from warehouse_load.types import RawRunlogRow
 
-# Columns 3.2 owns (UPDATE writes these; same set INSERT writes from
-# the staging row). Kept as a constant so the regex check in the
-# integration test has a single source of truth.
-DOCUMENTS_OWNED_BY_32: tuple[str, ...] = (
+# Columns this service owns: UPDATE writes these, and INSERT writes
+# the same set from the staging row. Kept as a constant so the regex
+# check in the integration test has a single source of truth.
+DOCUMENTS_OWNED_BY_LOADER: tuple[str, ...] = (
     "country_code",
     "source_code",
     "organization_code",
@@ -56,8 +54,9 @@ DOCUMENTS_OWNED_BY_32: tuple[str, ...] = (
     "run_id",
 )
 
-# Columns 3.3 owns. The MERGE UPDATE must NEVER include any of these.
-DOCUMENTS_OWNED_BY_33: tuple[str, ...] = (
+# Columns the downstream content loader owns. The MERGE UPDATE must
+# NEVER include any of these.
+DOCUMENTS_OWNED_BY_CONTENT_LOADER: tuple[str, ...] = (
     "preamble_rows",
     "header_confidence",
     "load_status",
@@ -95,12 +94,9 @@ def merge_documents(
 ) -> MergeResult:
     """Stage `rows` and MERGE into `<project>.<dataset>.<table>`.
 
-    Returns insert/update/unchanged counts derived from the MERGE
-    job's `num_dml_affected_rows` plus a follow-up count query. BQ's
-    job stats don't break out insert vs. update; we approximate by
-    counting rows inserted (target rowcount delta) and treating the
-    rest as updated. The acceptance tests in §13 verify the totals
-    rather than the split.
+    Returns insert/update/unchanged counts. BQ doesn't break out
+    insert vs. update in job stats, so we approximate: rowcount delta
+    on the target is inserts; the rest is treated as updates.
     """
     rows_list = list(rows)
     payload = [_row_to_payload(r) for r in rows_list]
@@ -124,10 +120,9 @@ def merge_documents(
     rows_updated_or_unchanged = max(rows_touched - rows_inserted, 0)
 
     # No cheap way to split updated vs. unchanged without a second
-    # MERGE-time SELECT; the §10 RunSummary reports `unchanged` as
-    # 0 here and `updated` as the residual. Tradeoff: cheap and
-    # accurate on the insert axis, slightly pessimistic on update
-    # counts. Revisit if downstream needs the precise split.
+    # MERGE-time SELECT; we report `unchanged=0` and roll everything
+    # non-insert into `updated`. Slightly pessimistic on update
+    # counts; revisit if downstream needs the precise split.
     return MergeResult(
         rows_inserted=rows_inserted,
         rows_updated=rows_updated_or_unchanged,
@@ -148,15 +143,13 @@ def dry_run(rows: Iterable[RawRunlogRow]) -> DryRunResult:
 
 
 def _row_to_payload(row: RawRunlogRow) -> dict[str, Any]:
-    """Convert a RawRunlogRow into the dict shape BQ load_table_from_json wants.
+    """Convert a RawRunlogRow into the dict shape `load_table_from_json` wants.
 
-    Datetimes/dates are serialised to ISO strings; BQ accepts those
-    for TIMESTAMP/DATE columns when source_format is
-    NEWLINE_DELIMITED_JSON. 3.3-owned columns are set to their initial
-    values (load_status='pending', rest NULL) so a fresh INSERT lands
-    in the correct shape — even though those columns are passed in
-    the load payload, the MERGE UPDATE clause won't touch them on a
-    subsequent run.
+    Datetimes/dates serialise to ISO strings; BQ accepts those for
+    TIMESTAMP/DATE under NEWLINE_DELIMITED_JSON. Content-loader
+    columns are set to their initial values (load_status='pending',
+    rest NULL) so a fresh INSERT lands in the correct shape — the
+    MERGE UPDATE clause then leaves them alone on subsequent runs.
     """
     out: dict[str, Any] = {
         "country_code": row.country_code,
@@ -181,7 +174,7 @@ def _row_to_payload(row: RawRunlogRow) -> dict[str, Any]:
         "ingestion_status": row.ingestion_status,
         "quarantine_reason": row.quarantine_reason,
         "run_id": row.run_id,
-        # 3.3-owned columns. INSERT writes these once; subsequent
+        # Content-loader columns. INSERT writes these once; subsequent
         # MERGE UPDATE clauses do NOT touch them.
         "preamble_rows": None,
         "header_confidence": None,
@@ -207,19 +200,17 @@ def _iso_or_none(value: datetime | date | None) -> str | None:
 def _render_merge_sql(target: str, staging: str) -> str:
     """Build the MERGE statement.
 
-    Generated rather than hand-templated so the column list in the
-    UPDATE clause stays in sync with `DOCUMENTS_OWNED_BY_32` — adding
-    a column to that constant automatically extends the MERGE. The
-    `DOCUMENTS_OWNED_BY_33` set is referenced only as a comment guard
-    in the rendered SQL so a casual reader can see what's deliberately
-    omitted.
+    Generated (rather than hand-templated) so the UPDATE column list
+    stays in sync with `DOCUMENTS_OWNED_BY_LOADER`. The
+    `DOCUMENTS_OWNED_BY_CONTENT_LOADER` set is appended as a trailing
+    comment so a casual reader can see what's deliberately omitted.
     """
     update_assignments = ",\n      ".join(
-        f"{col} = s.{col}" for col in DOCUMENTS_OWNED_BY_32 if col != "document_id"
+        f"{col} = s.{col}" for col in DOCUMENTS_OWNED_BY_LOADER if col != "document_id"
     )
     insert_values = ", ".join(
         [
-            *(f"s.{col}" for col in DOCUMENTS_OWNED_BY_32 if col != "document_id"),
+            *(f"s.{col}" for col in DOCUMENTS_OWNED_BY_LOADER if col != "document_id"),
             "s.document_id",
             "NULL",  # preamble_rows
             "NULL",  # header_confidence
@@ -229,13 +220,13 @@ def _render_merge_sql(target: str, staging: str) -> str:
             "NULL",  # row_count
         ],
     )
-    # INSERT column list, ordered to match the value list above
-    # (target-owned first sans document_id, then document_id, then 3.3-owned).
+    # INSERT column list, ordered to match the value list above:
+    # loader-owned (sans document_id), then document_id, then content-loader-owned.
     insert_columns_ordered = ", ".join(
         [
-            *(col for col in DOCUMENTS_OWNED_BY_32 if col != "document_id"),
+            *(col for col in DOCUMENTS_OWNED_BY_LOADER if col != "document_id"),
             "document_id",
-            *DOCUMENTS_OWNED_BY_33,
+            *DOCUMENTS_OWNED_BY_CONTENT_LOADER,
         ],
     )
 
@@ -254,6 +245,6 @@ WHEN NOT MATCHED THEN INSERT (
 VALUES (
   {insert_values}
 )
--- 3.3-owned columns NEVER appear in the UPDATE clause:
--- {", ".join(DOCUMENTS_OWNED_BY_33)}.
+-- Content-loader columns NEVER appear in the UPDATE clause:
+-- {", ".join(DOCUMENTS_OWNED_BY_CONTENT_LOADER)}.
 """

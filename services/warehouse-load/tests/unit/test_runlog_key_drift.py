@@ -1,7 +1,7 @@
-"""§11.2 — every top-level key in real runlog JSONLs is known to RawRunlogRow.
+"""Every top-level key in real runlog JSONLs is known to RawRunlogRow.
 
-Forward-compat guard. If 2.2 starts emitting a new field, this test
-fails loudly so the field gets added to the model (and possibly
+Forward-compat guard. If ingest starts emitting a new field, this
+test fails loudly so the field gets added to the model (and possibly
 `raw_documents.json`) before it silently disappears under
 `extra="ignore"`.
 """

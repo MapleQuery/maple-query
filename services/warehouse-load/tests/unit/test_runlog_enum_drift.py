@@ -1,8 +1,9 @@
-"""§11.3 — closed-enum value drift on real runlog files.
+"""Closed-enum value drift on real runlog files.
 
-§11.2 catches new keys; this catches new values on `language`,
-`ingestion_status`, `file_format`. Surfaces drift as a clear "update
-the Literal" failure rather than an opaque parse-error spike.
+Companion to the key-drift test (which catches new top-level keys);
+this catches new values on `language`, `ingestion_status`, and
+`file_format`. Surfaces drift as a clear "update the Literal"
+failure rather than an opaque parse-error spike.
 """
 from __future__ import annotations
 

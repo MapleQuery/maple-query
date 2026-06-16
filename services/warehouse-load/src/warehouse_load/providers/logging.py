@@ -1,11 +1,9 @@
 """structlog configuration.
 
 JSON to stdout by default (Cloud Logging picks this up automatically
-when this eventually runs as a Cloud Run job); pretty console renderer
-when `WHLOAD_DEV=1` so local runs are readable.
-
-Mirrors 2.2's `services/ingest/src/ingest/providers/logging.py` so the
-two services share log shape.
+when this eventually runs as a Cloud Run job); pretty console
+renderer when `WHLOAD_DEV=1` so local runs are readable. Shape
+matches the ingest service's logger so events stay comparable.
 """
 from __future__ import annotations
 

@@ -1,12 +1,11 @@
-"""Stage 1 + 2 of §6: format/status filter, then source_url dedupe.
+"""Format/status filter, then source_url dedupe.
 
 Filter runs *before* dedupe so a quarantined-csv row never shadows a
-real success row at the same `source_url`. See the
-`bq_loader_format_filter` memory.
+real success row at the same `source_url`.
 
 Dedupe key is `source_url` (not `document_id`) — CKAN URL-sharing
 and failed-row placeholder `document_id`s produce within-run
-`source_url` dupes by design. See the `runlog_failed_rows` memory.
+`source_url` dupes by design.
 
 Tie-break on equal `ingested_at`: `document_id` ASC. The CKAN
 URL-sharing case can land N rows in one pass with sub-millisecond
@@ -66,9 +65,8 @@ def dedupe_by_source_url(
     winner is deterministic when CKAN URL-sharing puts N rows in one
     pass at the same timestamp.
 
-    In-memory dict over the full input. Fine at the M2 scale
-    (~15K rows for the whole corpus, per §7.1); revisit if the corpus
-    grows past tens of millions.
+    In-memory dict over the full input. Fine at current corpus scale
+    (~15K rows); revisit if it grows past tens of millions.
     """
     latest: dict[str, RawRunlogRow] = {}
     dropped: list[DedupedRow] = []

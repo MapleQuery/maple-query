@@ -1,12 +1,7 @@
-"""Thin BigQuery wrapper, sized for what the documents loader needs.
+"""BigQuery client surface: `BqClient` Protocol + `RealBqClient` impl.
 
-The whole client surface is documented as a `Protocol` (`BqClient`)
-so integration tests can substitute a `FakeBqClient` without
-monkeypatching. Concrete implementation is `RealBqClient`, which
-delegates to `google.cloud.bigquery.Client`.
-
-Kept deliberately small: load (JSON → table), query (MERGE SQL),
-create table (staging), delete table (cleanup-on-failure).
+Surface: load JSON, run DML, count rows, create/delete a staging table.
+Tests implement `BqClient` directly instead of monkeypatching.
 """
 from __future__ import annotations
 
@@ -19,8 +14,6 @@ from google.cloud import bigquery
 
 @runtime_checkable
 class BqClient(Protocol):
-    """The slice of BigQuery the loader uses. Tests implement this."""
-
     def load_json(
         self,
         *,
@@ -31,12 +24,10 @@ class BqClient(Protocol):
         """Truncate-and-load `rows` into `destination`. Returns rows loaded."""
 
     def execute(self, sql: str) -> None:
-        """Run a query/DML statement to completion. No result is returned;
-        callers that need data use `count_rows` (or a future typed method)."""
+        """Run DML to completion. No result; use `count_rows` for SELECTs."""
 
     def count_rows(self, table_id: str) -> int:
-        """SELECT COUNT(*) FROM `<table_id>`. Returns 0 if the table is empty
-        or missing."""
+        """Returns 0 if the table is empty or missing."""
 
     def create_staging_table(
         self,
@@ -47,12 +38,10 @@ class BqClient(Protocol):
     ) -> None:
         """Create a table that BQ auto-deletes after `expires_in`."""
 
-    def delete_table(self, table_id: str, *, not_found_ok: bool = True) -> None:
-        """Drop a table. `not_found_ok=True` swallows 404s."""
+    def delete_table(self, table_id: str, *, not_found_ok: bool = True) -> None: ...
 
 
 class RealBqClient:
-    """Concrete BqClient backed by `google.cloud.bigquery`."""
 
     def __init__(self, client: bigquery.Client) -> None:
         self._client = client
@@ -105,10 +94,8 @@ class RealBqClient:
 
         table = bigquery.Table(table_id, schema=schema)
         table.expires = datetime.now(UTC) + expires_in
-        # WRITE_TRUNCATE on the load job creates the table if missing,
-        # but we want the `expires` knob to apply on first creation —
-        # so create explicitly here. exists_ok handles re-runs that
-        # happen to reuse the same run_id_short.
+        # Create explicitly so `expires` is set on first creation; the
+        # load job's WRITE_TRUNCATE would create the table without it.
         self._client.create_table(table, exists_ok=True)
 
     def delete_table(self, table_id: str, *, not_found_ok: bool = True) -> None:

@@ -1,4 +1,4 @@
-"""§12.1 unit tests for the filter + dedupe truth table."""
+"""Unit tests for the filter + dedupe truth table."""
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -59,10 +59,10 @@ def test_filter_runs_before_dedupe_keeps_success_over_quarantined_at_same_url() 
     """The `bq_loader_format_filter` memory's invariant.
 
     Two rows at the same source_url: a quarantined-csv with a newer
-    ingested_at and a success-csv with an older one. After §6.1
-    drops the quarantined row, §6.2 sees only the success row, and
-    that's what reaches the loader. If dedupe had run first, the
-    quarantined row's newer timestamp would have won — bug.
+    ingested_at and a success-csv with an older one. The filter
+    drops the quarantined row first, so dedupe only sees the success
+    row. If dedupe had run first, the quarantined row's newer
+    timestamp would have won — bug.
     """
     url = "https://example.org/data.csv"
     older_success = make_row(

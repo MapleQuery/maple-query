@@ -1,9 +1,8 @@
-"""§12.3 — dry-run against the real services/ingest/runlog/ directory.
+"""Dry-run against the real services/ingest/runlog/ directory.
 
-Asserts the run completes, the summary's stage counts are
-self-consistent, and no parse errors appear on real data. If parse
-errors start showing up here, the runlog row shape has drifted from
-types.RawRunlogRow.
+Asserts the run completes, stage counts are self-consistent, and no
+parse errors appear on real data. If parse errors start showing up,
+the runlog row shape has drifted from `types.RawRunlogRow`.
 """
 from __future__ import annotations
 
@@ -37,8 +36,8 @@ def test_dry_run_against_real_runlogs(ingest_runlog_dir: Path, schemas_dir: Path
         run_id="00000000-0000-0000-0000-000000000000",
     )
 
-    # Stage counts self-check (§13.4):
-    # kept = seen - parse_errors - filtered_not_csv - filtered_not_success - deduped
+    # Stage counts self-check:
+    # kept = seen - filtered_not_csv - filtered_not_success - deduped
     expected_kept = (
         summary.runlog_rows_seen
         - summary.rows_filtered_not_csv

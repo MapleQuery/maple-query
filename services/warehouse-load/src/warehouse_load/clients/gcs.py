@@ -1,9 +1,7 @@
 """GCS read client for runlog JSONL files.
 
-Phase B-lite: same code path as local-disk reading, just yields
-`(name, line_iterator)` pairs from a `gs://` prefix. Used by the
-runlog reader (core/runlog_reader.py); not used until 2.2 (or a
-follow-up) uploads runlogs to `gs://maplequery-raw/runlog/`.
+Mirrors the local-disk path: yields `(object_name, line_iterator)`
+pairs from a `gs://` prefix. Active when `runlog_gcs_prefix` is set.
 """
 from __future__ import annotations
 
@@ -15,8 +13,6 @@ from google.cloud import storage  # type: ignore[attr-defined]
 
 @runtime_checkable
 class GcsClient(Protocol):
-    """The slice of GCS the loader uses."""
-
     def list_jsonl(self, gcs_prefix: str) -> Iterator[tuple[str, Iterator[str]]]:
         """Yield `(object_name, line_iterator)` for every *.jsonl under prefix."""
 

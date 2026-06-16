@@ -4,9 +4,9 @@
 uv run warehouse-load documents [--dry-run] [--since ISO] [--limit-orgs CODE ...]
 ```
 
-Thin shim by design (§9): constructs `Settings` from env, overrides
-with flags, builds a `RunRequest`, calls `core.runner.run_documents_load`,
-prints the `DocumentsRunSummary` as JSON. No business logic lives here.
+Thin shim: builds `Settings` from env, overrides with flags, calls
+`core.runner.run_documents_load`, prints the summary as JSON. No
+business logic here.
 """
 from __future__ import annotations
 
@@ -28,9 +28,9 @@ app = typer.Typer(name="warehouse-load", help="MapleQuery warehouse loader CLI."
 
 @app.callback()
 def _root() -> None:
-    """Stub callback. Typer flattens single-command apps unless a callback
-    forces the subcommand layout — we keep `documents` as an explicit
-    subcommand so 3.3 can add `rows` later without breaking the surface."""
+    """Forces Typer to keep `documents` as an explicit subcommand
+    (otherwise single-command apps get flattened), leaving room for
+    a future sibling like `rows` without breaking the CLI surface."""
 
 
 @app.command()

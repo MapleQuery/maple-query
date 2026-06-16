@@ -5,8 +5,8 @@ here. Lives at the bottom of the layer stack so every other module
 can depend on it.
 
 Closed-enum sets (`LANGUAGES`, `INGESTION_STATUSES`, `FILE_FORMATS`)
-are exported alongside the pydantic `Literal[...]` declarations so the
-§11.3 value-drift CI check has a single source of truth to read from.
+are exported alongside the pydantic `Literal[...]` declarations so
+the enum-drift test can read from a single source of truth.
 """
 from __future__ import annotations
 
@@ -16,15 +16,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-# Closed-enum sets. The §11.3 drift check compares these against
-# the union of values seen in real runlog files. Update both the
+# Closed-enum sets. The enum-drift test compares these against the
+# union of values seen in real runlog files. Update both the
 # Literal[...] declarations below and the matching set in lockstep.
 LANGUAGES: frozenset[str] = frozenset({"en", "fr", "unknown"})
 INGESTION_STATUSES: frozenset[str] = frozenset({"success", "quarantined", "failed"})
-# `file_format` is what 2.2 emits pre-filter — the kitchen-sink set the
-# model must accept. 3.2 narrows to "csv" at §6.1; values that show up
-# in the runlog but aren't here mean either 2.2 added a format or we
-# missed one. Either way, fix the drift before loading.
+# `file_format` is what ingest emits pre-filter — the kitchen-sink
+# set the model must accept. The loader narrows to "csv" downstream;
+# values that show up in the runlog but aren't here mean ingest
+# added a format or we missed one. Fix the drift before loading.
 FILE_FORMATS: frozenset[str] = frozenset(
     {
         "csv", "tsv",
@@ -41,10 +41,10 @@ FILE_FORMATS: frozenset[str] = frozenset(
 class RawRunlogRow(BaseModel):
     """One JSONL row from `services/ingest/runlog/*.jsonl`.
 
-    Shape matches 2.2's `DocumentRow` (`services/ingest/src/ingest/
-    types.py`). `extra="ignore"` is forward-compat for new fields
-    added by 2.2; the §11.2 key-drift CI check catches them so
-    additions don't silently bypass the warehouse.
+    Shape matches ingest's `DocumentRow` in
+    `services/ingest/src/ingest/types.py`. `extra="ignore"` is
+    forward-compat for new ingest fields; the key-drift test catches
+    them so additions don't silently bypass the warehouse.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -80,8 +80,8 @@ class RawRunlogRow(BaseModel):
 
 @dataclass(frozen=True)
 class DocumentsRunSummary:
-    """End-of-run roll-up. Printed as JSON; shape mirrors §10.1's
-    `documents_load_finish` event payload."""
+    """End-of-run roll-up. Printed as JSON; same shape as the
+    `documents_load_finish` log event."""
 
     run_id: str
     dry_run: bool

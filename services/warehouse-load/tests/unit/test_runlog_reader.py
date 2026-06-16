@@ -1,4 +1,4 @@
-"""§12.1 — runlog reader handles fixture lines, parse errors, extras."""
+"""Runlog reader: fixture lines, parse errors, extras."""
 from __future__ import annotations
 
 import json

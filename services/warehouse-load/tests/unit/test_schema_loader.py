@@ -1,4 +1,4 @@
-"""§11.1 — schema files in infra/terraform/schemas/ parse via SchemaField."""
+"""Schema files in infra/terraform/schemas/ parse via SchemaField."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -40,7 +40,7 @@ def test_raw_documents_owns_expected_columns(schemas_dir: Path) -> None:
         "document_id", "source_url", "gcs_uri",
         "file_format", "language", "subjects",
         "metadata_modified", "ingested_at", "ingestion_status",
-        # 3.3-owned columns the loader inserts as NULL/'pending':
+        # Content-loader columns inserted as NULL/'pending':
         "preamble_rows", "header_confidence", "load_status",
         "load_attempted_at", "load_error", "row_count",
     }
