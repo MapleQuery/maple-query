@@ -1,7 +1,12 @@
-"""GCS read client for runlog JSONL files.
+"""GCS read client.
 
-Mirrors the local-disk path: yields `(object_name, line_iterator)`
-pairs from a `gs://` prefix. Active when `runlog_gcs_prefix` is set.
+`list_jsonl` yields `(object_name, line_iterator)` pairs from a
+`gs://` prefix — mirrors the local-disk path for runlog reads.
+
+`list_existing` walks a prefix and returns the full `gs://bucket/object`
+URI for every blob found. The documents loader uses this as the
+source of truth for blob existence so a bucket clean is self-healing
+on the next load.
 """
 from __future__ import annotations
 
@@ -15,6 +20,9 @@ from google.cloud import storage  # type: ignore[attr-defined]
 class GcsClient(Protocol):
     def list_jsonl(self, gcs_prefix: str) -> Iterator[tuple[str, Iterator[str]]]:
         """Yield `(gs://bucket/object, line_iterator)` for every *.jsonl under prefix."""
+
+    def list_existing(self, gcs_prefix: str) -> set[str]:
+        """Return the set of full `gs://bucket/object` URIs under prefix."""
 
 
 class RealGcsClient:
@@ -33,6 +41,19 @@ class RealGcsClient:
                 continue
             text = blob.download_as_text(encoding="utf-8")
             yield f"gs://{bucket_name}/{blob.name}", iter(text.splitlines())
+
+    def list_existing(self, gcs_prefix: str) -> set[str]:
+        """One pass over the prefix; materialize the full URI set.
+
+        Pagination is handled transparently by `list_blobs`. Network
+        errors and auth/bucket-missing conditions propagate to the
+        caller, which decides whether to fail the run.
+        """
+        bucket_name, prefix = _split_gs_uri(gcs_prefix)
+        return {
+            f"gs://{bucket_name}/{blob.name}"
+            for blob in self._client.list_blobs(bucket_name, prefix=prefix)
+        }
 
 
 def _split_gs_uri(uri: str) -> tuple[str, str]:

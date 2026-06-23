@@ -23,6 +23,8 @@ def test_dry_run_against_real_runlogs(ingest_runlog_dir: Path, schemas_dir: Path
         since=None,
         dry_run=True,
         limit_orgs=(),
+        bucket_prefix=None,
+        no_bucket_check=False,
     )
 
     summary = run_documents_load(
@@ -37,17 +39,22 @@ def test_dry_run_against_real_runlogs(ingest_runlog_dir: Path, schemas_dir: Path
     )
 
     # Stage counts self-check:
-    # kept = seen - filtered_not_csv - filtered_not_success - deduped
+    # kept = seen - filtered_not_csv - filtered_not_success - deduped - blob_missing
     expected_kept = (
         summary.runlog_rows_seen
         - summary.rows_filtered_not_csv
         - summary.rows_filtered_not_success
         - summary.rows_deduped
+        - summary.rows_filtered_blob_missing
     )
     assert summary.rows_kept == expected_kept, (
         f"stage counts inconsistent: kept={summary.rows_kept} "
         f"expected={expected_kept} from summary={summary}"
     )
+
+    # No bucket configured + dry-run → intersection is skipped.
+    assert summary.bucket_check_skipped is True
+    assert summary.rows_filtered_blob_missing == 0
 
     # Dry-run never writes to BQ.
     assert summary.documents_inserted == 0

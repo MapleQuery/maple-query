@@ -1,8 +1,9 @@
 """End-to-end orchestration for the documents loader.
 
 `run_documents_load` is the function the CLI calls. It wires the
-runlog reader, filter, dedupe, and MERGE together, emits structured
-log events for each stage, and returns a `DocumentsRunSummary`.
+runlog reader, filter, dedupe, bucket-existence intersection, and
+MERGE together, emits structured log events for each stage, and
+returns a `DocumentsRunSummary`.
 """
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ from warehouse_load.core.documents_filter import (
     FilteredRow,
     dedupe_by_source_url,
     filter_rows,
+    intersect_bucket,
 )
 from warehouse_load.core.documents_merge import dry_run, merge_documents
 from warehouse_load.core.runlog_reader import iter_runlog_rows
@@ -35,6 +37,8 @@ class RunRequest:
     since: datetime | None
     dry_run: bool
     limit_orgs: tuple[str, ...]
+    bucket_prefix: str | None
+    no_bucket_check: bool
 
 
 def run_documents_load(
@@ -119,7 +123,16 @@ def run_documents_load(
             reason=drop.reason,
         )
 
-    rows_kept = len(deduped)
+    after_intersection, blob_missing, bucket_check_skipped = _intersect_against_bucket(
+        rows=deduped,
+        request=request,
+        gcs=gcs,
+        log=log,
+        run_id=run_id,
+    )
+    filtered_blob_missing = len(blob_missing)
+
+    rows_kept = len(after_intersection)
 
     documents_inserted = 0
     documents_updated = 0
@@ -128,7 +141,7 @@ def run_documents_load(
     schema = load_schema(schemas_dir / "raw_documents.json")
 
     if request.dry_run:
-        result = dry_run(deduped)
+        result = dry_run(after_intersection)
         for payload_row in result.payload:
             log.info(
                 "would_have_merged",
@@ -141,7 +154,7 @@ def run_documents_load(
             raise ValueError("bq client required when dry_run is False")
         merge_result = merge_documents(
             bq=bq,
-            rows=deduped,
+            rows=after_intersection,
             project_id=project_id,
             dataset=dataset,
             table=table,
@@ -169,15 +182,77 @@ def run_documents_load(
         runlog_parse_errors=parse_errors,
         rows_filtered_not_csv=filtered_not_csv,
         rows_filtered_not_success=filtered_not_success,
+        rows_filtered_blob_missing=filtered_blob_missing,
         rows_deduped=len(dropped),
         rows_kept=rows_kept,
         documents_inserted=documents_inserted,
         documents_updated=documents_updated,
         documents_unchanged=documents_unchanged,
+        bucket_check_skipped=bucket_check_skipped,
         duration_ms=duration_ms,
     )
     log.info("documents_load_finish", run_id=run_id, summary=_summary_dict(summary))
     return summary
+
+
+def _intersect_against_bucket(
+    *,
+    rows: list[RawRunlogRow],
+    request: RunRequest,
+    gcs: GcsClient | None,
+    log: Any,
+    run_id: str,
+) -> tuple[list[RawRunlogRow], list[FilteredRow], bool]:
+    """Apply the bucket-truth intersection. Returns (kept, dropped, skipped).
+
+    Skipping happens when the operator passes `--no-bucket-check`, or
+    when no bucket is configured in a dry-run (keeps the existing
+    no-bucket dry-run path working for local development).
+
+    Real runs without a reachable bucket fail loudly: the alternative —
+    silently skipping — would silently pollute the warehouse on the
+    next reachable run.
+    """
+    if request.no_bucket_check:
+        log.warning("bucket_check_disabled", run_id=run_id, reason="no_bucket_check_flag")
+        return rows, [], True
+
+    if request.bucket_prefix is None or gcs is None:
+        if request.dry_run:
+            log.warning(
+                "bucket_check_disabled",
+                run_id=run_id,
+                reason="no_bucket_configured_in_dry_run",
+            )
+            return rows, [], True
+        raise ValueError(
+            "bucket-intersection requires a configured bucket_prefix and gcs client; "
+            "set WHLOAD_BUCKET_PREFIX or pass --no-bucket-check to opt out.",
+        )
+
+    log.info("bucket_check_started", run_id=run_id, prefix=request.bucket_prefix)
+    started = time.monotonic()
+    existing = frozenset(gcs.list_existing(request.bucket_prefix))
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    log.info(
+        "bucket_check_done",
+        run_id=run_id,
+        prefix=request.bucket_prefix,
+        existing_count=len(existing),
+        elapsed_ms=elapsed_ms,
+    )
+
+    kept, dropped = intersect_bucket(rows, existing)
+    for filtered_row in dropped:
+        log.info(
+            "row_filtered",
+            run_id=run_id,
+            reason=filtered_row.reason,
+            source_url=filtered_row.row.source_url,
+            document_id=filtered_row.row.document_id,
+            gcs_uri=filtered_row.row.gcs_uri,
+        )
+    return kept, dropped, False
 
 
 def _summary_dict(summary: DocumentsRunSummary) -> dict[str, Any]:
@@ -191,10 +266,12 @@ def _summary_dict(summary: DocumentsRunSummary) -> dict[str, Any]:
         "runlog_parse_errors": summary.runlog_parse_errors,
         "rows_filtered_not_csv": summary.rows_filtered_not_csv,
         "rows_filtered_not_success": summary.rows_filtered_not_success,
+        "rows_filtered_blob_missing": summary.rows_filtered_blob_missing,
         "rows_deduped": summary.rows_deduped,
         "rows_kept": summary.rows_kept,
         "documents_inserted": summary.documents_inserted,
         "documents_updated": summary.documents_updated,
         "documents_unchanged": summary.documents_unchanged,
+        "bucket_check_skipped": summary.bucket_check_skipped,
         "duration_ms": summary.duration_ms,
     }

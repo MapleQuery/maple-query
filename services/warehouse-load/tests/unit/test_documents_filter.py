@@ -9,6 +9,7 @@ from warehouse_load.core.documents_filter import (
     FilteredRow,
     dedupe_by_source_url,
     filter_rows,
+    intersect_bucket,
 )
 from warehouse_load.types import RawRunlogRow
 
@@ -125,3 +126,46 @@ def test_dedupe_yields_distinct_rows_for_distinct_urls() -> None:
     deduped, dropped = dedupe_by_source_url([a, b])
     assert {r.source_url for r in deduped} == {a.source_url, b.source_url}
     assert dropped == []
+
+
+def _row_with_uri(uri: str | None, document_id: str = "d" * 64) -> RawRunlogRow:
+    return make_row(
+        source_url=f"https://example.org/{document_id}.csv",
+        document_id=document_id,
+    ).model_copy(update={"gcs_uri": uri})
+
+
+def test_intersect_bucket_passes_through_when_uri_present() -> None:
+    row = _row_with_uri("gs://bucket/raw/a.csv")
+    kept, dropped = intersect_bucket([row], frozenset({"gs://bucket/raw/a.csv"}))
+    assert kept == [row]
+    assert dropped == []
+
+
+def test_intersect_bucket_drops_when_uri_absent() -> None:
+    row = _row_with_uri("gs://bucket/raw/missing.csv")
+    kept, dropped = intersect_bucket([row], frozenset({"gs://bucket/raw/other.csv"}))
+    assert kept == []
+    assert len(dropped) == 1
+    assert dropped[0].reason == "blob_missing"
+    assert dropped[0].row == row
+
+
+def test_intersect_bucket_drops_when_uri_is_none() -> None:
+    """A success row with `gcs_uri=None` is itself a sign the blob is gone."""
+    row = _row_with_uri(None)
+    kept, dropped = intersect_bucket([row], frozenset({"gs://bucket/raw/a.csv"}))
+    assert kept == []
+    assert dropped[0].reason == "blob_missing"
+
+
+def test_intersect_bucket_empty_existence_drops_every_row() -> None:
+    rows = [
+        _row_with_uri("gs://bucket/raw/a.csv", document_id="a" * 64),
+        _row_with_uri("gs://bucket/raw/b.csv", document_id="b" * 64),
+        _row_with_uri("gs://bucket/raw/c.csv", document_id="c" * 64),
+    ]
+    kept, dropped = intersect_bucket(rows, frozenset())
+    assert kept == []
+    assert len(dropped) == len(rows)
+    assert {d.reason for d in dropped} == {"blob_missing"}

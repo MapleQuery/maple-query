@@ -1,4 +1,4 @@
-"""Format/status filter, then source_url dedupe.
+"""Format/status filter, dedupe, then bucket-existence intersection.
 
 Filter runs *before* dedupe so a quarantined-csv row never shadows a
 real success row at the same `source_url`.
@@ -11,6 +11,12 @@ Tie-break on equal `ingested_at`: `document_id` ASC. The CKAN
 URL-sharing case can land N rows in one pass with sub-millisecond
 deltas; pinning the secondary key makes the dedupe winner
 deterministic regardless of file/line iteration order.
+
+`intersect_bucket` runs *after* dedupe and drops rows whose
+`gcs_uri` is not present in the bucket-truth set, so a bucket
+clean is self-healing on the next load. Running before dedupe
+would waste existence checks on rows that lose dedupe; running
+after MERGE would defeat the purpose.
 """
 from __future__ import annotations
 
@@ -20,7 +26,7 @@ from typing import Literal
 
 from warehouse_load.types import RawRunlogRow
 
-FilterReason = Literal["not_csv", "not_success"]
+FilterReason = Literal["not_csv", "not_success", "blob_missing"]
 
 
 @dataclass(frozen=True)
@@ -84,6 +90,30 @@ def dedupe_by_source_url(
             dropped.append(DedupedRow(dropped=row, kept=prev, reason="older_ingested_at"))
 
     return list(latest.values()), dropped
+
+
+def intersect_bucket(
+    rows: Iterable[RawRunlogRow],
+    existing_uris: frozenset[str],
+) -> tuple[list[RawRunlogRow], list[FilteredRow]]:
+    """Return `(kept, dropped)` after intersecting `gcs_uri` against the bucket.
+
+    Rows with a `gcs_uri` of None are dropped as `blob_missing` — a
+    success-csv row in the runlog should always carry a `gcs_uri`,
+    so a None value here is itself a sign the blob is gone.
+
+    `existing_uris` is the materialized set returned by
+    `GcsClient.list_existing`; passing a frozenset signals to callers
+    that this function does not mutate it.
+    """
+    kept: list[RawRunlogRow] = []
+    dropped: list[FilteredRow] = []
+    for row in rows:
+        if row.gcs_uri is None or row.gcs_uri not in existing_uris:
+            dropped.append(FilteredRow(row=row, reason="blob_missing"))
+            continue
+        kept.append(row)
+    return kept, dropped
 
 
 def _wins(candidate: RawRunlogRow, incumbent: RawRunlogRow) -> bool:

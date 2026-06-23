@@ -45,3 +45,38 @@ def test_settings_run_id_is_uuid_by_default(monkeypatch: pytest.MonkeyPatch) -> 
     b = Settings().run_id  # type: ignore[call-arg]
     assert a != b
     assert len(a) == 36  # canonical uuid4 length
+
+
+def test_settings_bucket_prefix_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WHLOAD_GCP_PROJECT_ID", "p")
+    monkeypatch.delenv("WHLOAD_BUCKET_PREFIX", raising=False)
+    s = Settings()  # type: ignore[call-arg]
+    assert s.bucket_prefix == "gs://maplequery-raw/raw/"
+
+
+def test_settings_bucket_prefix_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WHLOAD_GCP_PROJECT_ID", "p")
+    monkeypatch.setenv("WHLOAD_BUCKET_PREFIX", "gs://other-bucket/data/")
+    s = Settings()  # type: ignore[call-arg]
+    assert s.bucket_prefix == "gs://other-bucket/data/"
+
+
+def test_settings_bucket_prefix_requires_gs_scheme(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WHLOAD_GCP_PROJECT_ID", "p")
+    monkeypatch.setenv("WHLOAD_BUCKET_PREFIX", "https://example.org/raw/")
+    with pytest.raises(ValueError, match="gs://"):
+        Settings()  # type: ignore[call-arg]
+
+
+def test_settings_bucket_prefix_requires_trailing_slash(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WHLOAD_GCP_PROJECT_ID", "p")
+    monkeypatch.setenv("WHLOAD_BUCKET_PREFIX", "gs://bucket/raw")
+    with pytest.raises(ValueError, match="end with"):
+        Settings()  # type: ignore[call-arg]
+
+
+def test_settings_bucket_prefix_requires_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WHLOAD_GCP_PROJECT_ID", "p")
+    monkeypatch.setenv("WHLOAD_BUCKET_PREFIX", "gs:///raw/")
+    with pytest.raises(ValueError, match="missing bucket"):
+        Settings()  # type: ignore[call-arg]
