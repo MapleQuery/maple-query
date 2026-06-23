@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import typer
@@ -72,7 +72,7 @@ def documents(
             "(or WHLOAD_RUNLOG_LOCAL_DIR / WHLOAD_RUNLOG_GCS_PREFIX).",
         )
 
-    parsed_since = datetime.fromisoformat(since) if since else None
+    parsed_since = _parse_since(since)
 
     request = RunRequest(
         local_dir=local_dir,
@@ -107,3 +107,18 @@ def documents(
     )
 
     typer.echo(json.dumps(asdict(summary), indent=2, default=str))
+
+
+def _parse_since(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise typer.BadParameter(f"--since must be ISO 8601, got {value!r}: {exc}") from exc
+    # Naive inputs (e.g. "2026-06-01" or "2026-06-01T00:00:00") would
+    # raise TypeError when compared against tz-aware `ingested_at`.
+    # Anchor to UTC to match how the runlog rows are stored.
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed

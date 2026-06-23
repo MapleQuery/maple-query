@@ -5,9 +5,10 @@ Yields `RawRunlogRow` instances. Parse failures are surfaced via the
 logs them, then continues, because the runlog is immutable history
 and one corrupted line shouldn't halt the load.
 
-Stream-oriented by design: each line is parsed and yielded
-immediately, so memory stays bounded regardless of how big the
-runlog directory grows.
+Local-disk reads are line-streamed. GCS reads pull each blob into
+memory before iterating (per-blob bounded, not per-directory) — fine
+at current per-blob sizes (largest seen <10 MB), revisit if a single
+runlog blob grows past ~100 MB.
 """
 from __future__ import annotations
 
@@ -85,12 +86,8 @@ def iter_runlog_rows(
     if gcs_prefix is not None:
         if gcs_client is None:
             raise ValueError("gcs_client must be provided when gcs_prefix is set")
-        for name, lines in gcs_client.list_jsonl(gcs_prefix):
-            yield from _iter_lines(
-                source=f"gs://{name}",
-                lines=lines,
-                since=since,
-            )
+        for source, lines in gcs_client.list_jsonl(gcs_prefix):
+            yield from _iter_lines(source=source, lines=lines, since=since)
 
 
 def _open_lines(path: Path) -> Iterator[str]:

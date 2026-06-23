@@ -14,7 +14,7 @@ from google.cloud import storage  # type: ignore[attr-defined]
 @runtime_checkable
 class GcsClient(Protocol):
     def list_jsonl(self, gcs_prefix: str) -> Iterator[tuple[str, Iterator[str]]]:
-        """Yield `(object_name, line_iterator)` for every *.jsonl under prefix."""
+        """Yield `(gs://bucket/object, line_iterator)` for every *.jsonl under prefix."""
 
 
 class RealGcsClient:
@@ -32,7 +32,7 @@ class RealGcsClient:
             if not blob.name.endswith(".jsonl"):
                 continue
             text = blob.download_as_text(encoding="utf-8")
-            yield blob.name, iter(text.splitlines())
+            yield f"gs://{bucket_name}/{blob.name}", iter(text.splitlines())
 
 
 def _split_gs_uri(uri: str) -> tuple[str, str]:
