@@ -1,0 +1,90 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "warehouse-load"
+version = "0.1.0"
+description = "MapleQuery warehouse loader — reads ingest JSONL runlogs and writes raw.documents."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  # GCP clients
+  "google-cloud-bigquery>=3.23,<4",
+  "google-cloud-storage>=2.16,<3",
+  # Config + data validation
+  "pydantic>=2.7,<3",
+  "pydantic-settings>=2.3,<3",
+  "python-dotenv>=1.0,<2",
+  # Logging + observability
+  "structlog>=24.1,<26",
+  "google-cloud-logging>=3.10,<4",
+  # Retry
+  "tenacity>=8.3,<9",
+  # CLI. typer<0.15 is incompatible with click>=8.2 (Parameter.make_metavar
+  # signature change); pin >=0.15 so the resolver picks a compatible build.
+  "typer>=0.15,<1",
+]
+
+[project.scripts]
+warehouse-load = "warehouse_load.entrypoint:app"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2,<9",
+  "pytest-cov>=5.0,<6",
+  "hypothesis>=6.103,<7",
+  "ruff>=0.5,<1",
+  "mypy>=1.10,<2",
+  "import-linter>=2.0,<3",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/warehouse_load"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Typer documents `Option(...)` in defaults as the idiomatic pattern; B008 is a
+# false positive for typer commands.
+"src/warehouse_load/entrypoint.py" = ["B008"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+packages = ["warehouse_load"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["src/warehouse_load"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+[tool.importlinter]
+root_packages = ["warehouse_load"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture"
+type = "layers"
+layers = [
+  "warehouse_load.entrypoint",
+  "warehouse_load.core",
+  "warehouse_load.clients",
+  "warehouse_load.providers",
+  "warehouse_load.config",
+  "warehouse_load.types",
+]
