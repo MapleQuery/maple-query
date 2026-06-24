@@ -1,11 +1,16 @@
-"""Integration-test fakes for BQ.
+"""Integration-test fakes for BQ and GCS.
 
 `FakeBqClient` implements the `BqClient` Protocol; tests pre-populate
 its `target_rows` to simulate prior loads, then inspect
 `load_calls` / `query_calls` after the run.
+
+`FakeGcsClient` implements `GcsClient` for the documents-loader
+intersection tests: pre-populate `existing` with the gs:// URIs the
+bucket should be claimed to contain.
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -61,3 +66,36 @@ class FakeBqClient:
 
     def delete_table(self, table_id: str, *, not_found_ok: bool = True) -> None:
         self.delete_calls.append(table_id)
+
+
+@dataclass
+class FakeGcsClient:
+    """Hand-rolled GCS stand-in.
+
+    `existing` is the set of full `gs://bucket/object` URIs the bucket
+    is claimed to contain. `list_existing_calls` records the prefixes
+    requested, so tests can assert the call happens (or doesn't).
+    `list_jsonl_pages` lets tests feed the runlog reader if needed.
+    """
+
+    existing: set[str] = field(default_factory=set)
+    # When set, `blob_exists` checks this set instead of `existing`. Lets
+    # tests simulate the format-drift case where `list_existing` and a
+    # per-URI HEAD disagree (the smoking gun for ingest/listing URI drift).
+    head_existing: set[str] | None = None
+    list_existing_calls: list[str] = field(default_factory=list)
+    blob_exists_calls: list[str] = field(default_factory=list)
+    list_jsonl_pages: list[tuple[str, list[str]]] = field(default_factory=list)
+
+    def list_jsonl(self, gcs_prefix: str) -> Iterator[tuple[str, Iterator[str]]]:
+        for source, lines in self.list_jsonl_pages:
+            yield source, iter(lines)
+
+    def list_existing(self, gcs_prefix: str) -> set[str]:
+        self.list_existing_calls.append(gcs_prefix)
+        return set(self.existing)
+
+    def blob_exists(self, gcs_uri: str) -> bool:
+        self.blob_exists_calls.append(gcs_uri)
+        source = self.head_existing if self.head_existing is not None else self.existing
+        return gcs_uri in source

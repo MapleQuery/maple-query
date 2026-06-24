@@ -90,9 +90,14 @@ class DocumentsRunSummary:
     runlog_parse_errors: int
     rows_filtered_not_csv: int
     rows_filtered_not_success: int
+    rows_filtered_blob_missing: int
     rows_deduped: int
     rows_kept: int
     documents_inserted: int
     documents_updated: int
     documents_unchanged: int
+    # True when --no-bucket-check was used (or no bucket was configured
+    # in dry-run). Lets downstream tooling distinguish "0 zombies
+    # because none existed" from "0 zombies because we didn't check."
+    bucket_check_skipped: bool
     duration_ms: int

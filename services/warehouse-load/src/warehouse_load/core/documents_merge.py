@@ -99,6 +99,11 @@ def merge_documents(
     on the target is inserts; the rest is treated as updates.
     """
     rows_list = list(rows)
+    if not rows_list:
+        # `load_table_from_json` rejects empty payloads; short-circuit so a
+        # fully-zombified run (e.g. misconfigured bucket prefix) is a no-op
+        # rather than a hard failure.
+        return MergeResult(rows_inserted=0, rows_updated=0, rows_unchanged=0)
     payload = [_row_to_payload(r) for r in rows_list]
 
     staging_table_id = f"{project_id}.{dataset}._documents_staging_{run_id_short}"

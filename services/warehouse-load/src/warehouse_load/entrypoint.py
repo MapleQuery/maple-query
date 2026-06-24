@@ -1,7 +1,8 @@
 """Typer CLI for the warehouse loader.
 
 ```
-uv run warehouse-load documents [--dry-run] [--since ISO] [--limit-orgs CODE ...]
+uv run warehouse-load documents [--dry-run] [--since ISO]
+                                [--limit-orgs CODE ...] [--no-bucket-check]
 ```
 
 Thin shim: builds `Settings` from env, overrides with flags, calls
@@ -55,6 +56,22 @@ def documents(
         None, "--limit-orgs",
         help="Repeatable; restrict to these organization_code values.",
     ),
+    no_bucket_check: bool = typer.Option(
+        False, "--no-bucket-check",
+        help=(
+            "Skip the GCS bucket-intersection step. Logs a loud warning. "
+            "Use only when the bucket is unreachable and you understand "
+            "that zombie rows may land in raw.documents."
+        ),
+    ),
+    allow_mass_blob_missing: bool = typer.Option(
+        False, "--allow-mass-blob-missing",
+        help=(
+            "Disable the mass-blob-missing guardrail. Use only when you "
+            "intentionally cleaned the bucket and expect most rows to "
+            "drop as zombies."
+        ),
+    ),
 ) -> None:
     """Load raw.documents from ingest runlog JSONL files."""
     configure_logging()
@@ -74,12 +91,17 @@ def documents(
 
     parsed_since = _parse_since(since)
 
+    bucket_prefix = settings.bucket_prefix if not no_bucket_check else None
+
     request = RunRequest(
         local_dir=local_dir,
         gcs_prefix=gcs_prefix,
         since=parsed_since,
         dry_run=dry_run,
         limit_orgs=tuple(limit_orgs or []),
+        bucket_prefix=bucket_prefix,
+        no_bucket_check=no_bucket_check,
+        allow_mass_blob_missing=allow_mass_blob_missing,
     )
 
     log.info(
@@ -89,11 +111,20 @@ def documents(
         runlog_gcs_prefix=gcs_prefix,
         since=parsed_since.isoformat() if parsed_since else None,
         limit_orgs=request.limit_orgs,
+        bucket_prefix=bucket_prefix,
+        no_bucket_check=no_bucket_check,
+        allow_mass_blob_missing=allow_mass_blob_missing,
         gcp_project=settings.gcp_project_id,
     )
 
     bq = None if dry_run else RealBqClient.for_project(settings.gcp_project_id)
-    gcs = RealGcsClient.for_project(settings.gcp_project_id) if gcs_prefix else None
+    # The same GcsClient instance services both runlog reads and the
+    # bucket-existence check, so build it whenever either is needed.
+    gcs = (
+        RealGcsClient.for_project(settings.gcp_project_id)
+        if gcs_prefix or bucket_prefix
+        else None
+    )
 
     summary = run_documents_load(
         request=request,

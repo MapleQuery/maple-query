@@ -23,7 +23,11 @@ types → config → providers → clients → core → entrypoint
 1. **Read** — stream rows from local + GCS runlogs (`core/runlog_reader.py`). Parse errors are surfaced as a `ParseError` event and counted; one bad line does not halt the run because the runlog is immutable history.
 2. **Filter** — keep only `file_format == "csv"` AND `ingestion_status == "success"`. Filter runs *before* dedupe so a quarantined row never shadows a real success at the same `source_url`.
 3. **Dedupe by `source_url`** — not by `document_id`. CKAN URL-sharing and failed-row placeholder `document_id`s produce within-run `source_url` dupes by design. Winner: latest `ingested_at`; tie-break `document_id` ASC.
-4. **Stage + MERGE** — write the kept rows to a TTL-bounded staging table, then `MERGE INTO raw.documents` keyed on `document_id`. Staging table auto-deletes after the configured TTL (default 1h).
+4. **Bucket-existence intersection** — list `WHLOAD_BUCKET_PREFIX` once per run (default `gs://maplequery-raw/raw/`), then drop any deduped row whose `gcs_uri` is absent from the bucket-truth set with reason `blob_missing`. Makes a bucket clean self-healing on the next load. Pass `--no-bucket-check` to opt out (logs a loud warning); a missing/unreachable bucket in a real run fails the run rather than silently polluting the warehouse.
+5. **Mass-blob-missing guardrail** — if at least 100 rows AND at least 50% of the deduped set would drop as `blob_missing`, the run aborts before the MERGE. Before aborting, the guardrail samples three of the "missing" URIs and HEADs them on the bucket — if any actually exist, the error names URI-format drift as the likely cause instead of a real bucket clean. Override with `--allow-mass-blob-missing` for an intentional full-clean reload.
+6. **Stage + MERGE** — write the kept rows to a TTL-bounded staging table, then `MERGE INTO raw.documents` keyed on `document_id`. An empty kept set short-circuits (no staging table, no MERGE). Staging table auto-deletes after the configured TTL (default 1h).
+
+The loader assumes a quiescent corpus: do not run while `ingest` is actively writing, since a runlog row written between the runlog read and the bucket listing could resolve to a blob that isn't yet visible to the listing and would be misclassified as a zombie.
 
 ## Column ownership in the MERGE
 
@@ -67,6 +71,8 @@ uv run warehouse-load documents --limit-orgs fin --limit-orgs statcan
 ```
 
 Default runlog source is `services/ingest/runlog/*.jsonl` (override with `--runlog-local-dir` or `WHLOAD_RUNLOG_LOCAL_DIR`). To read from GCS, set `WHLOAD_RUNLOG_GCS_PREFIX=gs://maplequery-raw/runlog/` or pass `--runlog-gcs-prefix`.
+
+The bucket-existence step uses `WHLOAD_BUCKET_PREFIX` (default `gs://maplequery-raw/raw/`). In a real (non-dry-run) load the bucket must be reachable; pass `--no-bucket-check` to opt out for debugging. Dry-runs without a configured bucket simply skip the step (and report `bucket_check_skipped=true`).
 
 ## Tests
 
