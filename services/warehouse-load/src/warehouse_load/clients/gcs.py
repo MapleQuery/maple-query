@@ -24,6 +24,9 @@ class GcsClient(Protocol):
     def list_existing(self, gcs_prefix: str) -> set[str]:
         """Return the set of full `gs://bucket/object` URIs under prefix."""
 
+    def blob_exists(self, gcs_uri: str) -> bool:
+        """Return True iff `gcs_uri` resolves to a real blob."""
+
 
 class RealGcsClient:
     def __init__(self, client: storage.Client) -> None:
@@ -54,6 +57,13 @@ class RealGcsClient:
             f"gs://{bucket_name}/{blob.name}"
             for blob in self._client.list_blobs(bucket_name, prefix=prefix)
         }
+
+    def blob_exists(self, gcs_uri: str) -> bool:
+        """One HEAD against `gcs_uri`. Used by the mass-blob-missing
+        guardrail to distinguish a real bucket clean from a URI-format
+        drift between ingest writes and the bucket listing canon."""
+        bucket_name, name = _split_gs_uri(gcs_uri)
+        return bool(self._client.bucket(bucket_name).blob(name).exists())
 
 
 def _split_gs_uri(uri: str) -> tuple[str, str]:

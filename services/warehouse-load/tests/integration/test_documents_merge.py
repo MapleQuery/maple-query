@@ -87,6 +87,29 @@ def test_merge_update_clause_omits_content_loader_columns(schemas_dir: Path) -> 
         )
 
 
+def test_merge_empty_payload_short_circuits(schemas_dir: Path) -> None:
+    """An empty kept set never reaches BQ — `load_table_from_json` rejects
+    empty payloads, and we don't want a fully-zombified run to fail hard."""
+    bq = FakeBqClient()
+
+    result = merge_documents(
+        bq=bq,
+        rows=[],
+        project_id="proj",
+        dataset="raw",
+        table="documents",
+        schema=_schema(schemas_dir),
+        run_id_short="abcdef12",
+    )
+
+    assert result.rows_inserted == 0
+    assert result.rows_updated == 0
+    assert result.rows_unchanged == 0
+    assert bq.load_calls == []
+    assert bq.query_calls == []
+    assert bq.create_calls == []
+
+
 def test_merge_re_run_against_same_payload_inserts_zero(schemas_dir: Path) -> None:
     """Idempotence: re-running against the same payload inserts zero rows."""
     bq = FakeBqClient()

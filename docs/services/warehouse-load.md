@@ -24,7 +24,10 @@ types → config → providers → clients → core → entrypoint
 2. **Filter** — keep only `file_format == "csv"` AND `ingestion_status == "success"`. Filter runs *before* dedupe so a quarantined row never shadows a real success at the same `source_url`.
 3. **Dedupe by `source_url`** — not by `document_id`. CKAN URL-sharing and failed-row placeholder `document_id`s produce within-run `source_url` dupes by design. Winner: latest `ingested_at`; tie-break `document_id` ASC.
 4. **Bucket-existence intersection** — list `WHLOAD_BUCKET_PREFIX` once per run (default `gs://maplequery-raw/raw/`), then drop any deduped row whose `gcs_uri` is absent from the bucket-truth set with reason `blob_missing`. Makes a bucket clean self-healing on the next load. Pass `--no-bucket-check` to opt out (logs a loud warning); a missing/unreachable bucket in a real run fails the run rather than silently polluting the warehouse.
-5. **Stage + MERGE** — write the kept rows to a TTL-bounded staging table, then `MERGE INTO raw.documents` keyed on `document_id`. Staging table auto-deletes after the configured TTL (default 1h).
+5. **Mass-blob-missing guardrail** — if at least 100 rows AND at least 50% of the deduped set would drop as `blob_missing`, the run aborts before the MERGE. Before aborting, the guardrail samples three of the "missing" URIs and HEADs them on the bucket — if any actually exist, the error names URI-format drift as the likely cause instead of a real bucket clean. Override with `--allow-mass-blob-missing` for an intentional full-clean reload.
+6. **Stage + MERGE** — write the kept rows to a TTL-bounded staging table, then `MERGE INTO raw.documents` keyed on `document_id`. An empty kept set short-circuits (no staging table, no MERGE). Staging table auto-deletes after the configured TTL (default 1h).
+
+The loader assumes a quiescent corpus: do not run while `ingest` is actively writing, since a runlog row written between the runlog read and the bucket listing could resolve to a blob that isn't yet visible to the listing and would be misclassified as a zombie.
 
 ## Column ownership in the MERGE
 

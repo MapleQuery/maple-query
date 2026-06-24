@@ -7,6 +7,7 @@ returns a `DocumentsRunSummary`.
 """
 from __future__ import annotations
 
+import random
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -27,6 +28,17 @@ from warehouse_load.core.schema_loader import load_schema
 from warehouse_load.providers.logging import get_logger
 from warehouse_load.types import DocumentsRunSummary, RawRunlogRow
 
+# Refuse to MERGE when both: at least this many rows would be dropped
+# as `blob_missing`, AND they make up at least this fraction of the
+# post-dedupe set. Catches a misconfigured `WHLOAD_BUCKET_PREFIX` or
+# a URI-format drift between ingest writes and the bucket listing,
+# either of which would otherwise silently classify the whole corpus
+# as zombies and ship zero rows. Small runs (<100 missing) never
+# trip — the absolute floor protects unit-sized integration runs.
+_MASS_BLOB_MISSING_MIN_COUNT = 100
+_MASS_BLOB_MISSING_FRACTION = 0.5
+_MASS_BLOB_MISSING_SAMPLE_SIZE = 3
+
 
 @dataclass(frozen=True)
 class RunRequest:
@@ -39,6 +51,9 @@ class RunRequest:
     limit_orgs: tuple[str, ...]
     bucket_prefix: str | None
     no_bucket_check: bool
+    # Set to True only for the legitimate "we just cleaned the bucket"
+    # workflow. Disables the mass-blob-missing guardrail.
+    allow_mass_blob_missing: bool = False
 
 
 def run_documents_load(
@@ -131,6 +146,16 @@ def run_documents_load(
         run_id=run_id,
     )
     filtered_blob_missing = len(blob_missing)
+
+    _guard_mass_blob_missing(
+        blob_missing=blob_missing,
+        deduped_count=len(deduped),
+        gcs=gcs,
+        allow=request.allow_mass_blob_missing,
+        bucket_check_skipped=bucket_check_skipped,
+        log=log,
+        run_id=run_id,
+    )
 
     rows_kept = len(after_intersection)
 
@@ -253,6 +278,79 @@ def _intersect_against_bucket(
             gcs_uri=filtered_row.row.gcs_uri,
         )
     return kept, dropped, False
+
+
+def _guard_mass_blob_missing(
+    *,
+    blob_missing: list[FilteredRow],
+    deduped_count: int,
+    gcs: GcsClient | None,
+    allow: bool,
+    bucket_check_skipped: bool,
+    log: Any,
+    run_id: str,
+) -> None:
+    """Refuse to MERGE when the bucket says most rows are zombies.
+
+    Trips on `missing/deduped >= 0.5` AND `missing >= 100`. The absolute
+    floor keeps unit-sized runs from refusing on a single drop; the
+    fraction floor keeps a sparse miss-rate from refusing on
+    legitimate corpus growth.
+
+    Before refusing, sample a few of the "missing" URIs and call
+    `blob_exists` on them. If any actually exist, that's the smoking
+    gun for a URI-format drift (not a real bucket clean), and the
+    error message names that case explicitly.
+    """
+    if bucket_check_skipped or allow:
+        return
+    missing_count = len(blob_missing)
+    if missing_count < _MASS_BLOB_MISSING_MIN_COUNT:
+        return
+    fraction = missing_count / max(1, deduped_count)
+    if fraction < _MASS_BLOB_MISSING_FRACTION:
+        return
+
+    if gcs is not None:
+        # Seed on run_id so the sampled URIs in the log line are stable
+        # across re-runs of the same run_id — easier to triage from logs.
+        sample = random.Random(run_id).sample(
+            blob_missing,
+            k=min(_MASS_BLOB_MISSING_SAMPLE_SIZE, missing_count),
+        )
+        smoking_guns = [
+            fr.row.gcs_uri
+            for fr in sample
+            if fr.row.gcs_uri is not None and gcs.blob_exists(fr.row.gcs_uri)
+        ]
+        if smoking_guns:
+            log.error(
+                "mass_blob_missing_format_drift",
+                run_id=run_id,
+                rows_missing=missing_count,
+                rows_deduped=deduped_count,
+                sampled_existing=smoking_guns,
+            )
+            raise RuntimeError(
+                f"sampled 'missing' blobs actually exist on the bucket: "
+                f"{smoking_guns}. URI format may have drifted between "
+                "ingest writes and the bucket listing — investigate "
+                "before re-running.",
+            )
+
+    log.error(
+        "mass_blob_missing_refused",
+        run_id=run_id,
+        rows_missing=missing_count,
+        rows_deduped=deduped_count,
+        fraction=fraction,
+    )
+    raise RuntimeError(
+        f"{missing_count}/{deduped_count} rows ({fraction:.0%}) would be "
+        "dropped as blob_missing — refusing to MERGE. Pass "
+        "--allow-mass-blob-missing if this is intentional (e.g. you just "
+        "cleaned the bucket).",
+    )
 
 
 def _summary_dict(summary: DocumentsRunSummary) -> dict[str, Any]:

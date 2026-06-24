@@ -64,6 +64,14 @@ def documents(
             "that zombie rows may land in raw.documents."
         ),
     ),
+    allow_mass_blob_missing: bool = typer.Option(
+        False, "--allow-mass-blob-missing",
+        help=(
+            "Disable the mass-blob-missing guardrail. Use only when you "
+            "intentionally cleaned the bucket and expect most rows to "
+            "drop as zombies."
+        ),
+    ),
 ) -> None:
     """Load raw.documents from ingest runlog JSONL files."""
     configure_logging()
@@ -93,6 +101,7 @@ def documents(
         limit_orgs=tuple(limit_orgs or []),
         bucket_prefix=bucket_prefix,
         no_bucket_check=no_bucket_check,
+        allow_mass_blob_missing=allow_mass_blob_missing,
     )
 
     log.info(
@@ -104,6 +113,7 @@ def documents(
         limit_orgs=request.limit_orgs,
         bucket_prefix=bucket_prefix,
         no_bucket_check=no_bucket_check,
+        allow_mass_blob_missing=allow_mass_blob_missing,
         gcp_project=settings.gcp_project_id,
     )
 

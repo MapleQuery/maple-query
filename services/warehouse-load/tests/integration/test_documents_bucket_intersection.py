@@ -30,6 +30,7 @@ def _request_with_bucket(
     dry_run: bool = False,
     no_bucket_check: bool = False,
     bucket_prefix: str | None = BUCKET_PREFIX,
+    allow_mass_blob_missing: bool = False,
 ) -> RunRequest:
     return RunRequest(
         local_dir=None,
@@ -39,6 +40,7 @@ def _request_with_bucket(
         limit_orgs=(),
         bucket_prefix=bucket_prefix,
         no_bucket_check=no_bucket_check,
+        allow_mass_blob_missing=allow_mass_blob_missing,
     )
 
 
@@ -238,6 +240,127 @@ def test_intersection_skipped_in_dry_run_without_bucket(schemas_dir: Path) -> No
     assert summary.bucket_check_skipped is True
     assert summary.rows_filtered_blob_missing == 0
     assert summary.rows_kept == 1
+
+
+def _build_zombie_corpus(n: int) -> list[RawRunlogRow]:
+    return [
+        _row_with_uri(
+            document_id=f"{i:064x}",
+            source_url=f"https://example.org/{i}.csv",
+            gcs_uri=f"{BUCKET_PREFIX}path/{i}.csv",
+        )
+        for i in range(n)
+    ]
+
+
+def test_mass_blob_missing_refuses_above_threshold(schemas_dir: Path) -> None:
+    """100% missing across 150 rows trips the guardrail and aborts."""
+    import pytest
+
+    rows = _build_zombie_corpus(150)
+    bq = FakeBqClient()
+    gcs = FakeGcsClient(
+        existing=set(),  # every row is a zombie
+        list_jsonl_pages=[("gs://run/runlog/a.jsonl", _runlog_jsonl(rows))],
+    )
+
+    with pytest.raises(RuntimeError, match="refusing to MERGE"):
+        run_documents_load(
+            request=_request_with_bucket(),
+            bq=bq,
+            gcs=gcs,
+            project_id=PROJECT,
+            dataset=DATASET,
+            table=TABLE,
+            schemas_dir=schemas_dir,
+            run_id=RUN_ID,
+        )
+
+    assert bq.load_calls == []
+
+
+def test_mass_blob_missing_format_drift_names_the_cause(schemas_dir: Path) -> None:
+    """If a sampled 'missing' URI actually exists, the error names format drift.
+
+    Simulates URI-format drift: `list_existing` returns an empty set (so
+    every row looks like a zombie), while per-URI HEADs resolve. That
+    disagreement is the smoking gun for ingest/listing canon drift.
+    """
+    import pytest
+
+    rows = _build_zombie_corpus(150)
+    bq = FakeBqClient()
+    gcs = FakeGcsClient(
+        existing=set(),  # list_existing returns ∅ → every row is "missing"
+        head_existing={r.gcs_uri or "" for r in rows},  # HEAD resolves → drift
+        list_jsonl_pages=[("gs://run/runlog/a.jsonl", _runlog_jsonl(rows))],
+    )
+
+    with pytest.raises(RuntimeError, match="URI format may have drifted"):
+        run_documents_load(
+            request=_request_with_bucket(),
+            bq=bq,
+            gcs=gcs,
+            project_id=PROJECT,
+            dataset=DATASET,
+            table=TABLE,
+            schemas_dir=schemas_dir,
+            run_id=RUN_ID,
+        )
+
+    assert gcs.blob_exists_calls, "sample-verify must HEAD at least one URI"
+    assert bq.load_calls == []
+
+
+def test_mass_blob_missing_below_absolute_floor_does_not_refuse(schemas_dir: Path) -> None:
+    """Small runs (< 100 missing) never trip the guardrail."""
+    rows = _build_zombie_corpus(50)
+    bq = FakeBqClient()
+    gcs = FakeGcsClient(
+        existing=set(),
+        list_jsonl_pages=[("gs://run/runlog/a.jsonl", _runlog_jsonl(rows))],
+    )
+
+    summary = run_documents_load(
+        request=_request_with_bucket(),
+        bq=bq,
+        gcs=gcs,
+        project_id=PROJECT,
+        dataset=DATASET,
+        table=TABLE,
+        schemas_dir=schemas_dir,
+        run_id=RUN_ID,
+    )
+
+    assert summary.rows_filtered_blob_missing == 50
+    assert summary.rows_kept == 0
+    assert bq.load_calls == []  # short-circuited by the empty-payload guard
+
+
+def test_mass_blob_missing_allow_flag_bypasses_guardrail(schemas_dir: Path) -> None:
+    """`--allow-mass-blob-missing` lets a legitimate full-clean reload proceed."""
+    rows = _build_zombie_corpus(150)
+    bq = FakeBqClient()
+    gcs = FakeGcsClient(
+        existing=set(),
+        list_jsonl_pages=[("gs://run/runlog/a.jsonl", _runlog_jsonl(rows))],
+    )
+
+    summary = run_documents_load(
+        request=_request_with_bucket(allow_mass_blob_missing=True),
+        bq=bq,
+        gcs=gcs,
+        project_id=PROJECT,
+        dataset=DATASET,
+        table=TABLE,
+        schemas_dir=schemas_dir,
+        run_id=RUN_ID,
+    )
+
+    assert gcs.blob_exists_calls == [], "sample-verify must not run when guard is allowed off"
+    assert summary.rows_filtered_blob_missing == 150
+    assert summary.rows_kept == 0
+    assert bq.load_calls == []
 
 
 def test_intersection_runs_after_dedupe(schemas_dir: Path) -> None:

@@ -79,7 +79,12 @@ class FakeGcsClient:
     """
 
     existing: set[str] = field(default_factory=set)
+    # When set, `blob_exists` checks this set instead of `existing`. Lets
+    # tests simulate the format-drift case where `list_existing` and a
+    # per-URI HEAD disagree (the smoking gun for ingest/listing URI drift).
+    head_existing: set[str] | None = None
     list_existing_calls: list[str] = field(default_factory=list)
+    blob_exists_calls: list[str] = field(default_factory=list)
     list_jsonl_pages: list[tuple[str, list[str]]] = field(default_factory=list)
 
     def list_jsonl(self, gcs_prefix: str) -> Iterator[tuple[str, Iterator[str]]]:
@@ -89,3 +94,8 @@ class FakeGcsClient:
     def list_existing(self, gcs_prefix: str) -> set[str]:
         self.list_existing_calls.append(gcs_prefix)
         return set(self.existing)
+
+    def blob_exists(self, gcs_uri: str) -> bool:
+        self.blob_exists_calls.append(gcs_uri)
+        source = self.head_existing if self.head_existing is not None else self.existing
+        return gcs_uri in source
