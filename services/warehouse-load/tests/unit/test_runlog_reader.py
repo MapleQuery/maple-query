@@ -104,3 +104,17 @@ def test_reader_requires_a_source() -> None:
     import pytest
     with pytest.raises(ValueError, match="at least one of"):
         list(iter_runlog_rows(local_dir=None, gcs_prefix=None))
+
+
+def test_reader_fails_loud_on_missing_local_dir(tmp_path: Path) -> None:
+    """A configured-but-missing local_dir must NOT silently yield zero rows.
+
+    The prior behaviour skipped the missing directory and reported 0
+    files; a typo in WHLOAD_RUNLOG_LOCAL_DIR would silently produce a
+    no-op run.
+    """
+    import pytest
+
+    missing = tmp_path / "does-not-exist"
+    with pytest.raises(FileNotFoundError, match="is not a directory"):
+        list(iter_runlog_rows(local_dir=missing, gcs_prefix=None))

@@ -83,7 +83,7 @@ def run_documents_load(
     files_seen: set[str] = set()
     rows_seen = 0
     parse_errors = 0
-    kept_after_filter: list[RawRunlogRow] = []
+    kept_after_limit_orgs: list[RawRunlogRow] = []
     filtered_not_csv = 0
     filtered_not_success = 0
 
@@ -109,12 +109,10 @@ def run_documents_load(
         rows_seen += 1
         if request.limit_orgs and event.row.organization_code not in request.limit_orgs:
             continue
-        kept_after_filter.append(event.row)
+        kept_after_limit_orgs.append(event.row)
 
-    # `kept_after_filter` is the post-`--limit-orgs` set; filter+dedupe
-    # operate on it below.
     filtered: list[RawRunlogRow] = []
-    for filter_event in filter_rows(kept_after_filter):
+    for filter_event in filter_rows(kept_after_limit_orgs):
         if isinstance(filter_event, FilteredRow):
             log.info(
                 "row_filtered",

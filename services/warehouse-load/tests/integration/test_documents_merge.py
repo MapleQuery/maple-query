@@ -136,3 +136,66 @@ def test_merge_re_run_against_same_payload_inserts_zero(schemas_dir: Path) -> No
         run_id_short="run-bbbb",
     )
     assert second.rows_inserted == 0
+
+
+def test_merge_deletes_staging_table_on_happy_path(schemas_dir: Path) -> None:
+    """Happy path drops the staging table rather than waiting on TTL."""
+    bq = FakeBqClient()
+    row = make_row()
+
+    merge_documents(
+        bq=bq,
+        rows=[row],
+        project_id="proj",
+        dataset="raw",
+        table="documents",
+        schema=_schema(schemas_dir),
+        run_id_short="abcdef12",
+    )
+
+    assert bq.delete_calls == ["proj.raw._documents_staging_abcdef12"]
+
+
+def test_merge_deletes_staging_table_even_on_failure(schemas_dir: Path) -> None:
+    """A MERGE failure must still drop the staging table (try/finally)."""
+    import pytest
+
+    class FailingExecuteBq(FakeBqClient):
+        def execute(self, sql: str) -> None:
+            raise RuntimeError("simulated MERGE failure")
+
+    bq = FailingExecuteBq()
+    row = make_row()
+
+    with pytest.raises(RuntimeError, match="simulated MERGE failure"):
+        merge_documents(
+            bq=bq,
+            rows=[row],
+            project_id="proj",
+            dataset="raw",
+            table="documents",
+            schema=_schema(schemas_dir),
+            run_id_short="abcdef12",
+        )
+
+    assert bq.delete_calls == ["proj.raw._documents_staging_abcdef12"]
+
+
+def test_merge_rejects_malicious_table_identifier(schemas_dir: Path) -> None:
+    """Defense in depth: backticks don't escape, so a hostile identifier
+    in project/dataset/table must be rejected before SQL interpolation."""
+    import pytest
+
+    bq = FakeBqClient()
+    row = make_row()
+
+    with pytest.raises(ValueError, match="invalid BQ identifier"):
+        merge_documents(
+            bq=bq,
+            rows=[row],
+            project_id="proj`; DROP TABLE x; --",
+            dataset="raw",
+            table="documents",
+            schema=_schema(schemas_dir),
+            run_id_short="abcdef12",
+        )

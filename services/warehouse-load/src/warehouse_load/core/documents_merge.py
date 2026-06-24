@@ -17,6 +17,7 @@ skips the write.
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -26,6 +27,11 @@ from google.cloud import bigquery
 
 from warehouse_load.clients.bq import BqClient
 from warehouse_load.types import RawRunlogRow
+
+# BQ identifiers in a fully-qualified table ID can contain letters,
+# digits, underscore, and hyphen (the latter for project IDs). Anything
+# else is rejected before interpolating into the MERGE SQL.
+_BQ_IDENT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 # Columns this service owns: UPDATE writes these, and INSERT writes
 # the same set from the staging row. Kept as a constant so the regex
@@ -115,10 +121,16 @@ def merge_documents(
         expires_in=staging_ttl,
     )
 
-    rows_before = bq.count_rows(target_table_id)
-    bq.load_json(rows=payload, destination=staging_table_id, schema=schema)
-    bq.execute(_render_merge_sql(target_table_id, staging_table_id))
-    rows_after = bq.count_rows(target_table_id)
+    try:
+        rows_before = bq.count_rows(target_table_id)
+        bq.load_json(rows=payload, destination=staging_table_id, schema=schema)
+        bq.execute(_render_merge_sql(target_table_id, staging_table_id))
+        rows_after = bq.count_rows(target_table_id)
+    finally:
+        # Happy path drops the staging table immediately; the TTL set in
+        # create_staging_table is the safety net for crashes between
+        # create_staging_table and the finally block.
+        bq.delete_table(staging_table_id, not_found_ok=True)
 
     rows_inserted = max(rows_after - rows_before, 0)
     rows_touched = len(payload)
@@ -210,12 +222,15 @@ def _render_merge_sql(target: str, staging: str) -> str:
     `DOCUMENTS_OWNED_BY_CONTENT_LOADER` set is appended as a trailing
     comment so a casual reader can see what's deliberately omitted.
     """
+    _validate_table_id(target)
+    _validate_table_id(staging)
+
     update_assignments = ",\n      ".join(
-        f"{col} = s.{col}" for col in DOCUMENTS_OWNED_BY_LOADER if col != "document_id"
+        f"{col} = s.{col}" for col in DOCUMENTS_OWNED_BY_LOADER
     )
     insert_values = ", ".join(
         [
-            *(f"s.{col}" for col in DOCUMENTS_OWNED_BY_LOADER if col != "document_id"),
+            *(f"s.{col}" for col in DOCUMENTS_OWNED_BY_LOADER),
             "s.document_id",
             "NULL",  # preamble_rows
             "NULL",  # header_confidence
@@ -226,10 +241,10 @@ def _render_merge_sql(target: str, staging: str) -> str:
         ],
     )
     # INSERT column list, ordered to match the value list above:
-    # loader-owned (sans document_id), then document_id, then content-loader-owned.
+    # loader-owned, then document_id, then content-loader-owned.
     insert_columns_ordered = ", ".join(
         [
-            *(col for col in DOCUMENTS_OWNED_BY_LOADER if col != "document_id"),
+            *DOCUMENTS_OWNED_BY_LOADER,
             "document_id",
             *DOCUMENTS_OWNED_BY_CONTENT_LOADER,
         ],
@@ -253,3 +268,17 @@ VALUES (
 -- Content-loader columns NEVER appear in the UPDATE clause:
 -- {", ".join(DOCUMENTS_OWNED_BY_CONTENT_LOADER)}.
 """
+
+
+def _validate_table_id(table_id: str) -> None:
+    """Reject any project/dataset/table segment that contains characters
+    outside `[A-Za-z0-9_-]`. Defense in depth: the values come from
+    `Settings`, not user input, but a typo or a future code path that
+    pulls them from less-trusted config shouldn't get to interpolate
+    arbitrary SQL between backticks (which don't escape)."""
+    parts = table_id.split(".")
+    if len(parts) != 3:
+        raise ValueError(f"expected project.dataset.table, got {table_id!r}")
+    for part in parts:
+        if not _BQ_IDENT_RE.fullmatch(part):
+            raise ValueError(f"invalid BQ identifier segment {part!r} in {table_id!r}")

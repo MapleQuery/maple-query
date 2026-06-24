@@ -11,10 +11,10 @@ the enum-drift test can read from a single source of truth.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 # Closed-enum sets. The enum-drift test compares these against the
 # union of values seen in real runlog files. Update both the
@@ -76,6 +76,22 @@ class RawRunlogRow(BaseModel):
     ingestion_status: Literal["success", "quarantined", "failed"]
     quarantine_reason: str | None = None
     run_id: str
+
+    @field_validator(
+        "http_last_modified",
+        "resource_last_modified",
+        "metadata_modified",
+        "ingested_at",
+        mode="after",
+    )
+    @classmethod
+    def _anchor_naive_to_utc(cls, value: datetime | None) -> datetime | None:
+        # Ingest writes tz-aware (+00:00) today; this guards downstream
+        # comparisons (--since, dedupe tie-break) against TypeError if a
+        # naive timestamp ever slips through.
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value
 
 
 @dataclass(frozen=True)

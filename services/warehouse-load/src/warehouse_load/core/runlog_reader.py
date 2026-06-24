@@ -75,7 +75,13 @@ def iter_runlog_rows(
     if local_dir is None and gcs_prefix is None:
         raise ValueError("at least one of local_dir, gcs_prefix must be set")
 
-    if local_dir is not None and local_dir.is_dir():
+    if local_dir is not None:
+        if not local_dir.is_dir():
+            raise FileNotFoundError(
+                f"runlog local_dir={str(local_dir)!r} is not a directory. "
+                "Set WHLOAD_RUNLOG_LOCAL_DIR / --runlog-local-dir to a valid "
+                "path, or unset it to fall back to GCS only.",
+            )
         for path in sorted(local_dir.glob("*.jsonl")):
             yield from _iter_lines(
                 source=str(path),

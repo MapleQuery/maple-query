@@ -10,6 +10,9 @@ from typing import Any, Protocol, runtime_checkable
 
 from google.api_core import exceptions as gax
 from google.cloud import bigquery
+from tenacity import Retrying
+
+from warehouse_load.providers.retry import bq_retry_policy
 
 
 @runtime_checkable
@@ -43,8 +46,11 @@ class BqClient(Protocol):
 
 class RealBqClient:
 
-    def __init__(self, client: bigquery.Client) -> None:
+    def __init__(self, client: bigquery.Client, *, retry: Retrying | None = None) -> None:
         self._client = client
+        # tenacity Retrying.__iter__ calls begin() to reset state, so a
+        # single instance is safe to reuse across calls.
+        self._retry = retry if retry is not None else bq_retry_policy()
 
     @classmethod
     def for_project(cls, project_id: str) -> RealBqClient:
@@ -62,23 +68,28 @@ class RealBqClient:
             write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
             source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
         )
-        job = self._client.load_table_from_json(
-            json_rows=rows,
-            destination=destination,
-            job_config=job_config,
-        )
-        job.result()  # block + raise on failure
+        for attempt in self._retry:
+            with attempt:
+                job = self._client.load_table_from_json(
+                    json_rows=rows,
+                    destination=destination,
+                    job_config=job_config,
+                )
+                job.result()  # block + raise on failure
         return len(rows)
 
     def execute(self, sql: str) -> None:
-        job = self._client.query(sql)
-        job.result()
+        for attempt in self._retry:
+            with attempt:
+                self._client.query(sql).result()
 
     def count_rows(self, table_id: str) -> int:
         try:
-            job = self._client.query(f"SELECT COUNT(*) AS n FROM `{table_id}`")
-            for row in job.result():
-                return int(row["n"])
+            for attempt in self._retry:
+                with attempt:
+                    job = self._client.query(f"SELECT COUNT(*) AS n FROM `{table_id}`")
+                    for row in job.result():
+                        return int(row["n"])
         except gax.NotFound:
             return 0
         return 0
@@ -96,11 +107,15 @@ class RealBqClient:
         table.expires = datetime.now(UTC) + expires_in
         # Create explicitly so `expires` is set on first creation; the
         # load job's WRITE_TRUNCATE would create the table without it.
-        self._client.create_table(table, exists_ok=True)
+        for attempt in self._retry:
+            with attempt:
+                self._client.create_table(table, exists_ok=True)
 
     def delete_table(self, table_id: str, *, not_found_ok: bool = True) -> None:
         try:
-            self._client.delete_table(table_id, not_found_ok=not_found_ok)
+            for attempt in self._retry:
+                with attempt:
+                    self._client.delete_table(table_id, not_found_ok=not_found_ok)
         except gax.NotFound:
             if not not_found_ok:
                 raise

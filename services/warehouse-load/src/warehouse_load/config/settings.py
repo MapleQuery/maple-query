@@ -18,16 +18,19 @@ from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-def _find_ingest_runlog_dir() -> Path:
-    """Walk up from cwd looking for `services/ingest/runlog/`."""
+def _find_ingest_runlog_dir() -> Path | None:
+    """Walk up from cwd looking for `services/ingest/runlog/`.
+
+    Returns None on fall-through so the reader/entrypoint can fail
+    loudly (or fall back to GCS) rather than silently iterating a
+    non-existent relative path and reporting zero rows.
+    """
     cwd = Path.cwd().resolve()
     for parent in [cwd, *cwd.parents]:
         candidate = parent / "services" / "ingest" / "runlog"
         if candidate.is_dir():
             return candidate
-    # Fall through; the runlog reader will raise a clear error if it's
-    # actually used.
-    return Path("services/ingest/runlog")
+    return None
 
 
 def _find_schemas_dir() -> Path:
