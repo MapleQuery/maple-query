@@ -23,6 +23,13 @@ dependencies = [
   # CLI. typer<0.15 is incompatible with click>=8.2 (Parameter.make_metavar
   # signature change); pin >=0.15 so the resolver picks a compatible build.
   "typer>=0.15,<1",
+  # CSV parsing for the rows loader. polars is the streaming reader
+  # (per-batch, infer_schema=False); charset-normalizer is the pure-Python
+  # encoding-detection fallback for the long-tail non-UTF-8 files. We do
+  # NOT use polars' type inference or DataFrame ops — the dependency is
+  # load-bearing for streaming-row throughput, not modelling.
+  "polars>=1.3,<2",
+  "charset-normalizer>=3.3,<4",
 ]
 
 [project.scripts]

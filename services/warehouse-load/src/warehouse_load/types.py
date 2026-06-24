@@ -95,6 +95,104 @@ class RawRunlogRow(BaseModel):
 
 
 @dataclass(frozen=True)
+class DocumentRow:
+    """A `raw.documents` row, re-hydrated for the rows loader.
+
+    Carries only the columns 3.3 actually reads (the candidate-query
+    projection plus the columns 3.3 writes back). The full row shape
+    lives in `infra/terraform/schemas/raw_documents.json`.
+    """
+
+    document_id: str
+    organization_code: str
+    source_url: str
+    gcs_uri: str | None
+    file_format: str
+    declared_format: str | None
+    checksum: str | None
+    resource_last_modified: datetime | None
+
+
+# Header confidence is a closed enum on the wire; pinned so the
+# document_status module and the column-index test share one set.
+HEADER_CONFIDENCES: frozenset[str] = frozenset({"single", "multi_row", "low"})
+
+# load_status values written by 3.3. The schema is permissive (STRING),
+# but the loader only ever emits these. Pinned here so test assertions
+# read against one source of truth.
+LOAD_STATUSES: frozenset[str] = frozenset(
+    {"pending", "loaded", "blob_missing", "parse_failed"},
+)
+
+
+@dataclass(frozen=True)
+class SniffResult:
+    """Result of the CSV header-sample sniff (`core/csv_sniff.py`)."""
+
+    delimiter: Literal[",", "\t"]
+    encoding: str
+    sniff_bytes: int
+
+
+@dataclass(frozen=True)
+class HeaderResult:
+    """Result of the header-detection state machine (`core/header_detect.py`).
+
+    `header_rows` is the 1 or 2 source rows used to compose the keys;
+    `body_start_index` is the 0-based row index where the body begins
+    (i.e. polars' `skip_rows` argument). `keys` is the list of
+    normalised column keys in column order — the row-stream consumer
+    pairs each cell against the matching `keys[i]`.
+    """
+
+    body_start_index: int
+    header_rows: tuple[tuple[str, ...], ...]
+    preamble_rows: tuple[tuple[str, ...], ...]
+    confidence: Literal["single", "multi_row", "low"]
+    keys: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class RowsRunRequest:
+    """Per-invocation intent for `warehouse-load rows`. Built by the CLI."""
+
+    limit_orgs: tuple[str, ...]
+    limit_documents: tuple[str, ...]
+    status: str  # candidate-query filter; default "pending"
+    force: bool  # replay already-loaded docs
+    concurrency: int | None  # None = Settings default
+    dry_run: bool
+    refresh_column_index: bool
+
+
+@dataclass(frozen=True)
+class RowsRunSummary:
+    """End-of-run roll-up. Printed as JSON; same shape as the
+    `rows_load_finish` log event."""
+
+    run_id: str
+    dry_run: bool
+    candidate_count: int
+    docs_loaded: int
+    docs_blob_missing: int
+    docs_parse_failed: int
+    docs_header_low_confidence: int
+    docs_skipped_already_loaded: int
+    rows_merged: int
+    column_index_refreshed: bool
+    duration_ms: int
+
+
+@dataclass(frozen=True)
+class ColumnIndexRefreshResult:
+    """End-of-refresh summary for `core/column_index.py`."""
+
+    unique_cols: int
+    total_doc_col_pairs: int
+    duration_ms: int
+
+
+@dataclass(frozen=True)
 class DocumentsRunSummary:
     """End-of-run roll-up. Printed as JSON; same shape as the
     `documents_load_finish` log event."""
