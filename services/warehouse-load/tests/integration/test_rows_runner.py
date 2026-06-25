@@ -188,8 +188,10 @@ def test_blob_missing_is_a_disposed_outcome(tmp_path: Path) -> None:
 def test_staging_precondition_aborts_when_table_not_empty(tmp_path: Path) -> None:
     bq = FakeBqClient()
     # Non-empty staging trips the §8.0 precondition. The runner calls
-    # sys.exit(2); pytest captures that as SystemExit.
-    bq.target_rows = {str(i): {} for i in range(3)}
+    # sys.exit(2); pytest captures that as SystemExit. We seed the count
+    # against the exact staging table ID the runner will query — proves
+    # the precondition reads from rows_staging, not some other table.
+    bq.explicit_row_counts = {"proj.raw.rows_staging": 3}
     gcs = FakeGcsStreamClient(blobs={})
 
     request = RowsRunRequest(

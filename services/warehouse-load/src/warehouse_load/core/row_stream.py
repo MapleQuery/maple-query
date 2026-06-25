@@ -118,6 +118,12 @@ def stream_body_rows(
             row_index += 1
 
 
+# 1 MiB read chunks. Big enough that decode overhead is amortised,
+# small enough that 4 concurrent workers stay well under the 600 MB
+# per-doc cap x 4 = 2.4 GB worst case the old full-buffer path could hit.
+_UTF8_CONVERT_CHUNK_BYTES = 1 * 1024 * 1024
+
+
 def prepare_utf8_copy(
     *,
     source_path: Path,
@@ -132,12 +138,19 @@ def prepare_utf8_copy(
 
     Latin-1 decodes any byte sequence, so the conversion never fails
     for the §5.2.1 fallback. UTF-8-sig decode strips the BOM.
+
+    Streams in fixed-size chunks via Python text mode so peak memory
+    stays bounded per worker — a full-buffer read+decode on a 600 MB
+    latin-1 file would otherwise hold ~600 MB bytes + ~1.2 GB str
+    simultaneously, which scales badly under `rows_concurrency`.
     """
-    with source_path.open("rb") as src:
-        data = src.read()
-    text = data.decode(encoding)
-    with dest_path.open("w", encoding="utf-8", newline="") as dst:
-        dst.write(text)
+    with source_path.open("r", encoding=encoding, newline="") as src, \
+            dest_path.open("w", encoding="utf-8", newline="") as dst:
+        while True:
+            chunk = src.read(_UTF8_CONVERT_CHUNK_BYTES)
+            if not chunk:
+                break
+            dst.write(chunk)
 
 
 def needs_utf8_conversion(encoding: str) -> bool:

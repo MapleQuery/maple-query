@@ -35,6 +35,12 @@ class FakeBqClient:
     query_calls: list[str] = field(default_factory=list)
     create_calls: list[str] = field(default_factory=list)
     delete_calls: list[str] = field(default_factory=list)
+    # Per-table row count override. The production code reads count_rows
+    # against multiple distinct tables (raw.documents, raw.rows_staging,
+    # raw.column_index); seed this map in tests to differentiate them.
+    # Tables not in the map fall back to `len(target_rows)`, which keeps
+    # the documents-loader tests (single MERGE target) backward-compatible.
+    explicit_row_counts: dict[str, int] = field(default_factory=dict)
 
     def load_json(
         self,
@@ -55,6 +61,8 @@ class FakeBqClient:
                 self.target_rows[row["document_id"]] = row
 
     def count_rows(self, table_id: str) -> int:
+        if table_id in self.explicit_row_counts:
+            return self.explicit_row_counts[table_id]
         return len(self.target_rows)
 
     def create_staging_table(

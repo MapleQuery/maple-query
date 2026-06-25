@@ -15,6 +15,7 @@ disabled).
 from __future__ import annotations
 
 import concurrent.futures as cf
+import contextlib
 import dataclasses
 import json
 import re
@@ -145,10 +146,14 @@ def run_rows_load(
     rows_schema = load_schema(settings.schemas_dir / "raw_rows.json")
 
     concurrency = request.concurrency or settings.rows_concurrency
-    flush_threshold = settings.rows_staging_flush_threshold
+    flush_rows_threshold = settings.rows_staging_flush_threshold
+    flush_bytes_threshold = settings.rows_staging_flush_bytes_threshold
+    flush_files_threshold = settings.rows_staging_flush_files_threshold
 
     pending_to_record: list[DocumentLoadResult] = []
     staging_rows_pending = 0
+    staging_bytes_pending = 0
+    staging_files_pending = 0
     rows_merged = 0
     accumulated_results: list[DocumentLoadResult] = []
     temp_files: list[Path] = []
@@ -196,15 +201,24 @@ def run_rows_load(
                 if r.final_status == "loaded":
                     pending_to_record.append(r)
                     staging_rows_pending += r.row_count or 0
+                    if r.staging_jsonl_path is not None:
+                        staging_files_pending += 1
+                        # `stat()` can race with cleanup on bizarre FS
+                        # errors; treat missing as 0 bytes rather than
+                        # crashing the run.
+                        with contextlib.suppress(OSError):
+                            staging_bytes_pending += (
+                                r.staging_jsonl_path.stat().st_size
+                            )
                 else:
                     # Failures and skipped-loaded are already recorded
                     # in the per-doc worker. Nothing to defer.
                     pass
 
-            if (
-                not request.dry_run
-                and pending_to_record
-                and staging_rows_pending >= flush_threshold
+            if not request.dry_run and pending_to_record and (
+                staging_rows_pending >= flush_rows_threshold
+                or staging_bytes_pending >= flush_bytes_threshold
+                or staging_files_pending >= flush_files_threshold
             ):
                 rows_merged += _flush_and_record(
                     bq=bq,
@@ -218,6 +232,8 @@ def run_rows_load(
                 )
                 pending_to_record = []
                 staging_rows_pending = 0
+                staging_bytes_pending = 0
+                staging_files_pending = 0
 
         # Final flush — anything left over after the last batch.
         if not request.dry_run and pending_to_record:
@@ -233,6 +249,8 @@ def run_rows_load(
             )
             pending_to_record = []
             staging_rows_pending = 0
+            staging_bytes_pending = 0
+            staging_files_pending = 0
     finally:
         for tf in temp_files:
             tf.unlink(missing_ok=True)
@@ -610,6 +628,11 @@ def _load_one_document(
         prefix=f"wh_rows_{doc.document_id[:12]}_", suffix=".csv", delete=False,
     )
     paths = _DocWorkPaths(raw_blob=Path(blob_tmp.name))
+    # Default to "this worker owns the JSONL"; set to False only when we
+    # return a success result and hand the path off to the orchestrator
+    # for post-flush cleanup. Anything else (parse_failed, max_rows
+    # exceeded, exception) leaves us responsible for unlinking it here.
+    handoff_staging_jsonl = False
     try:
         try:
             # `NamedTemporaryFile` returns a `_TemporaryFileWrapper`, not a
@@ -683,6 +706,7 @@ def _load_one_document(
             encoding_used=sniff_used.encoding,
         )
 
+        handoff_staging_jsonl = True
         return dataclasses.replace(
             result,
             bytes_read=bytes_read,
@@ -723,13 +747,20 @@ def _load_one_document(
             bytes_read=0, duration_ms=int((time.monotonic() - started) * 1000),
         )
     finally:
-        # Caller decides whether to keep the staging JSONL for the
-        # MERGE; the raw blob and utf-8 copy are always cleaned up.
+        # Raw blob and utf-8 copy are always per-worker; clean them.
         paths.raw_blob.unlink(missing_ok=True)
         if paths.utf8_csv is not None:
             paths.utf8_csv.unlink(missing_ok=True)
         for extra in paths.extra:
             extra.unlink(missing_ok=True)
+        # The staging JSONL is handed off to the orchestrator ONLY on
+        # the success path (see `handoff_staging_jsonl = True` above).
+        # Failure paths (parse_failed, max_rows exceeded, exception)
+        # would otherwise leak the partially-written JSONL into /tmp —
+        # the failure result has staging_jsonl_path=None, so the
+        # orchestrator's post-batch cleanup never sees it.
+        if not handoff_staging_jsonl and paths.staging_jsonl is not None:
+            paths.staging_jsonl.unlink(missing_ok=True)
 
 
 def _parse_with_latin1_fallback(

@@ -82,10 +82,17 @@ class Settings(BaseSettings):
     body_modal_match_ratio: float = 0.80  # fraction of slice that must match modal
     header_max_cell_chars: int = 200  # any longer = body-like
 
-    # Batch flush trigger: flush after this many rows accumulate in
-    # staging (the time-or-size cutoff from §8.3). Bounds each MERGE
-    # so a single failure doesn't lose hours of work.
+    # Batch flush trigger: flush when ANY of these thresholds trips.
+    # Rows bounds work-loss on MERGE failure; bytes bounds disk
+    # footprint of pending JSONLs in /tmp; files bounds open-FD count
+    # and per-batch UPDATE round-trips. Whichever fires first wins.
     rows_staging_flush_threshold: int = 500_000
+    # 2 GiB total across pending JSONLs. With concurrency=4 and 600 MB
+    # max per doc, worst-case in-flight + pending stays comfortable.
+    rows_staging_flush_bytes_threshold: int = 2 * 1024 * 1024 * 1024
+    # 32 pending JSONL files. Caps the per-flush `record_load_outcome`
+    # UPDATE storm and the open-FD pressure between flushes.
+    rows_staging_flush_files_threshold: int = 32
 
     # raw.column_index document_ids cap. 1000 matches 3.1 §4.4.
     column_index_doc_ids_cap: int = 1000
