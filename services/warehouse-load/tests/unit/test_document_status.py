@@ -65,8 +65,10 @@ def test_record_load_outcome_escapes_single_quotes() -> None:
         preamble_rows=None, header_confidence=None, row_count=None,
     )
     sql = bq.query_calls[0]
-    # Single quote doubled; no stray injection point.
-    assert "load_error = 'o''reilly malformed; ok'" in sql
+    # Backslash-escape, not quote-doubling: BQ's lexer treats `''`
+    # ambiguously in some contexts (PARSE_JSON especially) and reports
+    # "concatenated string literals must be separated by whitespace".
+    assert "load_error = 'o\\'reilly malformed; ok'" in sql
 
 
 def test_record_load_outcome_escapes_control_chars_in_error() -> None:
@@ -101,6 +103,31 @@ def test_record_load_outcome_escapes_control_chars_in_error() -> None:
     error_clause = sql[sql.index("load_error = '") : sql.index("',", sql.index("load_error = '"))]
     assert "\n" not in error_clause
     assert "\t" not in error_clause
+
+
+def test_preamble_with_apostrophe_uses_backslash_escape() -> None:
+    """Regression: a preamble cell containing an apostrophe (very common
+    in CKAN datasets — `Department of Indigenous Services Canada's ...`)
+    gets JSON-encoded with the `'` preserved, then `_string_literal`
+    must NOT emit `''` inside the PARSE_JSON literal — BQ treats that
+    as two adjacent literals and fails with `concatenated string
+    literals must be separated by whitespace`.
+    """
+    bq = FakeBqClient()
+    document_status.record_load_outcome(
+        bq=bq, documents_table=_DOCS_TABLE,
+        document_id=_DOC_ID,
+        load_status="loaded", load_error=None,
+        preamble_rows=(("Department of Workers' Compensation",),),
+        header_confidence="single", row_count=10,
+    )
+    sql = bq.query_calls[0]
+    # Inside the PARSE_JSON literal, the apostrophe must be `\'`, never `''`.
+    match = re.search(r"PARSE_JSON\('(.+?)'\)", sql)
+    assert match is not None
+    inner = match.group(1)
+    assert "Workers\\'" in inner
+    assert "''" not in inner
 
 
 def test_mark_in_flight_rejects_bad_document_id() -> None:

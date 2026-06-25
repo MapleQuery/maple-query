@@ -130,24 +130,29 @@ def _inline_doc_id(sql: str, document_id: str) -> str:
 
 
 def _string_literal(value: str) -> str:
-    """Inline a SQL string literal.
+    """Inline a SQL string literal using backslash escapes throughout.
 
-    `load_error` carries the verbatim text of a BQ exception, which
-    can contain raw newlines, tabs, and backslashes — none of which
-    are valid inside a single-quoted BQ string literal. The original
-    "double the quote" escape (SQL standard) handles `'` but leaves
-    `\\n` / `\\r` / `\\t` / `\\` / `\\0` as parse errors. So we escape
-    backslashes first (otherwise we'd double-escape the ones we add),
-    then quotes (kept as `''` to match existing tests), then the
-    control chars BQ understands as backslash escapes inside `'...'`.
+    BigQuery's grammar accepts both `''` (quote-doubling) and `\\'`
+    (backslash-quote) for embedding a single quote inside a
+    single-quoted literal, but the lexer can be ambiguous about `''`
+    in some contexts (e.g. inside `PARSE_JSON('...')`) and report
+    `concatenated string literals must be separated by whitespace`,
+    treating `'foo''bar'` as `'foo'` + empty `''` + `bar'`.
+    Backslash escapes are unambiguous everywhere.
+
+    Order matters: escape backslashes first, otherwise the
+    backslashes we add for the other escapes would get re-escaped.
+    Then the control chars BQ recognises as `\\n` / `\\r` / `\\t` /
+    `\\0` inside `'...'`. The single quote is escaped LAST so the
+    backslash it introduces doesn't get re-escaped.
     """
     escaped = (
         value.replace("\\", "\\\\")
-        .replace("'", "''")
         .replace("\n", "\\n")
         .replace("\r", "\\r")
         .replace("\t", "\\t")
         .replace("\x00", "\\0")
+        .replace("'", "\\'")
     )
     return f"'{escaped}'"
 
