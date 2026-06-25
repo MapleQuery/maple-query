@@ -69,6 +69,40 @@ def test_record_load_outcome_escapes_single_quotes() -> None:
     assert "load_error = 'o''reilly malformed; ok'" in sql
 
 
+def test_record_load_outcome_escapes_control_chars_in_error() -> None:
+    """Real BQ error messages carry embedded newlines, tabs, and the
+    occasional backslash. Without escaping them, the inlined string
+    literal becomes an unclosed BQ literal and the whole UPDATE fails
+    with a syntax error — which would otherwise mask the underlying
+    failure and crash the rows-runner orchestrator.
+    """
+    bq = FakeBqClient()
+    document_status.record_load_outcome(
+        bq=bq, documents_table=_DOCS_TABLE,
+        document_id=_DOC_ID,
+        load_status="parse_failed",
+        load_error=(
+            "BadRequest: 400 GET https://example/x\n"
+            "Location: us\n"
+            "Job ID: abc\\def\tend"
+        ),
+        preamble_rows=None, header_confidence=None, row_count=None,
+    )
+    sql = bq.query_calls[0]
+    # Newlines → `\n` (two chars), backslash → `\\`, tab → `\t`.
+    assert (
+        "load_error = 'BadRequest: 400 GET https://example/x\\n"
+        "Location: us\\n"
+        "Job ID: abc\\\\def\\tend'"
+    ) in sql
+    # Defense in depth: the SQL must not contain a raw LF byte inside
+    # any string literal we generated. (Other LF bytes in the SQL are
+    # fine — they separate clauses.)
+    error_clause = sql[sql.index("load_error = '") : sql.index("',", sql.index("load_error = '"))]
+    assert "\n" not in error_clause
+    assert "\t" not in error_clause
+
+
 def test_mark_in_flight_rejects_bad_document_id() -> None:
     bq = FakeBqClient()
     with pytest.raises(ValueError, match="invalid document_id"):

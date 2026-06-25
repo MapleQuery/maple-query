@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from typing import Any, Literal
 
 from warehouse_load.clients.bq import BqClient
@@ -27,6 +28,16 @@ from warehouse_load.clients.bq import BqClient
 # the two modules independently auditable rather than coupling them
 # through an obscure shared helper.
 _BQ_IDENT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+# Serialises raw.documents UPDATE jobs across worker threads. BigQuery
+# refuses concurrent DML against the same table with `Could not
+# serialize access to table ... due to concurrent update` — even
+# though our UPDATEs are idempotent, BQ can't know that. The lock
+# turns the per-doc mark_in_flight + record_load_outcome calls into
+# a serial pipeline (each BQ UPDATE runs to completion before the
+# next starts). Download / sniff / header_detect / stream stay
+# parallel inside the worker pool; only the BQ DML is serial.
+_DOC_UPDATE_LOCK = threading.Lock()
 
 LoadStatus = Literal["pending", "loaded", "blob_missing", "parse_failed"]
 
@@ -52,7 +63,8 @@ UPDATE `{documents_table}` SET
   load_error = NULL
 WHERE document_id = @doc_id
 """
-    bq.execute(_inline_doc_id(sql, document_id))
+    with _DOC_UPDATE_LOCK:
+        bq.execute(_inline_doc_id(sql, document_id))
 
 
 def record_load_outcome(
@@ -93,7 +105,8 @@ UPDATE `{documents_table}` SET
   row_count = {_int_or_null_literal(row_count)}
 WHERE document_id = @doc_id
 """
-    bq.execute(_inline_doc_id(sql, document_id))
+    with _DOC_UPDATE_LOCK:
+        bq.execute(_inline_doc_id(sql, document_id))
 
 
 def _validate_table_id(table_id: str) -> None:
@@ -117,13 +130,25 @@ def _inline_doc_id(sql: str, document_id: str) -> str:
 
 
 def _string_literal(value: str) -> str:
-    """Inline a SQL string literal. Single-quote-escape only — the
-    set of values we pass here is closed (LoadStatus, HeaderConfidence)
-    so a stricter escape is overkill, but the doubling is here so a
-    future caller that widens the input doesn't open the injection
-    door.
+    """Inline a SQL string literal.
+
+    `load_error` carries the verbatim text of a BQ exception, which
+    can contain raw newlines, tabs, and backslashes — none of which
+    are valid inside a single-quoted BQ string literal. The original
+    "double the quote" escape (SQL standard) handles `'` but leaves
+    `\\n` / `\\r` / `\\t` / `\\` / `\\0` as parse errors. So we escape
+    backslashes first (otherwise we'd double-escape the ones we add),
+    then quotes (kept as `''` to match existing tests), then the
+    control chars BQ understands as backslash escapes inside `'...'`.
     """
-    escaped = value.replace("'", "''")
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace("'", "''")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+        .replace("\x00", "\\0")
+    )
     return f"'{escaped}'"
 
 
