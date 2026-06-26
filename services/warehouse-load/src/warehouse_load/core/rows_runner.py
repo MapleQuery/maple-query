@@ -229,6 +229,7 @@ def run_rows_load(
                     documents_table=documents_table,
                     pending=pending_to_record,
                     staging_rows=staging_rows_pending,
+                    rows_schema=rows_schema,
                 )
                 pending_to_record = []
                 staging_rows_pending = 0
@@ -246,6 +247,7 @@ def run_rows_load(
                 documents_table=documents_table,
                 pending=pending_to_record,
                 staging_rows=staging_rows_pending,
+                rows_schema=rows_schema,
             )
             pending_to_record = []
             staging_rows_pending = 0
@@ -688,14 +690,11 @@ def _load_one_document(
                 duration_ms=int((time.monotonic() - started) * 1000),
             )
 
-        # Step 8: append JSONL to staging.
-        if not dry_run:
-            assert bq is not None and paths.staging_jsonl is not None
-            bq.append_jsonl_file(
-                jsonl_path=paths.staging_jsonl,
-                destination=staging_table,
-                schema=rows_schema,
-            )
+        # Step 8: the JSONL is kept local; the orchestrator concatenates
+        # all pending per-doc JSONLs and does ONE BQ load job per flush
+        # (see `_flush_and_record`). Per-doc load jobs would otherwise
+        # blow through BQ's 1500-load-job-per-table-per-day quota on a
+        # corpus of more than ~1500 docs.
 
         log.info(
             "doc_load_success",
@@ -1007,9 +1006,15 @@ def _flush_and_record(
     documents_table: str,
     pending: list[DocumentLoadResult],
     staging_rows: int,
+    rows_schema: list[bigquery.SchemaField],
 ) -> int:
-    """MERGE the current staging contents into raw.rows, then record
+    """Concatenate all pending per-doc JSONLs, append them to staging
+    in a SINGLE BQ load job, MERGE staging into raw.rows, then record
     `load_status='loaded'` for each doc in the batch.
+
+    Coalescing the per-doc appends into one load job per flush keeps
+    the run under BQ's 1500-load-job-per-table-per-day quota: at
+    `flush_files_threshold=32`, 14K docs become ~440 load jobs.
 
     The MERGE and the per-doc UPDATEs are NOT atomic together — a
     crash between them leaves rows in `raw.rows` but the doc still
@@ -1020,6 +1025,38 @@ def _flush_and_record(
     if bq is None:
         return 0
     started = time.monotonic()
+
+    # Step 1: concat + ONE append. The JSONL format is line-delimited,
+    # so concatenation is byte-level — no parse/serialise round-trip.
+    jsonl_paths = [
+        r.staging_jsonl_path for r in pending if r.staging_jsonl_path is not None
+    ]
+    if jsonl_paths:
+        concat_tmp = tempfile.NamedTemporaryFile(  # noqa: SIM115 — lifecycle via try/finally
+            prefix="wh_rows_concat_", suffix=".jsonl", delete=False,
+        )
+        concat_path = Path(concat_tmp.name)
+        try:
+            with concat_path.open("wb") as dst:
+                for src_path in jsonl_paths:
+                    with src_path.open("rb") as src:
+                        # 1 MiB chunks: bounded memory regardless of
+                        # individual JSONL size.
+                        while True:
+                            chunk = src.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            dst.write(chunk)
+            concat_tmp.close()
+            bq.append_jsonl_file(
+                jsonl_path=concat_path,
+                destination=staging_table,
+                schema=rows_schema,
+            )
+        finally:
+            concat_path.unlink(missing_ok=True)
+
+    # Step 2: MERGE staging → raw.rows.
     rows_merge.flush_batch(
         bq=bq, staging_table=staging_table, target_table=rows_table,
     )
