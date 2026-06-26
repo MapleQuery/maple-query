@@ -777,26 +777,38 @@ def _parse_with_latin1_fallback(
     in either `loaded` or `parse_failed` state. bytes_read /
     duration_ms are stamped by the caller.
     """
+    import polars as pl  # local import to keep the module-level surface tight
+
     try:
         return sniff, _parse_one_pass(doc=doc, paths=paths, sniff=sniff,
                                        settings=settings, log=log)
     except UnicodeDecodeError:
-        log.warning(
-            "csv_encoding_fallback_to_latin1",
-            document_id=doc.document_id,
-            sniffed=sniff.encoding,
-        )
-        # Reset paths for the retry: prior pass's utf-8 copy and
-        # staging JSONL are stale.
-        if paths.utf8_csv is not None:
-            paths.utf8_csv.unlink(missing_ok=True)
-            paths.utf8_csv = None
-        if paths.staging_jsonl is not None:
-            paths.staging_jsonl.unlink(missing_ok=True)
-            paths.staging_jsonl = None
-        fallback = dataclasses.replace(sniff, encoding="latin-1")
-        return fallback, _parse_one_pass(doc=doc, paths=paths, sniff=fallback,
-                                          settings=settings, log=log)
+        # Python-level decode error during prepare_utf8_copy.
+        pass
+    except pl.exceptions.ComputeError as exc:
+        # polars 1.x raises ComputeError, NOT UnicodeDecodeError, for
+        # mid-stream encoding failures (`invalid utf-8 sequence ...`).
+        # Re-raise anything that isn't encoding-related so the broader
+        # parse_failed path still surfaces real bugs.
+        if "invalid utf-8" not in str(exc).lower():
+            raise
+
+    log.warning(
+        "csv_encoding_fallback_to_latin1",
+        document_id=doc.document_id,
+        sniffed=sniff.encoding,
+    )
+    # Reset paths for the retry: prior pass's utf-8 copy and
+    # staging JSONL are stale.
+    if paths.utf8_csv is not None:
+        paths.utf8_csv.unlink(missing_ok=True)
+        paths.utf8_csv = None
+    if paths.staging_jsonl is not None:
+        paths.staging_jsonl.unlink(missing_ok=True)
+        paths.staging_jsonl = None
+    fallback = dataclasses.replace(sniff, encoding="latin-1")
+    return fallback, _parse_one_pass(doc=doc, paths=paths, sniff=fallback,
+                                      settings=settings, log=log)
 
 
 def _parse_one_pass(

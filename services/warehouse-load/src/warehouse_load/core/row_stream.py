@@ -71,6 +71,12 @@ def iter_lookahead_rows(
         infer_schema_length=0,
         truncate_ragged_lines=True,
         n_rows=max_rows,
+        # `ignore_errors=True` keeps malformed-quoting rows from
+        # failing the whole header-detect pass (polars 1.x rejects
+        # `"foo  ";;;;` as "not properly escaped" by default). The
+        # state machine tolerates a few dropped rows in the lookahead
+        # and falls back to `confidence='low'` if it can't anchor.
+        ignore_errors=True,
         # `null_values=[""]` would otherwise replace empty cells with
         # None at this stage; the header state machine wants the
         # original string so its `_effective_column_count` heuristic
@@ -106,6 +112,12 @@ def stream_body_rows(
         skip_rows=header.body_start_index,
         schema=schema,
         truncate_ragged_lines=True,
+        # `ignore_errors=True` drops individual malformed rows
+        # instead of failing the whole file. polars 1.x's strict
+        # quoting validation otherwise rejects CKAN exports with
+        # mid-row unclosed quotes (e.g. `"VILLE DE MONTRÉAL  ";;;;`).
+        # Loading 99% of a file beats failing the whole doc.
+        ignore_errors=True,
         null_values=[""],
     )
 
