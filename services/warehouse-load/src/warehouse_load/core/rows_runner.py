@@ -1079,14 +1079,39 @@ def _flush_and_record(
         rows_merged=staging_rows,
         duration_ms=int((time.monotonic() - started) * 1000),
     )
+    # Per-doc UPDATEs are post-MERGE bookkeeping: the rows already
+    # landed in raw.rows. A transient network blip on any one UPDATE
+    # would otherwise kill the whole orchestrator (Google SDK retries
+    # for 600s before raising). Swallow per-doc UPDATE failures so the
+    # rest of the run continues — the affected doc stays `pending`
+    # and the next run re-processes it idempotently (MERGE WHEN
+    # MATCHED THEN DELETE handles the replay). At-least-once, as
+    # documented in PRD §8.5.
+    record_failures = 0
     for result in pending:
-        document_status.record_load_outcome(
-            bq=bq, documents_table=documents_table,
-            document_id=result.document_id,
-            load_status="loaded", load_error=None,
-            preamble_rows=result.preamble_rows,
-            header_confidence=result.header_confidence,
-            row_count=result.row_count,
+        try:
+            document_status.record_load_outcome(
+                bq=bq, documents_table=documents_table,
+                document_id=result.document_id,
+                load_status="loaded", load_error=None,
+                preamble_rows=result.preamble_rows,
+                header_confidence=result.header_confidence,
+                row_count=result.row_count,
+            )
+        except Exception as exc:
+            record_failures += 1
+            log.warning(
+                "record_load_outcome_failed_will_retry_next_run",
+                run_id=run_id,
+                document_id=result.document_id,
+                error=str(exc)[:512],
+            )
+    if record_failures:
+        log.warning(
+            "record_load_outcome_batch_partial",
+            run_id=run_id,
+            failed=record_failures,
+            total=len(pending),
         )
     return staging_rows
 
