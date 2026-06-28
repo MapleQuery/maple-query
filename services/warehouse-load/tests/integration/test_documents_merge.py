@@ -10,6 +10,7 @@ from tests.conftest import make_row
 from tests.integration.conftest import FakeBqClient
 from warehouse_load.core.documents_merge import (
     DOCUMENTS_OWNED_BY_CONTENT_LOADER,
+    DOCUMENTS_RESET_ON_REFRESH,
     merge_documents,
 )
 from warehouse_load.core.schema_loader import load_schema
@@ -80,11 +81,56 @@ def test_merge_update_clause_omits_content_loader_columns(schemas_dir: Path) -> 
     assert update_clause_match, f"could not locate UPDATE clause in:\n{sql}"
     update_clause = update_clause_match.group(1)
 
+    reset_cols = {col for col, _ in DOCUMENTS_RESET_ON_REFRESH}
     for forbidden in DOCUMENTS_OWNED_BY_CONTENT_LOADER:
+        if forbidden in reset_cols:
+            # Reset-on-refresh columns appear as `<col> = <literal>`,
+            # never as `<col> = s.<col>`. Pin both halves.
+            assert f"{forbidden} = s." not in update_clause, (
+                f"Reset column {forbidden!r} must be assigned a literal, "
+                f"not pulled from staging. Full clause:\n{update_clause}"
+            )
+            assert f"{forbidden} = " in update_clause, (
+                f"Reset column {forbidden!r} must appear in the UPDATE clause "
+                f"with a literal value. Full clause:\n{update_clause}"
+            )
+            continue
         assert forbidden not in update_clause, (
             f"Content-loader column {forbidden!r} must NOT appear in the MERGE UPDATE clause. "
             f"Full clause:\n{update_clause}"
         )
+
+
+def test_merge_update_clause_resets_load_status_to_pending(schemas_dir: Path) -> None:
+    """An ingest re-pull must re-enter 3.3's candidate queue.
+
+    Without the reset, a doc with `load_status='loaded'` would keep
+    that status forever and 3.3 would never re-process the new bytes.
+    """
+    bq = FakeBqClient()
+    row = make_row()
+
+    merge_documents(
+        bq=bq,
+        rows=[row],
+        project_id="proj",
+        dataset="raw",
+        table="documents",
+        schema=_schema(schemas_dir),
+        run_id_short="abcdef12",
+    )
+
+    merge_sqls = [q for q in bq.query_calls if "MERGE INTO" in q]
+    sql = merge_sqls[0]
+    update_clause_match = re.search(
+        r"THEN UPDATE SET\s+(.+?)WHEN NOT MATCHED",
+        sql,
+        re.DOTALL,
+    )
+    assert update_clause_match
+    update_clause = update_clause_match.group(1)
+    assert "load_status = 'pending'" in update_clause
+    assert "load_error = NULL" in update_clause
 
 
 def test_merge_empty_payload_short_circuits(schemas_dir: Path) -> None:

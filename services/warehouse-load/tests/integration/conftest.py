@@ -10,9 +10,11 @@ bucket should be claimed to contain.
 """
 from __future__ import annotations
 
-from collections.abc import Iterator
+import json
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 from google.cloud import bigquery
@@ -33,6 +35,12 @@ class FakeBqClient:
     query_calls: list[str] = field(default_factory=list)
     create_calls: list[str] = field(default_factory=list)
     delete_calls: list[str] = field(default_factory=list)
+    # Per-table row count override. The production code reads count_rows
+    # against multiple distinct tables (raw.documents, raw.rows_staging,
+    # raw.column_index); seed this map in tests to differentiate them.
+    # Tables not in the map fall back to `len(target_rows)`, which keeps
+    # the documents-loader tests (single MERGE target) backward-compatible.
+    explicit_row_counts: dict[str, int] = field(default_factory=dict)
 
     def load_json(
         self,
@@ -53,6 +61,8 @@ class FakeBqClient:
                 self.target_rows[row["document_id"]] = row
 
     def count_rows(self, table_id: str) -> int:
+        if table_id in self.explicit_row_counts:
+            return self.explicit_row_counts[table_id]
         return len(self.target_rows)
 
     def create_staging_table(
@@ -66,6 +76,37 @@ class FakeBqClient:
 
     def delete_table(self, table_id: str, *, not_found_ok: bool = True) -> None:
         self.delete_calls.append(table_id)
+
+    # Rows-loader surface. Defaults are inert so existing
+    # documents-loader tests don't have to care.
+    query_results: list[list[dict[str, Any]]] = field(default_factory=list)
+    query_rows_calls: list[tuple[str, list[Any]]] = field(default_factory=list)
+    append_calls: list[tuple[str, list[dict[str, Any]]]] = field(default_factory=list)
+
+    def query_rows(
+        self,
+        sql: str,
+        *,
+        params: Iterable[Any] = (),
+    ) -> Iterator[dict[str, Any]]:
+        self.query_rows_calls.append((sql, list(params)))
+        # FIFO: each call pops the next pre-seeded result. Tests that
+        # don't seed anything see empty results.
+        if self.query_results:
+            return iter(self.query_results.pop(0))
+        return iter(())
+
+    def append_jsonl_file(
+        self,
+        *,
+        jsonl_path: Path,
+        destination: str,
+        schema: list[bigquery.SchemaField],
+    ) -> int:
+        with jsonl_path.open() as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+        self.append_calls.append((destination, rows))
+        return len(rows)
 
 
 @dataclass

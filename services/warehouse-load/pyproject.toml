@@ -23,6 +23,20 @@ dependencies = [
   # CLI. typer<0.15 is incompatible with click>=8.2 (Parameter.make_metavar
   # signature change); pin >=0.15 so the resolver picks a compatible build.
   "typer>=0.15,<1",
+  # CSV parsing for the rows loader. polars is the streaming reader
+  # (per-batch, infer_schema=False); charset-normalizer is the pure-Python
+  # encoding-detection fallback for the long-tail non-UTF-8 files. We do
+  # NOT use polars' type inference or DataFrame ops — the dependency is
+  # load-bearing for streaming-row throughput, not modelling.
+  #
+  # Pinned to the 1.41 minor. The runner relies on
+  # `pl.scan_csv(...).collect_batches()` and an explicit `schema` that
+  # pins the column count (sidestepping a `read_csv_batched` bug);
+  # both have shifted shape across 1.x minors. Bump the minor
+  # deliberately after re-running the row-stream tests, not via a
+  # passive `uv lock` refresh.
+  "polars>=1.41,<1.42",
+  "charset-normalizer>=3.3,<4",
 ]
 
 [project.scripts]

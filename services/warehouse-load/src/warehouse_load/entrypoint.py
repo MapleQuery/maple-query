@@ -3,11 +3,15 @@
 ```
 uv run warehouse-load documents [--dry-run] [--since ISO]
                                 [--limit-orgs CODE ...] [--no-bucket-check]
+uv run warehouse-load rows      [--dry-run] [--limit-orgs CODE ...]
+                                [--limit-documents ID ...] [--status STATUS]
+                                [--force] [--concurrency N]
+                                [--refresh-column-index]
+uv run warehouse-load column-index [--dry-run]
 ```
 
 Thin shim: builds `Settings` from env, overrides with flags, calls
-`core.runner.run_documents_load`, prints the summary as JSON. No
-business logic here.
+into `core/`, prints the summary as JSON. No business logic here.
 """
 from __future__ import annotations
 
@@ -20,9 +24,13 @@ import typer
 
 from warehouse_load.clients.bq import RealBqClient
 from warehouse_load.clients.gcs import RealGcsClient
+from warehouse_load.clients.gcs_stream import RealGcsStreamClient
 from warehouse_load.config.settings import Settings
+from warehouse_load.core import column_index as column_index_mod
+from warehouse_load.core.rows_runner import run_rows_load
 from warehouse_load.core.runner import RunRequest, run_documents_load
 from warehouse_load.providers.logging import configure_logging, get_logger
+from warehouse_load.types import RowsRunRequest
 
 app = typer.Typer(name="warehouse-load", help="MapleQuery warehouse loader CLI.")
 
@@ -138,6 +146,136 @@ def documents(
     )
 
     typer.echo(json.dumps(asdict(summary), indent=2, default=str))
+
+
+@app.command()
+def rows(
+    limit_orgs: list[str] | None = typer.Option(
+        None, "--limit-orgs",
+        help="Repeatable; restrict to these organization_code values.",
+    ),
+    limit_documents: list[str] | None = typer.Option(
+        None, "--limit-documents",
+        help="Repeatable; restrict to these document_id values.",
+    ),
+    status: str = typer.Option(
+        "pending", "--status",
+        help=(
+            "Candidate-query filter on raw.documents.load_status. "
+            "'pending' (default) picks up never-loaded and reset-on-refresh "
+            "docs; 'parse_failed' / 'blob_missing' retry failures; 'loaded' "
+            "is only meaningful with --force."
+        ),
+    ),
+    force: bool = typer.Option(
+        False, "--force/--no-force",
+        help="With --force, already-loaded docs are reprocessed end-to-end.",
+    ),
+    concurrency: int | None = typer.Option(
+        None, "--concurrency",
+        help="Override WHLOAD_ROWS_CONCURRENCY (parallel docs per batch).",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run/--no-dry-run",
+        help=(
+            "Dry-run runs the full sniff+detect+stream pipeline but skips "
+            "all BQ writes. Useful for plumbing tests against the candidate "
+            "set."
+        ),
+    ),
+    refresh_column_index: bool = typer.Option(
+        True, "--refresh-column-index/--no-refresh-column-index",
+        help="After the rows run, refresh raw.column_index from raw.rows.",
+    ),
+) -> None:
+    """Load CSV bodies into raw.rows. Reads candidates from raw.documents."""
+    configure_logging()
+    log = get_logger("warehouse_load.entrypoint")
+
+    settings = Settings()  # type: ignore[call-arg]
+
+    request = RowsRunRequest(
+        limit_orgs=tuple(limit_orgs or []),
+        limit_documents=tuple(limit_documents or []),
+        status=status,
+        force=force,
+        concurrency=concurrency,
+        dry_run=dry_run,
+        refresh_column_index=refresh_column_index,
+    )
+
+    log.info(
+        "cli_invoked",
+        command="rows",
+        dry_run=dry_run,
+        status=status,
+        force=force,
+        concurrency=concurrency or settings.rows_concurrency,
+        refresh_column_index=refresh_column_index,
+        limit_orgs=request.limit_orgs,
+        limit_documents=request.limit_documents,
+        gcp_project=settings.gcp_project_id,
+    )
+
+    bq = None if dry_run else RealBqClient.for_project(settings.gcp_project_id)
+    gcs = (
+        None
+        if dry_run
+        else RealGcsStreamClient.for_project(settings.gcp_project_id)
+    )
+
+    summary = run_rows_load(
+        request=request,
+        bq=bq,
+        gcs=gcs,
+        settings=settings,
+        run_id=settings.run_id,
+    )
+
+    typer.echo(json.dumps(asdict(summary), indent=2, default=str))
+
+
+@app.command("column-index")
+def column_index(
+    dry_run: bool = typer.Option(
+        False, "--dry-run/--no-dry-run",
+        help="Dry-run skips the BQ DDL. Logs the SQL that would have run.",
+    ),
+) -> None:
+    """Standalone refresh of raw.column_index from raw.rows. Idempotent."""
+    configure_logging()
+    log = get_logger("warehouse_load.entrypoint")
+
+    settings = Settings()  # type: ignore[call-arg]
+
+    log.info(
+        "cli_invoked",
+        command="column-index",
+        dry_run=dry_run,
+        gcp_project=settings.gcp_project_id,
+    )
+
+    if dry_run:
+        log.info("column_index_dry_run", run_id=settings.run_id)
+        return
+
+    bq = RealBqClient.for_project(settings.gcp_project_id)
+    rows_table = (
+        f"{settings.gcp_project_id}.{settings.bq_dataset_raw}.{settings.bq_rows_table}"
+    )
+    column_index_table = (
+        f"{settings.gcp_project_id}.{settings.bq_dataset_raw}."
+        f"{settings.bq_column_index_table}"
+    )
+    result = column_index_mod.refresh_column_index(
+        bq=bq,
+        rows_table=rows_table,
+        column_index_table=column_index_table,
+        doc_ids_cap=settings.column_index_doc_ids_cap,
+        log=log,
+        run_id=settings.run_id,
+    )
+    typer.echo(json.dumps(asdict(result), indent=2, default=str))
 
 
 def _parse_since(value: str | None) -> datetime | None:

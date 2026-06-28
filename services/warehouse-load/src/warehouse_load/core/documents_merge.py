@@ -61,7 +61,10 @@ DOCUMENTS_OWNED_BY_LOADER: tuple[str, ...] = (
 )
 
 # Columns the downstream content loader owns. The MERGE UPDATE must
-# NEVER include any of these.
+# NEVER read these from staging — they are 3.3's outputs. Two of them
+# are reset to constants on UPDATE (see `DOCUMENTS_RESET_ON_REFRESH`)
+# so a re-ingested doc re-enters 3.3's candidate queue; the rest are
+# left untouched so completed loads stay intact.
 DOCUMENTS_OWNED_BY_CONTENT_LOADER: tuple[str, ...] = (
     "preamble_rows",
     "header_confidence",
@@ -69,6 +72,17 @@ DOCUMENTS_OWNED_BY_CONTENT_LOADER: tuple[str, ...] = (
     "load_attempted_at",
     "load_error",
     "row_count",
+)
+
+# Constants written into the UPDATE clause when an ingest re-pull
+# fires the MERGE: the doc's bytes changed, so 3.3's prior load is
+# stale and the doc must re-enter the `load_status='pending'` queue.
+# Values are SQL literals (no parameter binding) because they're
+# fixed; this is the simplest way to keep them out of the
+# "owned-by-staging" code path.
+DOCUMENTS_RESET_ON_REFRESH: tuple[tuple[str, str], ...] = (
+    ("load_status", "'pending'"),
+    ("load_error", "NULL"),
 )
 
 
@@ -226,7 +240,15 @@ def _render_merge_sql(target: str, staging: str) -> str:
     _validate_table_id(staging)
 
     update_assignments = ",\n      ".join(
-        f"{col} = s.{col}" for col in DOCUMENTS_OWNED_BY_LOADER
+        [
+            *(f"{col} = s.{col}" for col in DOCUMENTS_OWNED_BY_LOADER),
+            # Reset 3.3's work-queue signal so the rows loader re-picks
+            # the doc up on its next run. `load_attempted_at`,
+            # `row_count`, `preamble_rows`, `header_confidence` are
+            # deliberately preserved — readers see prior-load state
+            # until 3.3 reruns and DELETE-then-INSERTs new rows.
+            *(f"{col} = {literal}" for col, literal in DOCUMENTS_RESET_ON_REFRESH),
+        ],
     )
     insert_values = ", ".join(
         [
