@@ -16,7 +16,7 @@
   {"name": "resource_last_modified", "type": "TIMESTAMP", "mode": "NULLABLE"},
 
   {"name": "file_format", "type": "STRING", "mode": "REQUIRED",
-   "description": "Canonical lowercase format from the magic-byte sniff. Mutable: 3.3's rows loader rewrites csv->tsv when the byte-level delimiter sniff disagrees (master M2 §6 Q5)."},
+   "description": "Canonical lowercase format from the magic-byte sniff. Mutable: the rows loader rewrites csv->tsv when the byte-level delimiter sniff disagrees."},
   {"name": "declared_format", "type": "STRING", "mode": "NULLABLE",
    "description": "Format string as CKAN declared it. Kept verbatim for audit."},
 
