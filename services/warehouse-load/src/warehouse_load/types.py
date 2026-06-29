@@ -55,6 +55,9 @@ class RawRunlogRow(BaseModel):
 
     document_id: str
     source_url: str
+    # Optional during the package_id backfill window. Tightens to `str`
+    # once raw.documents.package_id is promoted to REQUIRED.
+    package_id: str | None = None
     gcs_uri: str | None = None
 
     checksum: str | None = None

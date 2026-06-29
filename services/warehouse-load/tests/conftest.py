@@ -44,6 +44,7 @@ def make_row(
     ingested_at: datetime | None = None,
     metadata_modified: datetime | None = None,
     organization_code: str = "fin",
+    package_id: str | None = "d2dcdf2a-3a1f-4f3c-8c0a-3b5f0e0a1c7e",
 ) -> RawRunlogRow:
     """Minimal RawRunlogRow builder for unit tests."""
     if document_id is None:
@@ -58,6 +59,7 @@ def make_row(
         organization_code=organization_code,
         document_id=document_id,
         source_url=source_url,
+        package_id=package_id,
         gcs_uri=None,
         checksum="b" * 64,
         etag=None,

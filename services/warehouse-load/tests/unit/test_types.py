@@ -54,3 +54,19 @@ def test_tzaware_input_is_preserved() -> None:
     row = RawRunlogRow.model_validate(_payload(ingested_at="2026-06-01T00:00:00+02:00"))
     assert row.ingested_at.tzinfo is not None
     assert row.ingested_at.utcoffset() is not None
+
+
+def test_runlog_row_accepts_package_id() -> None:
+    """New ingest writes carry a package_id; round-trip it."""
+    row = RawRunlogRow.model_validate(_payload(package_id="d2dcdf2a-3a1f-4f3c-8c0a-3b5f0e0a1c7e"))
+    assert row.package_id == "d2dcdf2a-3a1f-4f3c-8c0a-3b5f0e0a1c7e"
+
+
+def test_runlog_row_legacy_without_package_id_still_parses() -> None:
+    """Historic runlogs (pre-backfill) omit package_id; the field must
+    default to None so the loader stays robust during the migration
+    window. Tighten to a required field once the BQ column is promoted
+    to REQUIRED and all historic runlogs have been re-ingested or aged
+    out."""
+    row = RawRunlogRow.model_validate(_payload())  # no package_id
+    assert row.package_id is None
