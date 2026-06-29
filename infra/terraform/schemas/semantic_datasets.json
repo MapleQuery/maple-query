@@ -1,0 +1,23 @@
+[
+  {"name": "package_id", "type": "STRING", "mode": "REQUIRED",
+   "description": "CKAN package UUID. Primary key. FK target for semantic.columns.package_id and raw.documents.package_id."},
+
+  {"name": "summary", "type": "STRING", "mode": "REQUIRED",
+   "description": "English LLM-generated summary, 2-4 sentences. Source text embedded into `embedding`."},
+  {"name": "grain", "type": "STRING", "mode": "NULLABLE",
+   "description": "Inferred per-row grain, e.g. 'program-year', 'province-fiscal-year'. Best-effort; NULL when undecidable."},
+  {"name": "measures", "type": "STRING", "mode": "REPEATED",
+   "description": "LLM-inferred measure concepts (e.g. 'expenditure_cad', 'headcount'). Empty array allowed."},
+  {"name": "dimensions", "type": "STRING", "mode": "REPEATED",
+   "description": "LLM-inferred dimension concepts (e.g. 'province', 'fiscal_year'). Empty array allowed."},
+  {"name": "date_range_start", "type": "DATE", "mode": "NULLABLE",
+   "description": "Earliest covered period, best effort. NULL when the dataset has no temporal axis or it cannot be inferred."},
+  {"name": "date_range_end", "type": "DATE", "mode": "NULLABLE",
+   "description": "Latest covered period, best effort. NULL when undecidable."},
+
+  {"name": "embedding", "type": "FLOAT64", "mode": "REPEATED",
+   "description": "Dense embedding vector over `summary`. Array length is fixed by the embedding model chosen by the enrichment pipeline (Qwen3-Embedding-0.6B = 1024 dims). BigQuery does not enforce array length; a model swap is a load-time concern, not a schema-time concern. Stored inline as ARRAY<FLOAT64>; no vector index is created at this scale."},
+
+  {"name": "generated_at", "type": "TIMESTAMP", "mode": "REQUIRED",
+   "description": "Wall-clock time the enrichment service produced this row. Used to detect stale enrichment when source resources change."}
+]

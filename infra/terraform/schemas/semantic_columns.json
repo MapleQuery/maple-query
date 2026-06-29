@@ -1,0 +1,19 @@
+[
+  {"name": "package_id", "type": "STRING", "mode": "REQUIRED",
+   "description": "FK to semantic.datasets.package_id."},
+  {"name": "column_name", "type": "STRING", "mode": "REQUIRED",
+   "description": "Column header as it appears in the source CSV. Case-preserved. (package_id, column_name) is the logical PK."},
+
+  {"name": "semantic_type", "type": "STRING", "mode": "NULLABLE",
+   "description": "LLM-inferred semantic type, e.g. 'currency_cad', 'fiscal_year', 'province'. NULL when undecidable; not part of any controlled vocabulary."},
+  {"name": "description", "type": "STRING", "mode": "REQUIRED",
+   "description": "English LLM-generated column description. Source text embedded into `embedding`."},
+  {"name": "sample_values", "type": "STRING", "mode": "REPEATED",
+   "description": "Up to 10 representative distinct values sampled from raw.rows. Empty when the column is uniformly NULL or sampling yielded nothing. The cap is enforced by the enrichment loader, not the schema."},
+
+  {"name": "embedding", "type": "FLOAT64", "mode": "REPEATED",
+   "description": "Dense embedding vector over `description`. Same shape and dimension constraints as semantic.datasets.embedding."},
+
+  {"name": "generated_at", "type": "TIMESTAMP", "mode": "REQUIRED",
+   "description": "Wall-clock time of the enrichment run that produced this row."}
+]

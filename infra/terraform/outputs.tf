@@ -27,3 +27,13 @@ output "warehouse_load_sa_email" {
   description = "Email of the warehouse loader service account. Used by 3.2 and 3.3 for impersonation in CI / local runs."
   value       = google_service_account.warehouse_load.email
 }
+
+output "bq_semantic_dataset" {
+  description = "Fully-qualified semantic dataset reference (project.dataset), consumed by the semantic enrichment service."
+  value       = "${var.gcp_project_id}.${google_bigquery_dataset.semantic.dataset_id}"
+}
+
+output "semantic_enrich_sa_email" {
+  description = "Email of the semantic enricher service account. Used by the enrichment pipeline for impersonation in CI / local runs."
+  value       = google_service_account.semantic_enrich.email
+}
