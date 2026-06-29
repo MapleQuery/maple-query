@@ -32,6 +32,19 @@ class BqClient(Protocol):
     def execute(self, sql: str) -> None:
         """Run DML to completion. No result; use `count_rows` for SELECTs."""
 
+    def execute_with_params(
+        self,
+        sql: str,
+        *,
+        params: Iterable[bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter] = (),
+    ) -> None:
+        """Run parameter-bound DML to completion.
+
+        Same surface as `execute()` for SQL that needs bound parameters
+        (UPDATE/MERGE against an in-memory batch). Parameters bound via
+        `bigquery.ScalarQueryParameter` / `ArrayQueryParameter` keep
+        identifiers and values out of the SQL string."""
+
     def query_rows(
         self,
         sql: str,
@@ -107,6 +120,17 @@ class RealBqClient:
         for attempt in self._retry:
             with attempt:
                 self._client.query(sql).result()
+
+    def execute_with_params(
+        self,
+        sql: str,
+        *,
+        params: Iterable[bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter] = (),
+    ) -> None:
+        job_config = bigquery.QueryJobConfig(query_parameters=list(params))
+        for attempt in self._retry:
+            with attempt:
+                self._client.query(sql, job_config=job_config).result()
 
     def query_rows(
         self,
