@@ -1,14 +1,19 @@
-"""One-shot backfill of raw.documents.package_id.
+"""Periodic re-attachment of raw.documents.package_id.
 
-Walks every CKAN package on the portal, builds a {resource_url:
-package_id} map, joins it against (SELECT document_id, source_url FROM
-raw.documents WHERE package_id IS NULL), and writes the matching
-package_id back via batched parameter-bound UPDATEs.
+Walks every CKAN package via package_search pagination, builds a
+{resource_url: package_id} map, joins it against (SELECT document_id,
+source_url FROM raw.documents WHERE package_id IS NULL), and writes
+the matching package_id back via batched parameter-bound UPDATEs.
 
-Throwaway: retired one release cycle after raw.documents.package_id is
-promoted to REQUIRED. Operator-grade, lives under scripts/ (not src/)
-so it stays out of the import-linter graph and the mypy --strict
-surface of the warehouse_load package proper.
+`raw.documents.package_id` is a permanently NULLABLE best-effort link
+to the CKAN parent: a row's NULL is healed automatically by re-running
+this script whenever a previously-deleted package reappears in CKAN.
+Run on demand after suspected CKAN changes; safe to re-run any time
+(idempotent — only un-linked rows are touched).
+
+Operator-grade, lives under scripts/ (not src/) so it stays out of the
+import-linter graph and the mypy --strict surface of the
+warehouse_load package proper.
 
 Run shape:
 
@@ -23,7 +28,6 @@ import json
 import logging
 import sys
 import time
-from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -57,7 +61,6 @@ log = get_logger(__name__)
 _DEFAULT_CKAN_BASE = "https://open.canada.ca/data/api/3/action"
 _DEFAULT_INTER_REQUEST_DELAY = 0.5
 _DEFAULT_BATCH_SIZE = 500
-_PROGRESS_EVERY_N_PACKAGES = 100
 
 # CKAN is the slower, less-reliable side (open.canada.ca returns 502s
 # under load), so we tolerate more retries here than the BQ side. The
@@ -89,66 +92,7 @@ class BackfillSummary:
     duration_ms: int
 
 
-def iter_package_ids(ckan_base: str, *, delay: float) -> Iterator[str]:
-    """Yield every package id/slug the CKAN portal exposes.
-
-    One call to `/package_list` — the response is the full list of slugs.
-    Sleeps `delay` after the call to throttle when the caller is about
-    to fan out per-package `package_show` requests.
-    """
-    url = f"{ckan_base.rstrip('/')}/package_list"
-
-    def _fetch() -> Any:
-        resp = requests.get(url, timeout=30)
-        resp.raise_for_status()
-        return resp.json()
-
-    payload: Any = None
-    for attempt in _CKAN_RETRY:
-        with attempt:
-            payload = _fetch()
-    if not payload.get("success"):
-        raise RuntimeError(f"CKAN package_list returned success=false: {payload.get('error')}")
-
-    if delay > 0:
-        time.sleep(delay)
-    result = payload.get("result", []) or []
-    yield from result
-
-
-def show_package(ckan_base: str, pkg_id: str, *, delay: float) -> dict[str, Any]:
-    """Return the package dict for `pkg_id`.
-
-    A 404 means the package was deleted between `package_list` and
-    `package_show`; treat as empty so the walk can continue. All other
-    HTTP errors propagate.
-    """
-    url = f"{ckan_base.rstrip('/')}/package_show"
-
-    def _fetch() -> requests.Response:
-        return requests.get(url, params={"id": pkg_id}, timeout=30)
-
-    response: requests.Response | None = None
-    for attempt in _CKAN_RETRY:
-        with attempt:
-            response = _fetch()
-            # 404 is "package deleted" — terminal, skip without retry.
-            if response.status_code == 404:
-                log.info("backfill_package_deleted", package_id=pkg_id)
-                if delay > 0:
-                    time.sleep(delay)
-                return {"id": pkg_id, "resources": []}
-            response.raise_for_status()
-    assert response is not None  # tenacity reraise=True
-
-    payload = response.json()
-    if not payload.get("success"):
-        raise RuntimeError(
-            f"CKAN package_show returned success=false for {pkg_id}: {payload.get('error')}",
-        )
-    if delay > 0:
-        time.sleep(delay)
-    return payload["result"]  # type: ignore[no-any-return]
+_PACKAGE_SEARCH_PAGE_SIZE = 1000
 
 
 def build_url_to_package_map(
@@ -157,7 +101,13 @@ def build_url_to_package_map(
     delay: float,
     limit_packages: int | None = None,
 ) -> tuple[dict[str, str], int, int]:
-    """Walk every package; return ({resource_url: package_id}, packages, resources).
+    """Walk every package via `package_search` pagination; return
+    ({resource_url: package_id}, packages, resources).
+
+    Uses `package_search?q=*:*&rows=1000` to fetch ~1000 datasets per
+    HTTP call, each carrying its full `resources` array. For a 47K-
+    package portal this is ~48 calls vs. ~47K per-package calls —
+    minutes instead of hours.
 
     Path-only resource URLs (CKAN datastore-hosted files) are
     absolutised against `portal_origin` so they line up byte-for-byte
@@ -172,53 +122,88 @@ def build_url_to_package_map(
     packages" automated arbitration would just pick a side at random.
     """
     portal_origin = _portal_origin(ckan_base)
+    url = f"{ckan_base.rstrip('/')}/package_search"
 
     url_to_pkg: dict[str, str] = {}
     packages_walked = 0
     resources_indexed = 0
+    start = 0
+    total: int | None = None
 
-    for pkg_id in iter_package_ids(ckan_base, delay=delay):
+    while True:
         if limit_packages is not None and packages_walked >= limit_packages:
             break
-        try:
-            pkg = show_package(ckan_base, pkg_id, delay=delay)
-        except Exception as exc:
-            # Don't let one bad package abort the whole walk.
-            log.warning("backfill_package_show_failed", package_id=pkg_id, error=str(exc))
-            packages_walked += 1
-            continue
 
-        actual_pkg_id = pkg.get("id") or pkg_id
-        for resource in pkg.get("resources", []) or []:
-            url = resource.get("url")
-            if not isinstance(url, str) or not url:
-                continue
-            if url.startswith("/"):
-                url = urljoin(portal_origin, url)
-            existing = url_to_pkg.get(url)
-            if existing is None:
-                url_to_pkg[url] = actual_pkg_id
-                resources_indexed += 1
-            elif existing != actual_pkg_id:
-                log.warning(
-                    "backfill_url_collision",
-                    url=url,
-                    kept_package_id=existing,
-                    dropped_package_id=actual_pkg_id,
-                )
+        params = {
+            "q": "*:*",
+            "rows": str(_PACKAGE_SEARCH_PAGE_SIZE),
+            "start": str(start),
+        }
 
-        packages_walked += 1
-        if packages_walked % _PROGRESS_EVERY_N_PACKAGES == 0:
-            log.info(
-                "backfill_walk_progress",
-                packages_walked=packages_walked,
-                resources_indexed=resources_indexed,
+        payload: Any = None
+        for attempt in _CKAN_RETRY:
+            with attempt:
+                resp = requests.get(url, params=params, timeout=120)
+                resp.raise_for_status()
+                payload = resp.json()
+        if not payload.get("success"):
+            raise RuntimeError(
+                f"CKAN package_search returned success=false: {payload.get('error')}",
             )
+
+        result = payload["result"]
+        results = result.get("results", []) or []
+        if total is None:
+            total = int(result.get("count", 0))
+
+        if not results:
+            break
+
+        for pkg in results:
+            pkg_id = pkg.get("id")
+            if not isinstance(pkg_id, str) or not pkg_id:
+                # Defensive — should never happen on open.canada.ca.
+                continue
+            for resource in pkg.get("resources", []) or []:
+                raw_url = resource.get("url")
+                if not isinstance(raw_url, str) or not raw_url:
+                    continue
+                resolved = (
+                    urljoin(portal_origin, raw_url) if raw_url.startswith("/") else raw_url
+                )
+                existing = url_to_pkg.get(resolved)
+                if existing is None:
+                    url_to_pkg[resolved] = pkg_id
+                    resources_indexed += 1
+                elif existing != pkg_id:
+                    log.warning(
+                        "backfill_url_collision",
+                        url=resolved,
+                        kept_package_id=existing,
+                        dropped_package_id=pkg_id,
+                    )
+            packages_walked += 1
+            if limit_packages is not None and packages_walked >= limit_packages:
+                break
+
+        log.info(
+            "backfill_walk_progress",
+            packages_walked=packages_walked,
+            resources_indexed=resources_indexed,
+            total_packages=total,
+        )
+
+        start += len(results)
+        if total is not None and start >= total:
+            break
+        if delay > 0:
+            time.sleep(delay)
 
     log.info(
         "backfill_walk_finish",
         packages_walked=packages_walked,
         resources_indexed=resources_indexed,
+        total_packages=total,
     )
     return url_to_pkg, packages_walked, resources_indexed
 

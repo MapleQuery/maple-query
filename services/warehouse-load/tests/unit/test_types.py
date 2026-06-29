@@ -62,11 +62,10 @@ def test_runlog_row_accepts_package_id() -> None:
     assert row.package_id == "d2dcdf2a-3a1f-4f3c-8c0a-3b5f0e0a1c7e"
 
 
-def test_runlog_row_legacy_without_package_id_still_parses() -> None:
-    """Historic runlogs (pre-backfill) omit package_id; the field must
-    default to None so the loader stays robust during the migration
-    window. Tighten to a required field once the BQ column is promoted
-    to REQUIRED and all historic runlogs have been re-ingested or aged
-    out."""
+def test_runlog_row_without_package_id_parses_as_none() -> None:
+    """`package_id` is a best-effort link to the CKAN parent and may be
+    absent — historic runlogs from before the field existed, or rows
+    whose parent package was deleted between ingest and the backfill.
+    The field defaults to None so the loader handles both cases."""
     row = RawRunlogRow.model_validate(_payload())  # no package_id
     assert row.package_id is None
