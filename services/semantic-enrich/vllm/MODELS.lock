@@ -1,0 +1,11 @@
+# Populated on first successful vLLM venv setup. The runbook
+# (docs/services/semantic-enrich.md, "First-time setup") rewrites
+# this file with the resolved vllm package version and the Hugging
+# Face commit SHAs of both models.
+#
+# Until then, the values below are placeholders. The validation
+# gate does NOT read this file; it is operator-facing reproducibility
+# metadata.
+vllm: UNPINNED
+gen:  UNPINNED   # Qwen/Qwen2.5-14B-Instruct
+emb:  UNPINNED   # Qwen/Qwen3-Embedding-0.6B

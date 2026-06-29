@@ -1,0 +1,16 @@
+# vLLM server venv and the validate-script venv (operator-local).
+venv/
+validate-venv/
+
+# Per-run server logs and process PID files.
+logs/
+*.pid
+
+# Test/coverage artifacts.
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+__pycache__/
+*.egg-info/
