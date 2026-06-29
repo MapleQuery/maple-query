@@ -20,6 +20,11 @@ dependencies = [
   "google-cloud-logging>=3.10,<4",
   # Retry
   "tenacity>=8.3,<9",
+  # HTTP client for the package_id backfill script (CKAN walk). Already
+  # transitive via google-cloud-bigquery -> google-auth; pinned here so
+  # the import in scripts/backfill_package_id.py is explicit, not load-
+  # bearing on a transitive that could disappear.
+  "requests>=2.31,<3",
   # CLI. typer<0.15 is incompatible with click>=8.2 (Parameter.make_metavar
   # signature change); pin >=0.15 so the resolver picks a compatible build.
   "typer>=0.15,<1",
@@ -50,6 +55,9 @@ dev = [
   "ruff>=0.5,<1",
   "mypy>=1.10,<2",
   "import-linter>=2.0,<3",
+  # CKAN HTTP shim for the backfill integration tests.
+  "requests-mock>=1.12,<2",
+  "types-requests",
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -41,6 +41,10 @@ class FakeBqClient:
     # Tables not in the map fall back to `len(target_rows)`, which keeps
     # the documents-loader tests (single MERGE target) backward-compatible.
     explicit_row_counts: dict[str, int] = field(default_factory=dict)
+    # Param-bound DML calls (e.g. the package_id backfill's batched
+    # UPDATE). Captured as (sql, list[ScalarQueryParameter]) pairs so
+    # tests can assert on both the SQL shape and the bound values.
+    execute_with_params_calls: list[tuple[str, list[Any]]] = field(default_factory=list)
 
     def load_json(
         self,
@@ -59,6 +63,45 @@ class FakeBqClient:
         if "MERGE INTO" in sql and self.load_calls:
             for row in self.load_calls[-1][1]:
                 self.target_rows[row["document_id"]] = row
+        # Simulate the package_id backfill's --reset step: NULL the
+        # column on every seeded row so a subsequent parameter-bound
+        # UPDATE can see `package_id IS NULL` and proceed.
+        if "UPDATE" in sql and "SET package_id = NULL" in sql:
+            for row in self.target_rows.values():
+                row["package_id"] = None
+
+    def execute_with_params(
+        self,
+        sql: str,
+        *,
+        params: Iterable[Any] = (),
+    ) -> None:
+        self.query_calls.append(sql)
+        self.execute_with_params_calls.append((sql, list(params)))
+        # Simulate the backfill's parameter-bound UPDATE: pull
+        # (document_id, package_id) pairs out of the bound params and
+        # apply them to target_rows whose package_id is NULL.
+        if "UPDATE" in sql and "package_id" in sql:
+            pair_map: dict[str, str] = {}
+            for param in params:
+                name = getattr(param, "name", "")
+                value = getattr(param, "value", None)
+                if name.startswith("d_") and value is not None:
+                    pair_map[f"p_{name[2:]}"] = pair_map.get(f"p_{name[2:]}", "")
+                    pair_map[name] = str(value)
+                elif name.startswith("p_") and value is not None:
+                    pair_map[name] = str(value)
+            for key in [k for k in pair_map if k.startswith("d_")]:
+                idx = key[2:]
+                doc_id = pair_map.get(f"d_{idx}")
+                pkg_id = pair_map.get(f"p_{idx}")
+                if not doc_id or not pkg_id:
+                    continue
+                target = self.target_rows.get(doc_id)
+                if target is None:
+                    continue
+                if target.get("package_id") is None:
+                    target["package_id"] = pkg_id
 
     def count_rows(self, table_id: str) -> int:
         if table_id in self.explicit_row_counts:

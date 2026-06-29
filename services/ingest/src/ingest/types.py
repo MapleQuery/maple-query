@@ -35,6 +35,7 @@ class DocumentRow:
 
     document_id: str
     source_url: str
+    package_id: str  # CKAN package UUID (Dataset.id); parent of this resource.
     gcs_uri: str | None  # NULL when ingestion failed before upload
 
     checksum: str | None  # sha256 hex of body; NULL on failure

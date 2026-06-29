@@ -430,6 +430,114 @@ def test_default_discovers_orgs_from_ckan_facet(
     assert {c["organization"] for c in ckan.calls} == {"fin", "dfo-mpo"}
 
 
+def test_package_id_written_on_success_path(
+    settings: Settings, sources: SourcesConfig, runlog_path: Path
+) -> None:
+    """`dataset.id` flows through to `DocumentRow.package_id` on success."""
+    csv_url = "https://x.example/data/report-en.csv"
+    ds = _make_dataset(
+        id_="pkg-uuid-success",
+        org="fin",
+        subjects=["x"],
+        resources=[{"id": "r1", "url": csv_url, "format": "CSV", "language": ["en"]}],
+    )
+    http = FakeHttp(bodies={csv_url: b"a,b,c\n1,2,3\n"})
+
+    with RunLogWriter(path=runlog_path) as runlog:
+        run(
+            settings=settings, sources=sources,
+            request=RunRequest(subject="x", formats=("csv",)),
+            ckans={"ckan-opencanada": FakeCkan(datasets=[ds])},
+            http=http, gcs=FakeGcs(), runlog=runlog,
+        )
+
+    entries = _read_runlog(runlog_path)
+    assert len(entries) == 1
+    assert entries[0]["ingestion_status"] == "success"
+    assert entries[0]["package_id"] == "pkg-uuid-success"
+
+
+def test_package_id_written_on_quarantine_path(
+    settings: Settings, sources: SourcesConfig, runlog_path: Path
+) -> None:
+    """The quarantine path (truncated_body here) still carries `dataset.id`."""
+
+    @dataclass
+    class TruncatingHttp:
+        body: bytes
+        declared_length: int
+
+        def download(self, url, *, etag=None, last_modified=None):
+            return Downloaded(
+                body=self.body,
+                status=200,
+                # Declared length > actual → quarantine.decide() returns
+                # quarantine=True, reason='truncated_body'.
+                headers={
+                    "Content-Type": "text/csv",
+                    "Content-Length": str(self.declared_length),
+                },
+                elapsed_ms=1,
+            )
+
+    csv_url = "https://x.example/data/report-en.csv"
+    ds = _make_dataset(
+        id_="pkg-uuid-quarantine",
+        org="fin",
+        subjects=["x"],
+        resources=[{"id": "r1", "url": csv_url, "format": "CSV", "language": ["en"]}],
+    )
+
+    with RunLogWriter(path=runlog_path) as runlog:
+        summary = run(
+            settings=settings, sources=sources,
+            request=RunRequest(subject="x", formats=("csv",)),
+            ckans={"ckan-opencanada": FakeCkan(datasets=[ds])},
+            http=TruncatingHttp(body=b"a,b\n1,2\n", declared_length=9999),
+            gcs=FakeGcs(), runlog=runlog,
+        )
+
+    assert summary.quarantined == 1
+    entries = _read_runlog(runlog_path)
+    assert len(entries) == 1
+    assert entries[0]["ingestion_status"] == "quarantined"
+    assert entries[0]["quarantine_reason"] == "truncated_body"
+    assert entries[0]["package_id"] == "pkg-uuid-quarantine"
+
+
+def test_package_id_written_on_failed_download_path(
+    settings: Settings, sources: SourcesConfig, runlog_path: Path
+) -> None:
+    """A download that raises hits the failed branch (no body) and still
+    carries `dataset.id`."""
+    csv_url = "https://x.example/data/report-en.csv"
+    ds = _make_dataset(
+        id_="pkg-uuid-failed",
+        org="fin",
+        subjects=["x"],
+        resources=[{"id": "r1", "url": csv_url, "format": "CSV", "language": ["en"]}],
+    )
+    # FakeHttp raises on any URL not in `bodies` — that's the download
+    # failure path the pipeline routes into _build_quarantine_row with
+    # body=b"", which produces ingestion_status="failed".
+    http = FakeHttp(bodies={})
+
+    with RunLogWriter(path=runlog_path) as runlog:
+        summary = run(
+            settings=settings, sources=sources,
+            request=RunRequest(subject="x", formats=("csv",)),
+            ckans={"ckan-opencanada": FakeCkan(datasets=[ds])},
+            http=http, gcs=FakeGcs(), runlog=runlog,
+        )
+
+    assert summary.failed == 1
+    entries = _read_runlog(runlog_path)
+    assert len(entries) == 1
+    assert entries[0]["ingestion_status"] == "failed"
+    assert entries[0]["gcs_uri"] is None
+    assert entries[0]["package_id"] == "pkg-uuid-failed"
+
+
 def test_sniff_skips_when_bytes_dont_match_format_filter(
     settings: Settings, sources: SourcesConfig, runlog_path: Path
 ) -> None:

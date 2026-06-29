@@ -55,6 +55,11 @@ class RawRunlogRow(BaseModel):
 
     document_id: str
     source_url: str
+    # Best-effort link to the CKAN parent package. None for resources
+    # whose CKAN parent has been deleted since ingest, or for resources
+    # harvested from non-CKAN sources. The BQ column is permanently
+    # NULLABLE for the same reason — see raw_documents.json.
+    package_id: str | None = None
     gcs_uri: str | None = None
 
     checksum: str | None = None

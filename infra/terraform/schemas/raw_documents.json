@@ -6,6 +6,8 @@
   {"name": "document_id", "type": "STRING", "mode": "REQUIRED",
    "description": "sha256(source_url + checksum), full 64-hex. Primary key."},
   {"name": "source_url", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "package_id", "type": "STRING", "mode": "NULLABLE",
+   "description": "Best-effort link to the CKAN parent dataset (package UUID). NULL when no link exists today: the parent package was deleted from CKAN between ingest and the most recent backfill, or the resource was harvested from a non-CKAN portal. Self-healing: re-runs of scripts/backfill_package_id.py re-attach any rows whose parent reappears in CKAN. Downstream semantic-layer joins filter `WHERE package_id IS NOT NULL`."},
   {"name": "gcs_uri", "type": "STRING", "mode": "NULLABLE",
    "description": "Full gs:// URI of the stored body. NULL for rows without bytes (none today; reserved for future)."},
 

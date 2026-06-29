@@ -54,3 +54,18 @@ def test_tzaware_input_is_preserved() -> None:
     row = RawRunlogRow.model_validate(_payload(ingested_at="2026-06-01T00:00:00+02:00"))
     assert row.ingested_at.tzinfo is not None
     assert row.ingested_at.utcoffset() is not None
+
+
+def test_runlog_row_accepts_package_id() -> None:
+    """New ingest writes carry a package_id; round-trip it."""
+    row = RawRunlogRow.model_validate(_payload(package_id="d2dcdf2a-3a1f-4f3c-8c0a-3b5f0e0a1c7e"))
+    assert row.package_id == "d2dcdf2a-3a1f-4f3c-8c0a-3b5f0e0a1c7e"
+
+
+def test_runlog_row_without_package_id_parses_as_none() -> None:
+    """`package_id` is a best-effort link to the CKAN parent and may be
+    absent — historic runlogs from before the field existed, or rows
+    whose parent package was deleted between ingest and the backfill.
+    The field defaults to None so the loader handles both cases."""
+    row = RawRunlogRow.model_validate(_payload())  # no package_id
+    assert row.package_id is None
