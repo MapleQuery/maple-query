@@ -1,0 +1,121 @@
+"""Guided JSON generation via outlines (>=1.0) + transformers.
+
+outlines 1.x removed the old `outlines.models.transformers(repo, ...)`
+factory. Loaders now pass a pre-constructed HF model + tokenizer
+through `outlines.from_transformers(...)`, and generation is a direct
+call on the returned model — `model(prompt, schema, max_new_tokens=N)`
+— rather than the older `outlines.generate.json(...)` two-step.
+"""
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import pydantic
+
+from semantic_enrich.types import GenerationModel, MaxTokensExceededError
+
+
+def load_generation_model(
+    repo: str = "Qwen/Qwen2.5-14B-Instruct",
+    *,
+    dtype: str = "bfloat16",
+    device: str = "cuda",
+    cache_dir: str | None = None,
+) -> GenerationModel:
+    """Load the generation model once. Caller owns the lifetime.
+
+    `dtype` is a torch dtype name (`"bfloat16"`, `"float16"`, `"float32"`)
+    rather than the torch object so the loader can be invoked without a
+    torch import on the call-site. `device` is forwarded as
+    `device_map` to `AutoModelForCausalLM.from_pretrained` — passing
+    `"cuda"` lets accelerate place the weights, and `"cuda:0"` /
+    `"cuda:1"` pins to a specific card when the box has more than one.
+    """
+    import outlines
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    torch_dtype = getattr(torch, dtype)
+
+    model_kwargs: dict[str, Any] = {
+        "torch_dtype": torch_dtype,
+        "device_map": device,
+    }
+    tokenizer_kwargs: dict[str, Any] = {}
+    if cache_dir is not None:
+        model_kwargs["cache_dir"] = cache_dir
+        tokenizer_kwargs["cache_dir"] = cache_dir
+
+    tf_model = AutoModelForCausalLM.from_pretrained(repo, **model_kwargs)
+    tokenizer = AutoTokenizer.from_pretrained(repo, **tokenizer_kwargs)
+
+    return outlines.from_transformers(tf_model, tokenizer)
+
+
+def generate_json(
+    prompt: str,
+    schema: dict[str, Any] | type[pydantic.BaseModel],
+    *,
+    model: GenerationModel,
+    max_tokens: int = 1500,
+    temperature: float = 0.0,
+) -> dict[str, Any]:
+    """Run one constrained-JSON generation. Returns a parsed dict.
+
+    `schema` is either a JSON Schema dict or a pydantic model class.
+    Outlines constrains the decoder so the returned object always
+    parses and conforms to the schema; the only failure modes are
+    `max_tokens` truncation (raises `MaxTokensExceededError`) and OOM
+    (raises whatever torch raises).
+    """
+    gen_kwargs: dict[str, Any] = {"max_new_tokens": max_tokens}
+    if temperature == 0.0:
+        # Greedy decoding — silences the transformers `temperature=0`
+        # warning and matches the PRD's "deterministic by default".
+        gen_kwargs["do_sample"] = False
+    else:
+        gen_kwargs["do_sample"] = True
+        gen_kwargs["temperature"] = temperature
+
+    try:
+        result = model(prompt, schema, **gen_kwargs)
+    except (json.JSONDecodeError, pydantic.ValidationError) as exc:
+        raise MaxTokensExceededError(
+            f"constrained JSON generation produced malformed output; "
+            f"likely truncated at max_tokens={max_tokens}",
+        ) from exc
+
+    return _coerce_to_dict(result, max_tokens=max_tokens)
+
+
+def _coerce_to_dict(result: Any, *, max_tokens: int) -> dict[str, Any]:
+    """Normalise outlines's return shape into a plain dict.
+
+    outlines 1.x returns a JSON string when handed a pydantic class or
+    dict schema. Earlier 0.x dialects returned a pydantic instance or a
+    dict directly. Accept all three so the wrapper survives a future
+    library flip without churning the call sites.
+    """
+    if isinstance(result, pydantic.BaseModel):
+        return result.model_dump()
+    if isinstance(result, dict):
+        return result
+    if isinstance(result, str):
+        try:
+            parsed = json.loads(result)
+        except json.JSONDecodeError as exc:
+            raise MaxTokensExceededError(
+                f"outlines returned non-JSON string at max_tokens={max_tokens}: "
+                f"{result[:200]!r}",
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise TypeError(
+                f"outlines returned JSON that decoded to "
+                f"{type(parsed).__name__}; expected an object",
+            )
+        return parsed
+    raise TypeError(
+        f"outlines returned unexpected type {type(result).__name__}; "
+        "expected dict, str, or pydantic.BaseModel",
+    )
