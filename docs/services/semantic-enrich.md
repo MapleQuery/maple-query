@@ -1,11 +1,11 @@
 # services/semantic-enrich
 
-One CLI subcommand: `semantic-enrich smoke-test`. It exercises the two model-execution functions the enrichment pipeline calls into:
+A Python package the downstream enrichment pipeline imports. Two functions and a smoke test:
 
 - `core.generate.generate_json` — guided JSON generation backed by `outlines` + `transformers`. Returns a parsed dict that conforms to the supplied pydantic schema or JSON Schema.
 - `core.embed.embed_batch` — batch encoding via `sentence-transformers`. Returns L2-normalised 1024-dim vectors so downstream cosine similarity reduces to dot product.
 
-There is no HTTP server. There is no swap procedure. The runtime is a Python package; the downstream enrichment pipeline imports `load_generation_model` / `generate_json` for the text-gen pass, drops the model, then imports `load_embedding_model` / `embed_batch` for the embedding pass.
+The pipeline imports `load_generation_model` + `generate_json` for the text-gen pass, drops the model, then imports `load_embedding_model` + `embed_batch` for the embedding pass — sequential because the 14B-bf16 weights and the embedder don't co-reside on a 48 GB card without crowding the generation KV cache.
 
 ## Models
 
@@ -14,7 +14,7 @@ There is no HTTP server. There is no swap procedure. The runtime is a Python pac
 | Generation | `Qwen/Qwen2.5-14B-Instruct`   | `bfloat16` | constrained-JSON dict      |
 | Embedding  | `Qwen/Qwen3-Embedding-0.6B`   | `float16`  | 1024-dim L2-normed vector  |
 
-If the GPU box can't hold 14B-bf16 weights, swap the generation model to `Qwen/Qwen2.5-7B-Instruct` via `WHENRICH_GENERATION_MODEL` — the `generate_json` signature is identical.
+If a card can't hold 14B-bf16, swap to `Qwen/Qwen2.5-7B-Instruct` via `WHENRICH_GENERATION_MODEL` — the `generate_json` signature is identical.
 
 ## Configuration
 
@@ -29,23 +29,42 @@ If the GPU box can't hold 14B-bf16 weights, swap the generation model to `Qwen/Q
 
 ## First-time setup on the GPU box
 
+With `uv`:
+
 ```sh
 cd services/semantic-enrich
 uv venv --python 3.12 .venv
 source .venv/bin/activate
 uv pip install -e '.[dev]'
+```
 
-# Pre-pull both models to the local HF cache (~30 GB).
-hf download Qwen/Qwen2.5-14B-Instruct
-hf download Qwen/Qwen3-Embedding-0.6B
+With `conda`:
 
-# Pin to the intended card (see GPU pinning below).
+```sh
+cd services/semantic-enrich
+conda create -n semantic-enrich python=3.12 -y
+conda activate semantic-enrich
+pip install -e '.[dev]'
+```
+
+Pre-pull both models to the local HF cache (~30 GB):
+
+```sh
+huggingface-cli download Qwen/Qwen2.5-14B-Instruct
+huggingface-cli download Qwen/Qwen3-Embedding-0.6B
+```
+
+Pin the GPU. The reference box has two cards with different CUDA capability levels — torch's default device selection can pick the wrong one:
+
+```sh
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=0   # or 1, depending on which card
+```
 
-# Smoke-test. Loads both models sequentially, asserts shape on both
-# halves, writes MODELS.lock.
-uv run semantic-enrich smoke-test --write-lock
+Smoke-test, locking the resolved package versions and HF commit SHAs into `MODELS.lock`:
+
+```sh
+semantic-enrich smoke-test --write-lock
 ```
 
 Exit codes:
@@ -53,11 +72,7 @@ Exit codes:
 - `2` — a precondition failed (model load error, schema violation, dimension or L2-norm drift).
 - `1` — unexpected internal error.
 
-That's the whole runbook. No `nohup`, no PID files, no swap procedure, no ports to watch, no two venvs.
-
-## GPU pinning
-
-The reference GPU box has two cards (A6000 + Blackwell). Different CUDA capability levels mean torch's default device selection can pick the wrong one. `CUDA_DEVICE_ORDER=PCI_BUS_ID` + `CUDA_VISIBLE_DEVICES=0` (or `1`) constrains to the intended card.
+Commit `MODELS.lock` from the GPU box after the first successful run so future runs reproduce against the same versions.
 
 ## Memory budget
 
@@ -66,7 +81,7 @@ Sequential, not co-resident:
 - Generation peak: ~28 GB (14B-bf16 weights) + ~10 GB (KV cache + CUDA workspace + activations) ≈ 38 GB.
 - Embedding peak: ~2 GB (0.6B-fp16 + small KV).
 
-Fits comfortably on a 48 GB A6000. Fits on a 24 GB card with `WHENRICH_GENERATION_MODEL=Qwen/Qwen2.5-7B-Instruct` as the generation fallback.
+Fits on a 48 GB A6000. Fits on a 24 GB card with `WHENRICH_GENERATION_MODEL=Qwen/Qwen2.5-7B-Instruct`.
 
 ## How the pipeline uses the API
 
@@ -85,29 +100,17 @@ for batch in batched(texts, 128):
     ...
 ```
 
-`del` + `empty_cache()` is the swap procedure. It is one line.
-
-## conda as a fallback
-
-If `uv` isn't installed and can't be (no apt access), conda envs work the same way — the package is plain `pip`-installable:
-
-```sh
-conda create -n semantic-enrich python=3.12 -y
-conda activate semantic-enrich
-pip install -e '.[dev]'
-```
-
-`pyproject.toml` is the source of truth either way.
+The `del` + `empty_cache()` between passes frees the generation-model VRAM so the embedder has room to load.
 
 ## Tests
 
-Unit tests only, mocking `outlines.models.transformers`, `outlines.generate.json`, and `sentence_transformers.SentenceTransformer.encode` against the call boundaries. No real model loads in CI:
+Unit tests stub the model boundaries — `outlines.from_transformers`, the wrapped model's `__call__`, and `sentence_transformers.SentenceTransformer.encode` — so no real model loads happen in CI:
 
 ```sh
 cd services/semantic-enrich
-uv run pytest
-uv run ruff check .
-uv run mypy src
+pytest                        # or `uv run pytest`
+ruff check .
+mypy src
 ```
 
-Real model loads happen as part of `smoke-test --write-lock` on the operator's GPU box.
+Real model loads happen as part of `semantic-enrich smoke-test --write-lock` on the GPU box.
