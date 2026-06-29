@@ -1,0 +1,99 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "semantic-enrich"
+version = "0.1.0"
+description = "MapleQuery semantic enrichment runtime — outlines-backed guided JSON + sentence-transformers embeddings."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  # Config + data validation
+  "pydantic>=2.7,<3",
+  "pydantic-settings>=2.3,<3",
+  "python-dotenv>=1.0,<2",
+  # Logging
+  "structlog>=24.1,<26",
+  # CLI
+  "typer>=0.15,<1",
+  # Model runtime. transformers 4.51 is the floor where the qwen3
+  # architecture lands. No upper bound — if a future release breaks,
+  # pin then.
+  "transformers>=4.51,<5",
+  "torch>=2.4,<3",
+  "accelerate>=0.34,<2",
+  # Guided JSON generation. outlines wraps the transformers model and
+  # constrains the decoder against a JSON Schema / pydantic class.
+  "outlines>=0.1,<2",
+  # Embedding model loader. Tracks transformers >= 4.51 natively, so
+  # qwen3 loads without the architecture-not-found error vLLM 0.6.x hit.
+  "sentence-transformers>=3.0,<5",
+  # HF Hub metadata API — used by `smoke-test --write-lock` to capture
+  # the resolved commit SHA of each model. Transitive via transformers
+  # but pinned here so the lock writer doesn't break on a reshuffle.
+  "huggingface-hub>=0.24,<1",
+]
+
+[project.scripts]
+semantic-enrich = "semantic_enrich.entrypoint:app"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2,<9",
+  "pytest-cov>=5.0,<6",
+  "ruff>=0.5,<1",
+  "mypy>=1.10,<2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/semantic_enrich"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Typer documents `Option(...)` in defaults as the idiomatic pattern;
+# B008 is a false positive for typer commands.
+"src/semantic_enrich/entrypoint.py" = ["B008"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+packages = ["semantic_enrich"]
+
+# Heavy ML deps don't ship type stubs. Treat them as opaque rather than
+# blocking the strict-mypy gate; the typed boundary is our own
+# `load_*_model` / `generate_*` / `embed_*` signatures.
+[[tool.mypy.overrides]]
+module = [
+  "outlines",
+  "outlines.*",
+  "sentence_transformers",
+  "sentence_transformers.*",
+  "torch",
+  "torch.*",
+  "transformers",
+  "transformers.*",
+  "huggingface_hub",
+  "huggingface_hub.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["src/semantic_enrich"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
