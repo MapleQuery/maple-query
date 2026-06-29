@@ -1,13 +1,13 @@
 """Shared test fixtures.
 
 Real model loads only happen on the operator's GPU box during
-`smoke-test --write-lock`. CI mocks `outlines.generate.json` and
-`SentenceTransformer.encode` so the test suite stays GPU-free.
+`smoke-test --write-lock`. CI stubs `outlines.from_transformers` +
+the model's `__call__`, and `SentenceTransformer.encode`, so the test
+suite stays GPU-free.
 """
 from __future__ import annotations
 
 import pytest
-
 from semantic_enrich.config.settings import Settings
 
 

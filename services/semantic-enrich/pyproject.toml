@@ -58,8 +58,10 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 # Typer documents `Option(...)` in defaults as the idiomatic pattern;
-# B008 is a false positive for typer commands.
-"src/semantic_enrich/entrypoint.py" = ["B008"]
+# B008 is a false positive for typer commands. Globbed so the ignore
+# matches whether ruff is invoked from inside the package or from the
+# repo root.
+"**/entrypoint.py" = ["B008"]
 
 [tool.mypy]
 python_version = "3.12"

@@ -16,7 +16,6 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import smoke as smoke_mod
 from semantic_enrich.core.smoke import (

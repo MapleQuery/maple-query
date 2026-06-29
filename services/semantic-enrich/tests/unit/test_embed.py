@@ -6,7 +6,6 @@ import types
 from unittest.mock import MagicMock
 
 import pytest
-
 from semantic_enrich.core.embed import embed_batch, load_embedding_model
 
 

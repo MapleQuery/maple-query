@@ -1,8 +1,9 @@
 """`core.generate.generate_json` happy-path + truncation paths.
 
-The runtime deps (`outlines`, `torch`) are real package installs (main
-deps, not `[dev]`). Tests mock the call boundaries — `outlines.models.transformers`
-and `outlines.generate.json` — so no real model load happens in CI.
+Tests mock the model object's `__call__` (the outlines 1.x boundary)
+and inject fake `transformers` / `outlines` / `torch` modules via
+`sys.modules` so the suite runs on hosts where the heavy deps aren't
+installed.
 """
 from __future__ import annotations
 
@@ -14,115 +15,67 @@ from unittest.mock import MagicMock
 
 import pydantic
 import pytest
-
 from semantic_enrich.core.generate import generate_json, load_generation_model
 from semantic_enrich.core.schemas import SmokeOutput
 from semantic_enrich.types import MaxTokensExceededError
 
 
-def _install_fake_outlines(
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    generator_return: Any = None,
-    generator_raises: Exception | None = None,
-    factory: MagicMock | None = None,
-) -> MagicMock:
-    """Wire a fake `outlines` package into `sys.modules`.
-
-    `from outlines import generate` resolves against `sys.modules` —
-    populating it here lets the unit tests run on a host where outlines
-    isn't installed (laptop dev) and on the GPU box (real install) alike.
-    """
-    generator_fn = MagicMock(name="outlines-generator")
-    if generator_raises is not None:
-        generator_fn.side_effect = generator_raises
-    else:
-        generator_fn.return_value = generator_return
-
-    factory = factory or MagicMock(return_value=generator_fn)
-
-    fake_generate = types.ModuleType("outlines.generate")
-    fake_generate.json = factory  # type: ignore[attr-defined]
-
-    fake_models = types.ModuleType("outlines.models")
-    fake_models.transformers = MagicMock(return_value="fake-loaded-model")  # type: ignore[attr-defined]
-
-    fake_outlines = types.ModuleType("outlines")
-    fake_outlines.generate = fake_generate  # type: ignore[attr-defined]
-    fake_outlines.models = fake_models  # type: ignore[attr-defined]
-
-    monkeypatch.setitem(sys.modules, "outlines", fake_outlines)
-    monkeypatch.setitem(sys.modules, "outlines.generate", fake_generate)
-    monkeypatch.setitem(sys.modules, "outlines.models", fake_models)
-    return generator_fn
-
-
-def test_generate_json_returns_dict_from_pydantic_result(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_generate_json_returns_dict_from_pydantic_result() -> None:
     instance = SmokeOutput(package_id="pkg-1", summary="A fictional dataset.")
-    _install_fake_outlines(monkeypatch, generator_return=instance)
+    model = MagicMock(return_value=instance)
 
-    result = generate_json(
-        "ignored prompt",
-        SmokeOutput,
-        model=MagicMock(),
-    )
+    result = generate_json("prompt", SmokeOutput, model=model)
 
     assert result == {"package_id": "pkg-1", "summary": "A fictional dataset."}
 
 
-def test_generate_json_returns_dict_from_dict_result(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _install_fake_outlines(
-        monkeypatch,
-        generator_return={"package_id": "pkg-2", "summary": "Another."},
-    )
+def test_generate_json_returns_dict_from_string_result() -> None:
+    model = MagicMock(return_value='{"package_id": "pkg-2", "summary": "Another."}')
 
-    result = generate_json(
-        "ignored",
-        {"type": "object"},
-        model=MagicMock(),
-    )
+    result = generate_json("p", SmokeOutput, model=model)
 
     assert result == {"package_id": "pkg-2", "summary": "Another."}
 
 
-def test_generate_json_passes_max_tokens_and_temperature(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    generator_fn = _install_fake_outlines(
-        monkeypatch,
-        generator_return={"package_id": "p", "summary": "s"},
-    )
+def test_generate_json_returns_dict_from_dict_result() -> None:
+    model = MagicMock(return_value={"package_id": "pkg-3", "summary": "Third."})
 
-    generate_json(
-        "prompt",
-        SmokeOutput,
-        model=MagicMock(),
-        max_tokens=42,
-        temperature=0.5,
-    )
+    result = generate_json("p", {"type": "object"}, model=model)
 
-    generator_fn.assert_called_once_with("prompt", max_tokens=42, temperature=0.5)
+    assert result == {"package_id": "pkg-3", "summary": "Third."}
 
 
-def test_generate_json_raises_max_tokens_on_jsondecodeerror(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _install_fake_outlines(
-        monkeypatch,
-        generator_raises=json.JSONDecodeError("expected ','", "{}", 0),
-    )
+def test_generate_json_greedy_decoding_for_zero_temperature() -> None:
+    model = MagicMock(return_value={"package_id": "p", "summary": "s"})
+
+    generate_json("prompt", SmokeOutput, model=model, max_tokens=100, temperature=0.0)
+
+    call = model.call_args
+    assert call.args == ("prompt", SmokeOutput)
+    assert call.kwargs["max_new_tokens"] == 100
+    assert call.kwargs["do_sample"] is False
+    # `temperature` must not be passed when do_sample=False — the HF
+    # generation path warns otherwise.
+    assert "temperature" not in call.kwargs
+
+
+def test_generate_json_samples_for_nonzero_temperature() -> None:
+    model = MagicMock(return_value={"package_id": "p", "summary": "s"})
+
+    generate_json("prompt", SmokeOutput, model=model, max_tokens=42, temperature=0.7)
+
+    call = model.call_args
+    assert call.kwargs == {"max_new_tokens": 42, "do_sample": True, "temperature": 0.7}
+
+
+def test_generate_json_raises_max_tokens_on_jsondecodeerror_from_model() -> None:
+    model = MagicMock(side_effect=json.JSONDecodeError("expected ','", "{}", 0))
 
     with pytest.raises(MaxTokensExceededError, match="max_tokens"):
-        generate_json("p", SmokeOutput, model=MagicMock(), max_tokens=10)
+        generate_json("p", SmokeOutput, model=model, max_tokens=10)
 
 
-def test_generate_json_raises_max_tokens_on_validation_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_generate_json_raises_max_tokens_on_validation_error_from_model() -> None:
     try:
         SmokeOutput.model_validate({})
     except pydantic.ValidationError as exc:
@@ -130,67 +83,103 @@ def test_generate_json_raises_max_tokens_on_validation_error(
     else:  # pragma: no cover - defensive
         raise AssertionError("expected ValidationError")
 
-    _install_fake_outlines(monkeypatch, generator_raises=validation_exc)
+    model = MagicMock(side_effect=validation_exc)
 
     with pytest.raises(MaxTokensExceededError):
-        generate_json("p", SmokeOutput, model=MagicMock())
+        generate_json("p", SmokeOutput, model=model)
 
 
-def test_generate_json_rejects_unexpected_type(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _install_fake_outlines(monkeypatch, generator_return="not a dict or model")
+def test_generate_json_raises_max_tokens_on_unparseable_string() -> None:
+    model = MagicMock(return_value="not valid json")
+
+    with pytest.raises(MaxTokensExceededError, match="non-JSON"):
+        generate_json("p", SmokeOutput, model=model)
+
+
+def test_generate_json_rejects_non_object_json() -> None:
+    model = MagicMock(return_value="[1, 2, 3]")
+
+    with pytest.raises(TypeError, match="expected an object"):
+        generate_json("p", SmokeOutput, model=model)
+
+
+def test_generate_json_rejects_unexpected_type() -> None:
+    model = MagicMock(return_value=12345)
 
     with pytest.raises(TypeError, match="unexpected type"):
-        generate_json("p", SmokeOutput, model=MagicMock())
+        generate_json("p", SmokeOutput, model=model)
 
 
-def test_load_generation_model_invokes_outlines_factory(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def _install_fake_heavy_deps(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Stub torch, transformers, and outlines in sys.modules.
+
+    Returns the mocks so individual tests can assert against them. The
+    real packages stay uninstalled in the test env — `load_generation_model`
+    only touches them through these three symbols.
+    """
     fake_torch = types.ModuleType("torch")
     fake_torch.bfloat16 = "bf16-sentinel"  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
 
-    fake_models = types.ModuleType("outlines.models")
-    transformers_factory = MagicMock(return_value="loaded-model")
-    fake_models.transformers = transformers_factory  # type: ignore[attr-defined]
+    auto_model_cls = MagicMock(name="AutoModelForCausalLM")
+    auto_model_cls.from_pretrained.return_value = "tf-model-handle"
+    auto_tokenizer_cls = MagicMock(name="AutoTokenizer")
+    auto_tokenizer_cls.from_pretrained.return_value = "tokenizer-handle"
 
+    fake_transformers = types.ModuleType("transformers")
+    fake_transformers.AutoModelForCausalLM = auto_model_cls  # type: ignore[attr-defined]
+    fake_transformers.AutoTokenizer = auto_tokenizer_cls  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+
+    from_transformers = MagicMock(return_value="wrapped-outlines-model")
     fake_outlines = types.ModuleType("outlines")
-    fake_outlines.models = fake_models  # type: ignore[attr-defined]
+    fake_outlines.from_transformers = from_transformers  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "outlines", fake_outlines)
-    monkeypatch.setitem(sys.modules, "outlines.models", fake_models)
+
+    return {
+        "auto_model_cls": auto_model_cls,
+        "auto_tokenizer_cls": auto_tokenizer_cls,
+        "from_transformers": from_transformers,
+    }
+
+
+def test_load_generation_model_wires_transformers_into_outlines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mocks = _install_fake_heavy_deps(monkeypatch)
 
     result = load_generation_model(
         "Qwen/Qwen2.5-14B-Instruct",
         dtype="bfloat16",
-        device="cuda",
+        device="cuda:0",
         cache_dir="/tmp/hf",
     )
 
-    assert result == "loaded-model"
-    transformers_factory.assert_called_once_with(
+    assert result == "wrapped-outlines-model"
+    mocks["auto_model_cls"].from_pretrained.assert_called_once_with(
         "Qwen/Qwen2.5-14B-Instruct",
-        device="cuda",
-        model_kwargs={"torch_dtype": "bf16-sentinel", "cache_dir": "/tmp/hf"},
+        torch_dtype="bf16-sentinel",
+        device_map="cuda:0",
+        cache_dir="/tmp/hf",
+    )
+    mocks["auto_tokenizer_cls"].from_pretrained.assert_called_once_with(
+        "Qwen/Qwen2.5-14B-Instruct",
+        cache_dir="/tmp/hf",
+    )
+    mocks["from_transformers"].assert_called_once_with(
+        "tf-model-handle",
+        "tokenizer-handle",
     )
 
 
 def test_load_generation_model_omits_cache_dir_when_unset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake_torch = types.ModuleType("torch")
-    fake_torch.bfloat16 = "bf16"  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "torch", fake_torch)
-
-    fake_models = types.ModuleType("outlines.models")
-    factory = MagicMock(return_value="m")
-    fake_models.transformers = factory  # type: ignore[attr-defined]
-    fake_outlines = types.ModuleType("outlines")
-    fake_outlines.models = fake_models  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "outlines", fake_outlines)
-    monkeypatch.setitem(sys.modules, "outlines.models", fake_models)
+    mocks = _install_fake_heavy_deps(monkeypatch)
 
     load_generation_model("repo", dtype="bfloat16", device="cuda", cache_dir=None)
 
-    assert "cache_dir" not in factory.call_args.kwargs["model_kwargs"]
+    model_kwargs = mocks["auto_model_cls"].from_pretrained.call_args.kwargs
+    tokenizer_kwargs = mocks["auto_tokenizer_cls"].from_pretrained.call_args.kwargs
+    assert "cache_dir" not in model_kwargs
+    assert "cache_dir" not in tokenizer_kwargs
