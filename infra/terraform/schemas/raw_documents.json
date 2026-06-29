@@ -6,6 +6,8 @@
   {"name": "document_id", "type": "STRING", "mode": "REQUIRED",
    "description": "sha256(source_url + checksum), full 64-hex. Primary key."},
   {"name": "source_url", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "package_id", "type": "STRING", "mode": "NULLABLE",
+   "description": "CKAN package UUID. Parent dataset of the resource. NULLABLE during the package_id backfill window; tightened to REQUIRED once coverage on load_status='loaded' rows reaches 100%."},
   {"name": "gcs_uri", "type": "STRING", "mode": "NULLABLE",
    "description": "Full gs:// URI of the stored body. NULL for rows without bytes (none today; reserved for future)."},
 
