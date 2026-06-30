@@ -44,3 +44,4 @@ product-specs/
 # Per-run JSONL logs
 runlog/
 services/ingest/raw/
+services/semantic-enrich/stage/
