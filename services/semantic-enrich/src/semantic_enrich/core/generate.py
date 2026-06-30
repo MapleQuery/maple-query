@@ -48,7 +48,7 @@ def load_generation_model(
         tokenizer_kwargs["cache_dir"] = cache_dir
 
     tf_model = AutoModelForCausalLM.from_pretrained(repo, **model_kwargs)
-    tokenizer = AutoTokenizer.from_pretrained(repo, **tokenizer_kwargs)
+    tokenizer = AutoTokenizer.from_pretrained(repo, **tokenizer_kwargs)  # type: ignore[no-untyped-call]
 
     return outlines.from_transformers(tf_model, tokenizer)
 
@@ -87,6 +87,35 @@ def generate_json(
         ) from exc
 
     return _coerce_to_dict(result, max_tokens=max_tokens)
+
+
+def get_tokenizer(model: GenerationModel) -> Any:
+    """Return the HF tokenizer backing the outlines model.
+
+    Outlines doesn't promise a stable public attribute path to the
+    tokenizer; this helper probes the common ones so call sites stay
+    free of outlines-internal field names. If a future outlines
+    release moves the tokenizer, this is the only place to update.
+    """
+    for attr_chain in (
+        ("tokenizer",),
+        ("hf_tokenizer",),
+        ("model", "tokenizer"),
+        ("transformers", "tokenizer"),
+    ):
+        obj: Any = model
+        ok = True
+        for attr in attr_chain:
+            if not hasattr(obj, attr):
+                ok = False
+                break
+            obj = getattr(obj, attr)
+        if ok and obj is not None:
+            return obj
+    raise RuntimeError(
+        "could not locate tokenizer on outlines GenerationModel; "
+        "outlines internals may have shifted — update get_tokenizer()."
+    )
 
 
 def _coerce_to_dict(result: Any, *, max_tokens: int) -> dict[str, Any]:

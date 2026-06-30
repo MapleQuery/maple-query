@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 
 import pydantic
 import pytest
+
 from semantic_enrich.core.generate import generate_json, load_generation_model
 from semantic_enrich.core.schemas import SmokeOutput
 from semantic_enrich.types import MaxTokensExceededError
