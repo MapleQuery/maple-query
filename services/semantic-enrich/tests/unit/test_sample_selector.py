@@ -17,7 +17,6 @@ def _res(doc_id: str, row_count: int | None) -> PackageResource:
     return PackageResource(
         document_id=doc_id,
         title=None,
-        description=None,
         subjects=(),
         organization_code="org",
         file_format="csv",

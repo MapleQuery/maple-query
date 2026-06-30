@@ -58,7 +58,6 @@ class PackageResource(pydantic.BaseModel):
 
     document_id: str
     title: str | None = None
-    description: str | None = None
     subjects: tuple[str, ...] = ()
     organization_code: str
     file_format: str

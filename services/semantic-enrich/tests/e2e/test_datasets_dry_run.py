@@ -36,7 +36,6 @@ def test_dry_run_chain(tmp_path: Path) -> None:
                     {
                         "document_id": f"doc-{i}",
                         "title": f"Title-{i}",
-                        "description": "Desc.",
                         "subjects": ["s"],
                         "organization_code": "org",
                         "file_format": "csv",

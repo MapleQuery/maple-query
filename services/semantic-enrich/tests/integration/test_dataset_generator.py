@@ -52,7 +52,6 @@ def _seed_inputs(tmp_path: Path, run_id: str, package_ids: list[str]) -> None:
                             {
                                 "document_id": f"doc-{pid}",
                                 "title": "T",
-                                "description": None,
                                 "subjects": [],
                                 "organization_code": "org",
                                 "file_format": "csv",

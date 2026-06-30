@@ -16,24 +16,37 @@ from semantic_enrich.types import PackageResource
 
 
 def build_candidate_sql(
-    *, project_id: str, dataset_raw: str, documents_table: str
+    *,
+    project_id: str,
+    dataset_raw: str,
+    documents_table: str,
+    with_limit: bool,
 ) -> str:
     """One row per `package_id`, with the list of its loaded resources.
 
-    Parameter bindings:
+    `with_limit=True` appends `LIMIT @limit_packages`. BQ rejects
+    `LIMIT IF(...)`, so the clause is included conditionally rather
+    than parameter-toggled.
+
+    Parameter bindings. The Python BQ SDK serialises an empty-list
+    `ArrayQueryParameter(...)` as a NULL ARRAY on the wire (not as a
+    zero-length array — that's a `bq` CLI quirk only). So "no filter"
+    is `@p IS NULL`, and `NOT IN UNNEST(@p)` needs an explicit NULL
+    guard or it filters everything (NULL propagates through `NOT IN`).
+
       - @limit_orgs           ARRAY<STRING> | NULL  (NULL = no filter)
-      - @limit_package_ids    ARRAY<STRING> | NULL
-      - @already_extracted    ARRAY<STRING>  (empty array = no skip)
-      - @limit_packages       INT64        | NULL  (NULL = no LIMIT)
+      - @limit_package_ids    ARRAY<STRING> | NULL  (NULL = no filter)
+      - @already_extracted    ARRAY<STRING> | NULL  (NULL = no skip)
+      - @limit_packages       INT64                 (omitted when with_limit=False)
     """
     fq = f"`{project_id}.{dataset_raw}.{documents_table}`"
+    limit_clause = "\nLIMIT @limit_packages" if with_limit else ""
     return f"""
 SELECT
   package_id,
   ARRAY_AGG(STRUCT(
     document_id,
     title,
-    description,
     subjects,
     organization_code,
     file_format,
@@ -43,15 +56,14 @@ SELECT
 FROM {fq}
 WHERE load_status = 'loaded'
   AND package_id IS NOT NULL
-  AND (@limit_orgs IS NULL OR organization_code IN UNNEST(@limit_orgs))
-  AND (
-       @limit_package_ids IS NULL
-       OR package_id IN UNNEST(@limit_package_ids)
-  )
-  AND package_id NOT IN UNNEST(@already_extracted)
+  AND (@limit_orgs IS NULL
+       OR organization_code IN UNNEST(@limit_orgs))
+  AND (@limit_package_ids IS NULL
+       OR package_id IN UNNEST(@limit_package_ids))
+  AND (@already_extracted IS NULL
+       OR package_id NOT IN UNNEST(@already_extracted))
 GROUP BY package_id
-ORDER BY package_id
-LIMIT IF(@limit_packages IS NULL, 9223372036854775807, @limit_packages);
+ORDER BY package_id{limit_clause};
 """.strip()
 
 
@@ -62,37 +74,26 @@ def build_candidate_params(
     already_extracted: Iterable[str],
     limit_packages: int | None,
 ) -> list[bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter]:
-    return [
-        bigquery.ArrayQueryParameter("limit_orgs", "STRING", limit_orgs)
-        if limit_orgs is not None
-        else _null_array("limit_orgs", "STRING"),
+    params: list[
+        bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter
+    ] = [
         bigquery.ArrayQueryParameter(
-            "limit_package_ids", "STRING", limit_package_ids
-        )
-        if limit_package_ids is not None
-        else _null_array("limit_package_ids", "STRING"),
+            "limit_orgs", "STRING", list(limit_orgs or [])
+        ),
+        bigquery.ArrayQueryParameter(
+            "limit_package_ids", "STRING", list(limit_package_ids or [])
+        ),
         bigquery.ArrayQueryParameter(
             "already_extracted", "STRING", sorted(already_extracted)
         ),
-        bigquery.ScalarQueryParameter("limit_packages", "INT64", limit_packages),
     ]
-
-
-def _null_array(name: str, element_type: str) -> bigquery.ArrayQueryParameter:
-    """Build an ArrayQueryParameter that BQ binds as NULL.
-
-    `bigquery.ArrayQueryParameter(name, type, None)` raises on some
-    SDK versions; passing an empty list with the wrapping `IS NULL`
-    guard would change candidate-set semantics. Instead, bind through
-    `ScalarQueryParameter` typed as ARRAY<T> with a NULL value — BQ
-    treats this as NULL and the `@p IS NULL` predicate evaluates true.
-    """
-    # google-cloud-bigquery does not have a "null array" parameter
-    # type; the documented pattern is a ScalarQueryParameter typed as
-    # ARRAY. Returning ArrayQueryParameter with `values=None` is the
-    # path that works across SDK versions and serialises to a typed
-    # null in the API call.
-    return bigquery.ArrayQueryParameter(name, element_type, None)
+    if limit_packages is not None:
+        params.append(
+            bigquery.ScalarQueryParameter(
+                "limit_packages", "INT64", limit_packages
+            )
+        )
+    return params
 
 
 def decode_candidate_row(row: dict[str, Any]) -> tuple[str, tuple[PackageResource, ...]]:
@@ -103,7 +104,6 @@ def decode_candidate_row(row: dict[str, Any]) -> tuple[str, tuple[PackageResourc
         PackageResource(
             document_id=r["document_id"],
             title=r.get("title"),
-            description=r.get("description"),
             subjects=tuple(r.get("subjects") or ()),
             organization_code=r["organization_code"],
             file_format=r["file_format"],
@@ -121,13 +121,19 @@ def build_column_union_sql(*, project_id: str, dataset_raw: str, rows_table: str
     One row per document is enough — keys are identical across rows of
     one document — so the `QUALIFY ROW_NUMBER()=1` cuts the scan to the
     first row of each doc.
+
+    `raw.rows.row` is declared JSON but the rows loader writes the
+    dict as a JSON-encoded string (double-encoding). `JSON_KEYS(row)`
+    therefore returns `[]` because the value is a JSON string
+    primitive, not an object. `PARSE_JSON(STRING(row))` unwraps the
+    outer string so `JSON_KEYS` sees the underlying object.
     """
     fq = f"`{project_id}.{dataset_raw}.{rows_table}`"
     return f"""
 WITH per_doc_keys AS (
   SELECT
     document_id,
-    JSON_KEYS(row) AS keys
+    JSON_KEYS(PARSE_JSON(STRING(row))) AS keys
   FROM {fq}
   WHERE document_id IN UNNEST(@document_ids)
   QUALIFY ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY row_index) = 1

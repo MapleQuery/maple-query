@@ -40,9 +40,6 @@ Resource subjects: {subjects_csv}
 Per-resource titles (most recent first, up to 5):
 {resource_titles_block}
 
-Description (from representative resource):
-{rep_description}
-
 Column names ({column_count} total{column_truncation_note}):
 {column_names_block}
 
@@ -116,7 +113,6 @@ def render_user_message(pkg: PackageInputs) -> str:
         resource_count=len(pkg.resources),
         subjects_csv=subjects_csv,
         resource_titles_block=resource_titles_block,
-        rep_description=rep.description or "(no description)",
         column_count=len(pkg.column_names),
         column_truncation_note=column_truncation_note,
         column_names_block=column_names_block,

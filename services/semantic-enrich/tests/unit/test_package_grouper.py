@@ -11,20 +11,41 @@ from semantic_enrich.core.package_grouper import (
 )
 
 
-def test_build_candidate_sql_shape() -> None:
+def test_build_candidate_sql_shape_with_limit() -> None:
     sql = build_candidate_sql(
-        project_id="proj", dataset_raw="raw", documents_table="documents"
+        project_id="proj",
+        dataset_raw="raw",
+        documents_table="documents",
+        with_limit=True,
     )
     assert "`proj.raw.documents`" in sql
     assert "load_status = 'loaded'" in sql
     assert "package_id IS NOT NULL" in sql
     assert "GROUP BY package_id" in sql
     assert "ORDER BY package_id" in sql
-    assert "@limit_packages" in sql
     assert "@already_extracted" in sql
+    assert "LIMIT @limit_packages" in sql
+    # `@p IS NULL` is the "no filter" predicate. The Python BQ SDK
+    # serialises empty-list bindings as NULL ARRAY on the wire, so
+    # IS-NULL is what we have to test against (an ARRAY_LENGTH=0
+    # predicate evaluates to NULL → FALSE in WHERE).
+    assert "@limit_orgs IS NULL" in sql
+    assert "@limit_package_ids IS NULL" in sql
+    assert "@already_extracted IS NULL" in sql
 
 
-def test_build_candidate_params_passes_limits() -> None:
+def test_build_candidate_sql_omits_limit_when_unset() -> None:
+    sql = build_candidate_sql(
+        project_id="proj",
+        dataset_raw="raw",
+        documents_table="documents",
+        with_limit=False,
+    )
+    assert "LIMIT" not in sql
+    assert "@limit_packages" not in sql
+
+
+def test_build_candidate_params_includes_limit_when_set() -> None:
     params = build_candidate_params(
         limit_orgs=["org-a", "org-b"],
         limit_package_ids=None,
@@ -39,25 +60,23 @@ def test_build_candidate_params_passes_limits() -> None:
         "limit_packages",
     }
     by_name = {p.name: p for p in params}
-    # limit_packages is the bound integer.
     assert by_name["limit_packages"].value == 10
-    # already_extracted carries the list verbatim.
     assert by_name["already_extracted"].values == ["pkg-x"]
 
 
-def test_build_candidate_params_null_filters() -> None:
+def test_build_candidate_params_omits_limit_when_unset() -> None:
     params = build_candidate_params(
         limit_orgs=None,
         limit_package_ids=None,
         already_extracted=[],
         limit_packages=None,
     )
+    names = {p.name for p in params}
+    # `limit_packages` not in params; SQL omits the LIMIT clause too.
+    assert names == {"limit_orgs", "limit_package_ids", "already_extracted"}
     by_name = {p.name: p for p in params}
-    # NULL limit_orgs / limit_package_ids: ArrayQueryParameter with
-    # None values, which the @p IS NULL guard short-circuits.
-    assert by_name["limit_orgs"].values is None
-    assert by_name["limit_package_ids"].values is None
-    assert by_name["limit_packages"].value is None
+    assert by_name["limit_orgs"].values == []
+    assert by_name["limit_package_ids"].values == []
 
 
 def test_decode_candidate_row_pulls_resources() -> None:
@@ -67,7 +86,6 @@ def test_decode_candidate_row_pulls_resources() -> None:
             {
                 "document_id": "doc-1",
                 "title": "Foo",
-                "description": "Bar",
                 "subjects": ["s1", "s2"],
                 "organization_code": "org",
                 "file_format": "csv",
@@ -87,7 +105,10 @@ def test_build_column_union_sql_uses_json_keys() -> None:
     sql = build_column_union_sql(
         project_id="proj", dataset_raw="raw", rows_table="rows"
     )
-    assert "JSON_KEYS(row)" in sql
+    # PARSE_JSON(STRING(row)) unwraps the double-encoded JSON the rows
+    # loader writes; JSON_KEYS(row) by itself returns [] for a JSON
+    # string primitive.
+    assert "JSON_KEYS(PARSE_JSON(STRING(row)))" in sql
     assert "QUALIFY" in sql
     assert "@document_ids" in sql
 

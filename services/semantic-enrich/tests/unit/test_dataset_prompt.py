@@ -20,7 +20,6 @@ def _pkg() -> PackageInputs:
             PackageResource(
                 document_id="doc-1",
                 title="Quarterly Employment",
-                description="Federal head-count by department.",
                 subjects=("employment",),
                 organization_code="StatCan",
                 file_format="csv",

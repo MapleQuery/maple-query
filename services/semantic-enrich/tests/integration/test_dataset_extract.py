@@ -28,7 +28,6 @@ def _candidate_row(package_id: str, doc_id: str, row_count: int) -> dict:
             {
                 "document_id": doc_id,
                 "title": f"Title for {package_id}",
-                "description": "Description.",
                 "subjects": ["s1"],
                 "organization_code": "org",
                 "file_format": "csv",

@@ -87,6 +87,7 @@ def run_extract(
         project_id=project_id,
         dataset_raw=settings.bq_dataset_raw,
         documents_table=settings.bq_documents_table,
+        with_limit=request.limit_packages is not None,
     )
     candidate_params = package_grouper.build_candidate_params(
         limit_orgs=request.limit_orgs,
