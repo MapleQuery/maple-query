@@ -22,6 +22,7 @@ def _settings(tmp_path: Path) -> Settings:
         staging_dir=tmp_path,
         flush_every_n_packages=10,
         sample_rows_per_package=2,
+        extract_concurrency=1,
     )
 
 

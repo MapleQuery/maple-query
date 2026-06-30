@@ -18,6 +18,10 @@ def _settings(tmp_path: Path) -> Settings:
         staging_dir=tmp_path,
         flush_every_n_packages=10,
         sample_rows_per_package=2,
+        # Single-threaded so the FakeBqClient's FIFO response queue
+        # stays deterministic; concurrency is exercised by the live
+        # smoke ladder, not unit tests.
+        extract_concurrency=1,
     )
 
 

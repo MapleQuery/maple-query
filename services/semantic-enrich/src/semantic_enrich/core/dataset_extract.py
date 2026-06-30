@@ -7,8 +7,10 @@ GPU box reads that JSONL after an rsync; it never touches BQ itself.
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import structlog
 from google.api_core import exceptions as gax
@@ -22,6 +24,19 @@ from semantic_enrich.types import (
     DatasetsExtractRunSummary,
     PackageInputs,
 )
+
+
+@dataclass(frozen=True)
+class _ExtractOutcome:
+    """Per-package result returned from a worker thread back to the
+    main loop, which is the only thread that touches the StageWriter
+    and the run-level counters."""
+
+    kind: Literal["extracted", "failed"]
+    package_id: str
+    pkg: PackageInputs | None = None
+    failure_reason: str | None = None
+    failure_log_kwargs: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -126,92 +141,54 @@ def run_extract(
         on_flush=_on_flush,
     )
 
+    workers = max(1, settings.extract_concurrency)
+    log.info(
+        "extract_pool_started",
+        run_id=request.run_id,
+        workers=workers,
+    )
+
     try:
-        for raw_row in candidate_rows:
-            package_id, resources = package_grouper.decode_candidate_row(raw_row)
-            plog = log.bind(package_id=package_id)
-
-            if not resources:
-                # Defensive — the candidate query GROUP BYs over
-                # load_status='loaded' rows; an empty array would mean
-                # the join lost data. Skip as a hard fail.
-                plog.error("package_id_missing", document_id=None)
-                counters.failed += 1
-                continue
-
-            rep = sample_selector.pick_representative(resources)
-
-            if rep.row_count is None or rep.row_count == 0:
-                plog.error(
-                    "representative_doc_has_no_rows",
-                    representative_document_id=rep.document_id,
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                pool.submit(
+                    _extract_one_package,
+                    raw_row=raw_row,
+                    bq=bq,
+                    project_id=project_id,
+                    settings=settings,
+                    log=log,
                 )
-                counters.failed += 1
-                continue
+                for raw_row in candidate_rows
+            ]
+            # Drain in submission order so the on-disk flush sequence
+            # is deterministic across runs against the same candidate
+            # set — the stage file containing package N is the same
+            # across re-runs.
+            for raw_row, future in zip(candidate_rows, futures, strict=True):
+                try:
+                    outcome = future.result()
+                except Exception as exc:
+                    pid = raw_row.get("package_id", "<unknown>") if isinstance(raw_row, dict) else "<unknown>"
+                    log.bind(package_id=pid).exception(
+                        "package_extract_failed", error=str(exc)
+                    )
+                    counters.failed += 1
+                    continue
 
-            # Column-name union across all the package's documents.
-            all_doc_ids = [r.document_id for r in resources]
-            col_union = package_grouper.fetch_column_union(
-                bq=bq,
-                project_id=project_id,
-                dataset_raw=settings.bq_dataset_raw,
-                rows_table=settings.bq_rows_table,
-                document_ids=all_doc_ids,
-            )
-            kept_cols, truncated_to = package_grouper.truncate_columns(
-                names=col_union, cap=settings.sample_column_cap
-            )
-            if truncated_to is not None:
-                plog.info(
-                    "column_names_truncated_to",
-                    kept=len(kept_cols),
-                    total=truncated_to,
-                )
+                if outcome.kind == "failed":
+                    counters.failed += 1
+                    continue
 
-            # Deterministic sample rows from the rep doc.
-            indices = sample_selector.derive_indices(
-                document_id=rep.document_id,
-                row_count=rep.row_count,
-                k=settings.sample_rows_per_package,
-            )
-            sample_rows: list[dict[str, str | None]] = []
-            for decoded in package_grouper.fetch_sample_rows(
-                bq=bq,
-                project_id=project_id,
-                dataset_raw=settings.bq_dataset_raw,
-                rows_table=settings.bq_rows_table,
-                document_id=rep.document_id,
-                indices=indices,
-            ):
-                sample_rows.append(
-                    {k: sample_selector.truncate_cell(v) for k, v in decoded.items()}
-                )
-
-            pkg = PackageInputs(
-                package_id=package_id,
-                resources=resources,
-                column_names=kept_cols,
-                column_names_truncated_to=truncated_to,
-                representative_document_id=rep.document_id,
-                sample_rows=tuple(sample_rows),
-            )
-
-            writer.append(pkg)
-            counters.generated += 1
-            plog.info(
-                "package_inputs_extracted",
-                resource_count=len(resources),
-                column_count=len(kept_cols),
-                representative_document_id=rep.document_id,
-                sample_row_count=len(sample_rows),
-            )
-
-            if request.dry_run:
-                plog.info(
-                    "would_have_extracted",
-                    resource_count=len(resources),
-                    column_count=len(kept_cols),
-                )
+                assert outcome.pkg is not None
+                writer.append(outcome.pkg)
+                counters.generated += 1
+                if request.dry_run:
+                    log.bind(package_id=outcome.package_id).info(
+                        "would_have_extracted",
+                        resource_count=len(outcome.pkg.resources),
+                        column_count=len(outcome.pkg.column_names),
+                    )
     finally:
         writer.close()
 
@@ -232,6 +209,96 @@ def run_extract(
     log.info("datasets_extract_finish", run_id=request.run_id, duration_ms=duration_ms,
              summary=summary.__dict__)
     return summary
+
+
+def _extract_one_package(
+    *,
+    raw_row: dict[str, object],
+    bq: BqClient,
+    project_id: str,
+    settings: Settings,
+    log: structlog.BoundLogger,
+) -> _ExtractOutcome:
+    """Per-package work: decode candidate row, run column-union +
+    sample-rows queries, assemble `PackageInputs`. Safe to call from
+    a worker thread; the BQ client is thread-safe and structlog's
+    bound loggers are immutable per-call.
+
+    Returns an outcome instead of raising on data-shape failures
+    (`package_id_missing`, `representative_doc_has_no_rows`) so the
+    main thread can update counters without losing other packages
+    in the same batch. Unexpected exceptions still propagate.
+    """
+    package_id, resources = package_grouper.decode_candidate_row(raw_row)
+    plog = log.bind(package_id=package_id)
+
+    if not resources:
+        plog.error("package_id_missing", document_id=None)
+        return _ExtractOutcome(
+            kind="failed", package_id=package_id,
+            failure_reason="no_resources",
+        )
+
+    rep = sample_selector.pick_representative(resources)
+    if rep.row_count is None or rep.row_count == 0:
+        plog.error(
+            "representative_doc_has_no_rows",
+            representative_document_id=rep.document_id,
+        )
+        return _ExtractOutcome(
+            kind="failed", package_id=package_id,
+            failure_reason="no_rows",
+        )
+
+    all_doc_ids = [r.document_id for r in resources]
+    col_union = package_grouper.fetch_column_union(
+        bq=bq,
+        project_id=project_id,
+        dataset_raw=settings.bq_dataset_raw,
+        rows_table=settings.bq_rows_table,
+        document_ids=all_doc_ids,
+    )
+    kept_cols, truncated_to = package_grouper.truncate_columns(
+        names=col_union, cap=settings.sample_column_cap
+    )
+    if truncated_to is not None:
+        plog.info("column_names_truncated_to",
+                  kept=len(kept_cols), total=truncated_to)
+
+    indices = sample_selector.derive_indices(
+        document_id=rep.document_id,
+        row_count=rep.row_count,
+        k=settings.sample_rows_per_package,
+    )
+    sample_rows: list[dict[str, str | None]] = []
+    for decoded in package_grouper.fetch_sample_rows(
+        bq=bq,
+        project_id=project_id,
+        dataset_raw=settings.bq_dataset_raw,
+        rows_table=settings.bq_rows_table,
+        document_id=rep.document_id,
+        indices=indices,
+    ):
+        sample_rows.append(
+            {k: sample_selector.truncate_cell(v) for k, v in decoded.items()}
+        )
+
+    pkg = PackageInputs(
+        package_id=package_id,
+        resources=resources,
+        column_names=kept_cols,
+        column_names_truncated_to=truncated_to,
+        representative_document_id=rep.document_id,
+        sample_rows=tuple(sample_rows),
+    )
+    plog.info(
+        "package_inputs_extracted",
+        resource_count=len(resources),
+        column_count=len(kept_cols),
+        representative_document_id=rep.document_id,
+        sample_row_count=len(sample_rows),
+    )
+    return _ExtractOutcome(kind="extracted", package_id=package_id, pkg=pkg)
 
 
 def _assert_invariant(

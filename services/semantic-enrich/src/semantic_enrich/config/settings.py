@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     sample_rows_per_package: int = 10
     sample_column_cap: int = 40
 
+    # `datasets-extract` fan-out. Each package costs two BQ queries
+    # (column-union + sample-rows); running them serially against
+    # ~3,700 packages takes ~2-3 hours at ~1.5s round-trip per query.
+    # 16 concurrent workers cut that to ~12 minutes and stay well
+    # under BQ's per-user concurrent-jobs ceiling.
+    extract_concurrency: int = 16
+
     # Staging.
     staging_dir: Path = Field(default_factory=_find_staging_dir)
     flush_every_n_packages: int = 500
