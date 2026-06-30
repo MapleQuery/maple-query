@@ -55,6 +55,12 @@ dev = [
   # Layering contract enforcement — see [tool.importlinter] below.
   "import-linter>=2.0,<3",
 ]
+# One-shot OpenAI bypass for `columns-generate` (see
+# scripts/columns_generate_openai.py). Strictly optional — the
+# canonical pipeline runs the local Qwen path.
+openai = [
+  "openai>=1.50,<2",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/semantic_enrich"]
