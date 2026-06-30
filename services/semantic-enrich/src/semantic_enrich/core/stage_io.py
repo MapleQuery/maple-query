@@ -1,10 +1,10 @@
 """JSONL flush/read/scan helpers for `stage/<run_id>/<artifact>/`.
 
-Parameterised on the artifact name (`"inputs"`, `"datasets"`, or 4.5's
-`"columns"`) so the same buffer/flush manager handles all three. Files
-are named `<flush_seq:03d>.jsonl`; the writer seeds itself by scanning
-the dir, so a crashed run resumes flushing into the next sequence
-without colliding with prior files.
+Parameterised on the artifact name so the same buffer/flush manager
+handles every per-pass JSONL bucket. Files are named
+`<flush_seq:03d>.jsonl`; the writer seeds itself by scanning the dir,
+so a crashed run resumes flushing into the next sequence without
+colliding with prior files.
 
 The reader returns `(path, line_index, row)` tuples so callers can
 both rewrite a file in place (the embed pass, §8.2) and reference a
@@ -19,7 +19,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-Artifact = Literal["inputs", "datasets", "columns"]
+Artifact = Literal["inputs", "datasets", "column_inputs", "columns"]
 
 FlushCallback = Callable[[Path, int, int], None]
 """Signature: `(path, flush_seq, row_count) -> None`."""

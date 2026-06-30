@@ -157,6 +157,73 @@ def fake_generate_json_factory(
     return _fn
 
 
+def fake_generate_json_list_factory(
+    *,
+    response_for: dict[tuple[str, int], list[dict[str, Any]]] | None = None,
+    default_description: str = "A canned column description, padded to satisfy "
+    "the minimum-length validation that pydantic enforces.",
+):
+    """Return a `generate_json_list`-shaped callable.
+
+    `response_for` maps `(package_id, chunk_index)` to a canned
+    response list. When unset, the fake echoes back one entry per
+    requested column with `default_description` and the first
+    available sample value.
+
+    The fake parses the prompt for a `batch <N> of <M>` marker plus
+    a `package_id` line. The columns generator's prompt template emits
+    those phrases verbatim so the fake can identify which chunk is
+    being asked for.
+    """
+    response_for = response_for or {}
+    import re as _re
+
+    def _parse_chunk_metadata(prompt: str) -> tuple[str, int, list[str]]:
+        # The columns prompt template puts a `batch N of M` line and a
+        # `Columns:` block with `- name: <col>` entries. We parse both.
+        chunk_index = 0
+        m = _re.search(r"batch (\d+) of (\d+)", prompt)
+        if m:
+            chunk_index = int(m.group(1)) - 1
+        # No package_id line in the columns prompt; the fake_generate
+        # caller passes the package_id by name match-back. For tests,
+        # we read the package_title placeholder (set by the test
+        # fixture to encode the package_id) when present.
+        pid_match = _re.search(r"- Title: ([^\n]+)", prompt)
+        package_id = pid_match.group(1).strip() if pid_match else ""
+        # Column names: lines starting with `- name: `.
+        column_names = [
+            line.strip().removeprefix("- name: ").strip()
+            for line in prompt.splitlines()
+            if line.lstrip().startswith("- name: ")
+        ]
+        return package_id, chunk_index, column_names
+
+    def _fn(
+        prompt: str,
+        schema: object,
+        *,
+        model: object,
+        max_tokens: int = 1500,
+        temperature: float = 0.0,
+    ) -> list[dict[str, Any]]:
+        package_id, chunk_index, column_names = _parse_chunk_metadata(prompt)
+        canned = response_for.get((package_id, chunk_index))
+        if canned is not None:
+            return canned
+        return [
+            {
+                "column_name": name,
+                "semantic_type": "text",
+                "description": default_description,
+                "sample_values": [],
+            }
+            for name in column_names
+        ]
+
+    return _fn
+
+
 def fake_embed_batch_factory(*, dim: int = 1024):
     """Return a `embed_batch`-shaped callable that produces unit-norm
     vectors of `dim` entries, deterministic per input text."""

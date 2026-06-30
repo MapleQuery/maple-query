@@ -206,3 +206,146 @@ class Counters:
     skipped: int = 0
     failed: int = 0
     extras: dict[str, int] = field(default_factory=dict)
+
+
+# ── 4.5 input/output shapes ──
+
+
+class ColumnInputs(pydantic.BaseModel):
+    """One package's worth of inputs to the columns-generate pass.
+
+    Materialised by `columns-extract` (laptop) and consumed by
+    `columns-generate` (GPU). One JSONL line per package under
+    `stage/<run_id>/column_inputs/`.
+    """
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    package_id: str
+    package_title: str | None = None
+    package_description: str | None = None
+    package_subjects: tuple[str, ...] = ()
+    package_summary: str | None = None
+    representative_document_id: str
+    column_names: tuple[str, ...]
+    sample_values: dict[str, tuple[str, ...]]
+    dropped_columns: tuple[str, ...] = ()
+    overflow_column_count: int = 0
+    extracted_at: datetime
+
+
+class ColumnOutput(pydantic.BaseModel):
+    """One row of the model's per-chunk JSON-array response.
+
+    Constrained by `COLUMNS_GUIDED_JSON_SCHEMA` at generation time.
+    """
+
+    model_config = pydantic.ConfigDict(extra="forbid")
+
+    column_name: str
+    semantic_type: str | None = None
+    description: str = pydantic.Field(min_length=20, max_length=600)
+    sample_values: list[str] = pydantic.Field(default_factory=list, max_length=10)
+
+
+class StagedColumnRow(pydantic.BaseModel):
+    """On-disk row shape under `stage/<run_id>/columns/*.jsonl`.
+
+    One row per `(package_id, column_name)`. Provenance fields are
+    staging-only and projected away by the load pass.
+
+    `generation_failed=True` marks a failure-marker line (an empty
+    placeholder so the gap-fill check doesn't reprocess the package
+    without operator intervention; see §7.4 + §8.3).
+    """
+
+    model_config = pydantic.ConfigDict(extra="forbid")
+
+    package_id: str
+    column_name: str
+    semantic_type: str | None
+    description: str
+    sample_values: list[str]
+    embedding: list[float] | None
+    generated_at: datetime
+    generation_model: str
+    generation_model_commit: str | None
+    generation_run_id: str
+    generation_failed: bool = False
+    failure_reason: str | None = None
+    dry_run: bool = False
+
+
+# ── 4.5 errors ──
+
+
+class ColumnChunkInvariantError(RuntimeError):
+    """Raised when one chunk's model output violates the per-chunk
+    1:1 column-name mapping invariant. The chunk is retried once at
+    a small temperature bump; two consecutive violations escalate to
+    a per-package failure."""
+
+
+class ColumnPackageInvariantError(RuntimeError):
+    """Raised when the concatenated per-package output diverges from
+    the input column-name sequence. Belt-and-braces against a chunk →
+    concat ordering bug."""
+
+
+# ── 4.5 run summaries (§11.3) ──
+
+
+@dataclass(frozen=True)
+class ColumnsExtractRunSummary:
+    run_id: str
+    dry_run: bool
+    candidate_count: int
+    packages_extracted: int
+    packages_skipped_already_extracted: int
+    packages_empty: int
+    packages_summary_hit: int
+    packages_summary_miss: int
+    columns_dropped_by_allowlist: int
+    flush_files_written: int
+    duration_ms: int
+
+
+@dataclass(frozen=True)
+class ColumnsGenerateRunSummary:
+    run_id: str
+    dry_run: bool
+    input_row_count: int
+    packages_generated: int
+    packages_skipped_already_staged: int
+    packages_failed: int
+    chunks_total: int
+    chunks_retried: int
+    columns_generated: int
+    flush_files_written: int
+    duration_ms: int
+
+
+@dataclass(frozen=True)
+class ColumnsEmbedRunSummary:
+    run_id: str
+    dry_run: bool
+    staged_files_seen: int
+    rows_seen: int
+    embeddings_written: int
+    embeddings_skipped_already_embedded: int
+    embeddings_failed: int
+    duration_ms: int
+
+
+@dataclass(frozen=True)
+class ColumnsLoadRunSummary:
+    run_id: str
+    dry_run: bool
+    coalesced_row_count: int
+    embedding_null_count: int
+    failure_marker_count: int
+    rows_staged: int
+    rows_inserted: int
+    rows_updated: int
+    rows_unchanged: int
+    duration_ms: int
