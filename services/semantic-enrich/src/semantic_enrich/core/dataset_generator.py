@@ -24,7 +24,6 @@ import structlog
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import dataset_prompt, stage_io
 from semantic_enrich.core import generate as gen_mod
-from semantic_enrich.core.schemas import DATASET_CARD_GUIDED_JSON
 from semantic_enrich.providers.logging import get_logger
 from semantic_enrich.types import (
     Counters,
@@ -215,9 +214,13 @@ def run_generate(
             rendered = _build_chat_prompt(tokenizer=tokenizer, user_msg=user_msg)
             t0 = time.monotonic()
             try:
+                # outlines 1.x's `python_types_to_terms` rejects raw
+                # JSON-schema dicts; only pydantic classes (or its own
+                # DSL types) are accepted. `DatasetCard` carries the
+                # same constraints as `DATASET_CARD_GUIDED_JSON`.
                 raw = generate_json(
                     rendered,
-                    DATASET_CARD_GUIDED_JSON,
+                    DatasetCard,
                     model=model,
                     max_tokens=settings.generation_max_tokens,
                     temperature=settings.generation_temperature,
