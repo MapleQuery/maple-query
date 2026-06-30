@@ -184,3 +184,44 @@ def test_load_generation_model_omits_cache_dir_when_unset(
     tokenizer_kwargs = mocks["auto_tokenizer_cls"].from_pretrained.call_args.kwargs
     assert "cache_dir" not in model_kwargs
     assert "cache_dir" not in tokenizer_kwargs
+
+
+def test_get_tokenizer_walks_past_wrapper_without_apply_chat_template() -> None:
+    """outlines 1.x exposes its own `TransformerTokenizer` adapter at
+    `model.tokenizer`; the underlying HF tokenizer (with
+    `apply_chat_template`) sits at `model.tokenizer.tokenizer`. The
+    probe must skip the adapter and return the deeper attribute."""
+    from semantic_enrich.core.generate import get_tokenizer
+
+    class _HfTokenizer:
+        def apply_chat_template(
+            self,
+            messages: list[dict[str, str]],
+            *,
+            tokenize: bool,
+            add_generation_prompt: bool,
+        ) -> str:
+            return "rendered"
+
+    class _OutlinesAdapter:
+        def __init__(self, hf: _HfTokenizer) -> None:
+            # The adapter doesn't expose `apply_chat_template` directly.
+            self.tokenizer = hf
+
+    class _OutlinesModel:
+        def __init__(self) -> None:
+            self.tokenizer = _OutlinesAdapter(_HfTokenizer())
+
+    tok = get_tokenizer(_OutlinesModel())
+    assert hasattr(tok, "apply_chat_template")
+    assert tok.apply_chat_template([], tokenize=False, add_generation_prompt=True) == "rendered"
+
+
+def test_get_tokenizer_raises_when_no_chat_template_anywhere() -> None:
+    from semantic_enrich.core.generate import get_tokenizer
+
+    class _Bare:
+        pass
+
+    with pytest.raises(RuntimeError, match="apply_chat_template"):
+        get_tokenizer(_Bare())

@@ -92,17 +92,22 @@ def generate_json(
 def get_tokenizer(model: GenerationModel) -> Any:
     """Return the HF tokenizer backing the outlines model.
 
-    Outlines doesn't promise a stable public attribute path to the
-    tokenizer; this helper probes the common ones so call sites stay
-    free of outlines-internal field names. If a future outlines
-    release moves the tokenizer, this is the only place to update.
+    Outlines 1.x wraps the HF tokenizer in its own `TransformerTokenizer`
+    adapter at `model.tokenizer`; the original (with the
+    `apply_chat_template` method) is one level deeper at
+    `model.tokenizer.tokenizer`. This helper probes the common paths
+    and returns the first one that actually exposes
+    `apply_chat_template`, so call sites stay free of
+    outlines-internal field names.
     """
-    for attr_chain in (
+    candidates: tuple[tuple[str, ...], ...] = (
+        ("tokenizer", "tokenizer"),   # outlines 1.x adapter -> underlying HF
         ("tokenizer",),
         ("hf_tokenizer",),
         ("model", "tokenizer"),
         ("transformers", "tokenizer"),
-    ):
+    )
+    for attr_chain in candidates:
         obj: Any = model
         ok = True
         for attr in attr_chain:
@@ -110,11 +115,12 @@ def get_tokenizer(model: GenerationModel) -> Any:
                 ok = False
                 break
             obj = getattr(obj, attr)
-        if ok and obj is not None:
+        if ok and obj is not None and hasattr(obj, "apply_chat_template"):
             return obj
     raise RuntimeError(
-        "could not locate tokenizer on outlines GenerationModel; "
-        "outlines internals may have shifted — update get_tokenizer()."
+        "could not locate HF tokenizer with apply_chat_template on "
+        "outlines GenerationModel; outlines internals may have shifted "
+        "— update get_tokenizer()."
     )
 
 
