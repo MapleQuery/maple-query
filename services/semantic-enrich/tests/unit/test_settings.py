@@ -48,3 +48,43 @@ def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     s = Settings()
     assert s.embedding_batch_size == 32
     assert s.flush_every_n_packages == 100
+
+
+def test_openai_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    for var in (
+        "WHENRICH_OPENAI_API_KEY",
+        "OPENAI_API_KEY",
+        "WHENRICH_OPENAI_EMBEDDING_MODEL",
+        "WHENRICH_OPENAI_EMBEDDING_DIM",
+        "WHENRICH_OPENAI_EMBEDDING_BATCH_SIZE",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    # openai_api_key can be populated from a repo-level .env; we only
+    # assert the field exists at the expected type.
+    assert s.openai_api_key is None or hasattr(
+        s.openai_api_key, "get_secret_value"
+    )
+    assert s.openai_embedding_model == "text-embedding-3-small"
+    assert s.openai_embedding_dim == 1536
+    assert s.openai_embedding_batch_size == 128
+    assert s.openai_request_timeout_s == 30.0
+    assert s.openai_max_retries == 3
+
+
+def test_openai_api_key_alias_prefers_prefixed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-bare")
+    monkeypatch.setenv("WHENRICH_OPENAI_API_KEY", "sk-prefixed")
+    s = Settings()
+    assert s.openai_api_key is not None
+    assert s.openai_api_key.get_secret_value() == "sk-prefixed"
+
+
+def test_openai_api_key_bare_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("WHENRICH_OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-bare")
+    s = Settings()
+    assert s.openai_api_key is not None
+    assert s.openai_api_key.get_secret_value() == "sk-bare"

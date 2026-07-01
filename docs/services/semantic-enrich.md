@@ -4,28 +4,28 @@ A Python package + Typer CLI for two responsibilities:
 
 1. **Library (4.3).** Two functions the pipeline imports directly:
    - `core.generate.generate_json` — guided JSON generation backed by `outlines` + `transformers`. Returns a parsed dict that conforms to the supplied pydantic schema or JSON Schema.
-   - `core.embed.embed_batch` — batch encoding via `sentence-transformers`. Returns L2-normalised 1024-dim vectors so downstream cosine similarity reduces to dot product.
+   - `clients.openai.RealOpenAIClient.embed` — batch encoding via OpenAI text-embedding-3-small. Returns 1536-dim vectors. (Pre-4.7 the pipeline used `core.embed.embed_batch` against a local Qwen model; the local path is dead code kept in-tree for one clean re-enrichment cycle before removal.)
 
-2. **Datasets pipeline (4.4).** Four CLI subcommands that materialise one row per CKAN package into `semantic.datasets`, split across two machines:
+2. **Datasets pipeline (4.4 + 4.7).** Four CLI subcommands that materialise one row per CKAN package into `semantic.datasets`. Post-4.7, only `datasets-generate` needs the GPU box:
    - `datasets-extract` (laptop) — reads `raw.documents` + `raw.rows`, writes `stage/<run_id>/inputs/*.jsonl`.
    - `datasets-generate` (GPU box) — reads inputs, calls `generate_json`, writes `stage/<run_id>/datasets/*.jsonl` with `embedding=null`.
-   - `datasets-embed` (GPU box) — reads datasets, calls `embed_batch`, atomically rewrites each JSONL with `embedding` populated.
+   - `datasets-embed` (laptop, post-4.7) — reads datasets, calls OpenAI text-embedding-3-small, atomically rewrites each JSONL with `embedding` populated.
    - `datasets-load` (laptop) — coalesces the JSONL, `bq load`s into a session-scoped staging table, MERGEs into `semantic.datasets`.
 
 3. **Columns pipeline (4.5).** Four more CLI subcommands that materialise one row per `(package_id, column_name)` into `semantic.columns`. Same machine split, same `stage/<run_id>/` contract; reads `semantic.datasets.summary` for cross-pass context.
    - `columns-extract` (laptop) — reads `raw.documents`, `raw.rows`, and `semantic.datasets`, writes `stage/<run_id>/column_inputs/*.jsonl`. One file per package; per-package fan-out at `extract_concurrency=16` workers means a ~3,693-package backfill completes in ~10-20 minutes rather than ~hours.
    - `columns-generate` (GPU box) — reads column_inputs, chunks each package into ≤100-column batches, calls `generate_json_list` once per chunk, validates the 1:1 column-name mapping invariant per chunk and per package, writes `stage/<run_id>/columns/*.jsonl`.
-   - `columns-embed` (GPU box) — reads columns, embeds the `description` field. Same loop as `datasets-embed`; `embedding_pass._embed_files` is parameterised on artifact + row type.
+   - `columns-embed` (laptop, post-4.7) — reads columns, embeds the `description` field via OpenAI text-embedding-3-small. Same loop as `datasets-embed`; `embedding_pass._embed_files` is parameterised on artifact + row type.
    - `columns-load` (laptop) — coalesces the JSONL, validates pre-load, `bq load`s into a session-scoped staging table, MERGEs into `semantic.columns` on `(package_id, column_name)`. Failure markers and embedding-null rows are filtered out at coalesce time.
 
 The on-disk `stage/<run_id>/` dir is the only contract between the two machines — `rsync` (or `scp -r`) moves it. The GPU box never speaks to `googleapis.com`.
 
 ## Models
 
-| Pass       | HF repo                       | Dtype      | Output                     |
-| ---------- | ----------------------------- | ---------- | -------------------------- |
-| Generation | `Qwen/Qwen2.5-14B-Instruct`   | `bfloat16` | constrained-JSON dict      |
-| Embedding  | `Qwen/Qwen3-Embedding-0.6B`   | `float16`  | 1024-dim L2-normed vector  |
+| Pass       | Model                              | Where                                | Output                    |
+| ---------- | ---------------------------------- | ------------------------------------ | ------------------------- |
+| Generation | `Qwen/Qwen2.5-14B-Instruct`        | GPU box (HF, `bfloat16`)             | constrained-JSON dict     |
+| Embedding  | `openai:text-embedding-3-small`    | Laptop (OpenAI API, post-4.7)        | 1536-dim vector           |
 
 If a card can't hold 14B-bf16, swap to `Qwen/Qwen2.5-7B-Instruct` via `WHENRICH_GENERATION_MODEL` — the `generate_json` signature is identical.
 
@@ -41,8 +41,14 @@ If a card can't hold 14B-bf16, swap to `Qwen/Qwen2.5-7B-Instruct` via `WHENRICH_
 | `WHENRICH_GENERATION_MAX_TOKENS`   | `800`                         | Per-call max-new-tokens for constrained JSON             |
 | `WHENRICH_GENERATION_TEMPERATURE`  | `0.0`                         | Greedy by default (deterministic)                        |
 | `WHENRICH_GENERATION_DTYPE`        | `bfloat16`                    | Torch dtype string                                       |
-| `WHENRICH_EMBEDDING_DIM`           | `1024`                        | Validated per-vector at the embed boundary               |
-| `WHENRICH_EMBEDDING_BATCH_SIZE`    | `64`                          | Embedder batch size                                      |
+| `WHENRICH_EMBEDDING_DIM`           | `1024`                        | Legacy (pre-4.7) local-Qwen dim knob                     |
+| `WHENRICH_EMBEDDING_BATCH_SIZE`    | `64`                          | Legacy (pre-4.7) local-Qwen batch size                   |
+| `WHENRICH_OPENAI_API_KEY`          | (or `OPENAI_API_KEY`)         | Required for `*-embed` and `*-reembed`                   |
+| `WHENRICH_OPENAI_EMBEDDING_MODEL`  | `text-embedding-3-small`      | OpenAI embedding model id                                |
+| `WHENRICH_OPENAI_EMBEDDING_DIM`    | `1536`                        | Sanity-check knob asserted per-vector                    |
+| `WHENRICH_OPENAI_EMBEDDING_BATCH_SIZE` | `128`                     | Batch size sent to OpenAI                                |
+| `WHENRICH_OPENAI_REQUEST_TIMEOUT_S` | `30.0`                       | Per-request timeout                                      |
+| `WHENRICH_OPENAI_MAX_RETRIES`      | `3`                           | Tenacity retries on rate-limit + 5xx                     |
 | `WHENRICH_SAMPLE_ROWS_PER_PACKAGE` | `10`                          | Sample-row count fed to the prompt                       |
 | `WHENRICH_SAMPLE_COLUMN_CAP`       | `40`                          | Column-name list cap (prompt-bounding)                   |
 | `WHENRICH_FLUSH_EVERY_N_PACKAGES`  | `500`                         | Stage flush cadence                                      |
@@ -282,6 +288,66 @@ The `columns/*.jsonl` for the full backfill is ~900 MB (150K rows × ~6 KB/row w
 ```sh
 tar -czf "$RUN_ID-stage.tar.gz" services/semantic-enrich/stage/"$RUN_ID"/
 ```
+
+## Reembed runbook (4.7 — one-off OpenAI swap)
+
+Overwrites `semantic.datasets.embedding` and `semantic.columns.embedding` with OpenAI text-embedding-3-small vectors (1536-dim). Source text (`summary`, `description`) is not touched.
+
+Runs entirely on the laptop — no GPU box, no rsync, no `stage/*.jsonl` on disk. Estimated cost for the full corpus: **~$0.34**. Estimated wall clock: datasets < 5 min, columns < 30 min.
+
+### Prereqs
+
+- Laptop has ADC (`gcloud auth application-default login`) and exports `WHENRICH_GCP_PROJECT_ID` (or `GCP_PROJECT_ID`).
+- `OPENAI_API_KEY` (or `WHENRICH_OPENAI_API_KEY`) is set.
+- `semantic.datasets` and `semantic.columns` already populated (i.e. the 4.4 + 4.5 backfills ran with the old Qwen vectors).
+
+### Fast path — one command
+
+```sh
+cd services/semantic-enrich
+# dry-run: previews row counts, prints one would_have_reembedded event
+# per row, calls no OpenAI, writes no MERGE. Sanity-check first.
+scripts/reembed.sh --dry-run
+
+# real run: datasets first, then columns.
+scripts/reembed.sh
+```
+
+Flags:
+- `--dry-run` — skip OpenAI + MERGE.
+- `--datasets-only` / `--columns-only` — run one of the two passes.
+
+### Direct CLI (if you want the granular knobs)
+
+```sh
+cd services/semantic-enrich
+RUN_ID="reembed-$(date +%Y-%m-%d)"
+
+uv run semantic-enrich datasets-reembed --run-id "$RUN_ID"
+uv run semantic-enrich columns-reembed  --run-id "$RUN_ID"
+```
+
+### Verify
+
+After both reembeds complete, every `embedding` array should be 1536-dim:
+
+```sh
+PROJ=<your project>
+bq query --use_legacy_sql=false \
+  "SELECT COUNT(*) AS n_wrong FROM \`$PROJ.semantic.datasets\`
+   WHERE ARRAY_LENGTH(embedding) != 1536"
+bq query --use_legacy_sql=false \
+  "SELECT COUNT(*) AS n_wrong FROM \`$PROJ.semantic.columns\`
+   WHERE ARRAY_LENGTH(embedding) != 1536"
+```
+
+Both queries should return `n_wrong = 0`.
+
+### Recovery
+
+- Idempotent: the runners can be run twice — the second run rewrites the same rows to the same vectors (OpenAI embeddings are deterministic).
+- A crash before the MERGE leaves the target table untouched. The staging table auto-expires in 24 h.
+- To roll back to Qwen vectors, rerun the pre-4.7 datasets-embed + columns-embed pipeline on the GPU box. Same operation, opposite direction.
 
 ## How the library API is used
 

@@ -1,21 +1,25 @@
-"""End-to-end datasets-embed with deterministic fake embedder."""
+"""End-to-end datasets-embed with deterministic fake OpenAI client."""
 from __future__ import annotations
 
 import json
 import math
 from pathlib import Path
 
+import pytest
+
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core.embedding_pass import EmbedRequest, run_embed
 from semantic_enrich.types import StagedDatasetCard
+
+from .openai_fakes import FakeOpenAIClient
 
 
 def _settings(tmp_path: Path) -> Settings:
     return Settings(
         gcp_project_id="proj",
         staging_dir=tmp_path,
-        embedding_batch_size=4,
-        embedding_dim=8,
+        openai_embedding_batch_size=4,
+        openai_embedding_dim=8,
     )
 
 
@@ -57,25 +61,17 @@ def _seed_datasets(
     return path
 
 
-def _good_embed(dim: int):
-    def _fn(texts: list[str], *, model: object, batch_size: int = 64) -> list[list[float]]:
-        out = []
-        for _ in texts:
-            # Unit-norm vector of the right dim.
-            v = [1.0 / math.sqrt(dim)] * dim
-            out.append(v)
-        return out
-
-    return _fn
+def _unit_vec(dim: int) -> list[float]:
+    return [1.0 / math.sqrt(dim)] * dim
 
 
 def test_embed_three_packages(tmp_path: Path) -> None:
     path = _seed_datasets(tmp_path, "r1", ["pkg-a", "pkg-b", "pkg-c"])
+    client = FakeOpenAIClient(vector_factory=lambda _: _unit_vec(8))
     summary = run_embed(
         request=EmbedRequest(run_id="r1", dry_run=False, batch_size=None),
         settings=_settings(tmp_path),
-        load_embedding_model=lambda *a, **k: object(),
-        embed_batch=_good_embed(8),
+        openai_client=client,
     )
     assert summary.embeddings_written == 3
     assert summary.embeddings_failed == 0
@@ -86,44 +82,33 @@ def test_embed_three_packages(tmp_path: Path) -> None:
 
 
 def test_embed_resume_skips_already_embedded(tmp_path: Path) -> None:
-    path = _seed_datasets(
+    _seed_datasets(
         tmp_path,
         "r1",
         ["pkg-a", "pkg-b", "pkg-c"],
         pre_embedded_ids={"pkg-a", "pkg-c"},
     )
-    sent_to_embed: list[list[str]] = []
-
-    def _fn(texts: list[str], *, model: object, batch_size: int = 64) -> list[list[float]]:
-        sent_to_embed.append(texts)
-        return [[1.0 / math.sqrt(8)] * 8 for _ in texts]
-
+    client = FakeOpenAIClient(vector_factory=lambda _: _unit_vec(8))
     summary = run_embed(
         request=EmbedRequest(run_id="r1", dry_run=False, batch_size=None),
         settings=_settings(tmp_path),
-        load_embedding_model=lambda *a, **k: object(),
-        embed_batch=_fn,
+        openai_client=client,
     )
     assert summary.embeddings_skipped_already_embedded == 2
     assert summary.embeddings_written == 1
     # Only pkg-b's summary should be sent to the embedder.
-    flat = [t for batch in sent_to_embed for t in batch]
+    flat = [t for batch in client.calls for t in batch]
     assert any("pkg-b" in t for t in flat)
     assert not any("pkg-a" in t for t in flat)
-    del path  # only the resume behaviour matters here
 
 
 def test_embed_wrong_dim_failure(tmp_path: Path) -> None:
     _seed_datasets(tmp_path, "r1", ["pkg-a"])
-
-    def bad(texts: list[str], *, model: object, batch_size: int = 64) -> list[list[float]]:
-        return [[0.1] * 4 for _ in texts]
-
+    client = FakeOpenAIClient(vector_factory=lambda _: [0.1] * 4)
     summary = run_embed(
         request=EmbedRequest(run_id="r1", dry_run=False, batch_size=None),
         settings=_settings(tmp_path),
-        load_embedding_model=lambda *a, **k: object(),
-        embed_batch=bad,
+        openai_client=client,
     )
     assert summary.embeddings_failed == 1
     assert summary.embeddings_written == 0
@@ -131,12 +116,11 @@ def test_embed_wrong_dim_failure(tmp_path: Path) -> None:
 
 def test_embed_nan_failure(tmp_path: Path) -> None:
     _seed_datasets(tmp_path, "r1", ["pkg-a"])
-    nan_vec = [float("nan")] * 8
+    client = FakeOpenAIClient(vector_factory=lambda _: [float("nan")] * 8)
     summary = run_embed(
         request=EmbedRequest(run_id="r1", dry_run=False, batch_size=None),
         settings=_settings(tmp_path),
-        load_embedding_model=lambda *a, **k: object(),
-        embed_batch=lambda texts, *, model, batch_size=64: [nan_vec for _ in texts],
+        openai_client=client,
     )
     assert summary.embeddings_failed == 1
 
@@ -163,8 +147,3 @@ def test_staged_dataset_card_extra_field_rejected() -> None:
                 "secret_field": "nope",
             }
         )
-
-
-# pytest import lazy-pulled to avoid touching the namespace before
-# the test class needs it.
-import pytest  # noqa: E402
