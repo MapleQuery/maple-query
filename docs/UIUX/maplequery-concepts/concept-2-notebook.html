@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MapleQuery — Concept 2: Notebook Workspace</title>
+  <meta name="description" content="A document workspace where query blocks become a draft investigation that exports to a sourced report." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: { extend: {
+        colors: {
+          canvas:'#ffffff', surface:'#f6f5f4', 'surface-soft':'#fafaf9', hairline:'#e5e3df', 'hairline-strong':'#c8c4be',
+          'ink-deep':'#000000', ink:'#1a1a1a', charcoal:'#37352f', slate:'#5d5b54', steel:'#787671',
+          primary:'#5645d4', 'primary-pressed':'#4534b3', 'link-blue':'#0075de',
+          'tint-peach':'#ffe8d4','tint-rose':'#fde0ec','tint-mint':'#d9f3e1','tint-lavender':'#e6e0f5','tint-sky':'#dcecfa','tint-yellow':'#fef7d6',
+          success:'#1aae39', warning:'#dd5b00', 'maple-blue':'#1e40af', amber:'#f59e0b',
+        },
+        fontFamily: { sans:['Inter','system-ui','sans-serif'], mono:['"Fira Code"','ui-monospace','monospace'] },
+      } },
+    };
+  </script>
+  <style>
+    body { background-color:#ffffff; }
+    @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important;scroll-behavior:auto!important} .block-in{opacity:1!important;transform:none!important} }
+    .block:hover .block-handle { opacity:1; }
+    .block-handle { opacity:0; transition: opacity .15s ease; }
+    .skeleton { background: linear-gradient(90deg,#f6f5f4 25%,#fafaf9 50%,#f6f5f4 75%); background-size:200% 100%; animation: shimmer 1.4s infinite; }
+    @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+    .block-in { animation: rise .4s cubic-bezier(.16,1,.3,1) both; }
+    @keyframes rise { from{opacity:0; transform:translateY(10px)} to{opacity:1; transform:none} }
+    .msg-in { animation: rise .35s cubic-bezier(.16,1,.3,1) both; }
+    .dot-typing span { animation: blink 1.2s infinite; } .dot-typing span:nth-child(2){animation-delay:.2s} .dot-typing span:nth-child(3){animation-delay:.4s}
+    @keyframes blink { 0%,60%,100%{opacity:.2;transform:translateY(0)} 30%{opacity:1;transform:translateY(-2px)} }
+    .grow-bar { transition: height 1s cubic-bezier(.16,1,.3,1); }
+    .row-in { opacity:0; transform: translateX(-6px); animation: rowin .4s ease forwards; }
+    @keyframes rowin { to { opacity:1; transform:none; } }
+    .dragging { opacity:.4; }
+    .drop-target { box-shadow: inset 0 2px 0 #5645d4; }
+    [draggable="true"] { cursor: grab; }
+    .modal-in { animation: modalin .25s ease both; } @keyframes modalin { from{opacity:0; transform:scale(.97)} to{opacity:1; transform:none} }
+  </style>
+</head>
+<body class="font-sans text-charcoal antialiased">
+
+  <div class="flex h-screen overflow-hidden">
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="hidden w-64 shrink-0 flex-col border-r border-hairline bg-surface md:flex" aria-label="Workspace">
+      <div class="flex h-14 items-center gap-2 px-4">
+        <a href="index.html" class="grid h-7 w-7 cursor-pointer place-items-center rounded-md bg-primary text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label="MapleQuery home">
+          <svg viewBox="0 0 80 80" class="h-4 w-4" fill="none"><circle cx="34" cy="34" r="20" stroke="currentColor" stroke-width="4"/><line x1="48" y1="48" x2="66" y2="66" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><rect x="24" y="26" width="20" height="4" rx="2" fill="currentColor"/><rect x="24" y="33" width="14" height="4" rx="2" fill="currentColor"/><rect x="24" y="40" width="18" height="4" rx="2" fill="currentColor"/></svg>
+        </a>
+        <span class="text-sm font-semibold tracking-tight text-ink">MapleQuery</span>
+        <a href="concept-2-landing.html" class="ml-auto rounded-full bg-tint-lavender px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary-pressed transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" title="About Concept 2">Concept 2</a>
+      </div>
+      <div class="px-3 py-2">
+        <label for="docsearch" class="sr-only">Search investigations</label>
+        <div class="flex items-center gap-2 rounded-md border border-hairline bg-canvas px-2.5 py-2 text-sm text-steel focus-within:ring-2 focus-within:ring-primary">
+          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="docsearch" placeholder="Search investigations" class="w-full bg-transparent text-sm text-ink placeholder:text-steel focus:outline-none" />
+        </div>
+      </div>
+      <nav class="flex-1 space-y-6 overflow-y-auto px-3 py-3 text-sm" aria-label="Documents">
+        <div>
+          <p class="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-steel">Investigations</p>
+          <a href="#" class="flex items-center gap-2 rounded-md bg-tint-lavender/60 px-2 py-1.5 font-medium text-ink">
+            <svg viewBox="0 0 24 24" class="h-4 w-4 text-primary" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg>
+            Federal IT contract spend
+          </a>
+          <a href="#" class="flex items-center gap-2 rounded-md px-2 py-1.5 text-slate transition-colors duration-150 hover:bg-surface-soft hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+            <svg viewBox="0 0 24 24" class="h-4 w-4 text-steel" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg>
+            Housing grants by province
+          </a>
+          <a href="#" class="flex items-center gap-2 rounded-md px-2 py-1.5 text-slate transition-colors duration-150 hover:bg-surface-soft hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+            <svg viewBox="0 0 24 24" class="h-4 w-4 text-steel" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg>
+            Immigration backlog trends
+          </a>
+        </div>
+        <div>
+          <p class="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-steel">Connected sources</p>
+          <div class="space-y-1 px-2 text-xs text-slate">
+            <p class="flex items-center gap-2"><span class="h-1.5 w-1.5 rounded-full bg-success"></span> Open Government Portal</p>
+            <p class="flex items-center gap-2"><span class="h-1.5 w-1.5 rounded-full bg-success"></span> Statistics Canada</p>
+            <p class="flex items-center gap-2"><span class="h-1.5 w-1.5 rounded-full bg-success"></span> Proactive Disclosure</p>
+            <p class="flex items-center gap-2"><span class="h-1.5 w-1.5 rounded-full bg-warning"></span> Open By Default (syncing)</p>
+          </div>
+        </div>
+      </nav>
+    </aside>
+
+    <!-- Document -->
+    <div class="flex min-w-0 flex-1 flex-col">
+      <header class="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-hairline bg-canvas/90 px-4 backdrop-blur md:px-8">
+        <div class="flex items-center gap-2 text-sm text-steel">
+          <button id="menuBtn" class="cursor-pointer rounded-md p-1.5 text-steel hover:bg-surface md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label="Toggle sidebar"><svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+          <span class="hidden sm:inline">Investigations</span>
+          <svg viewBox="0 0 24 24" class="hidden h-3.5 w-3.5 sm:block" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          <span class="font-medium text-ink">Federal IT contract spend</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="hidden cursor-pointer rounded-md px-3 py-1.5 text-sm font-medium text-slate transition-colors duration-150 hover:bg-surface sm:block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Share</button>
+          <button id="promoteBtn" class="cursor-pointer rounded-md bg-primary px-3.5 py-1.5 text-sm font-medium text-white transition-colors duration-200 hover:bg-primary-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">Promote to report</button>
+        </div>
+      </header>
+
+      <!-- Hero band -->
+      <div id="c2hero" class="border-b border-hairline bg-gradient-to-br from-tint-lavender/50 via-canvas to-tint-sky/40 px-4 py-7 md:px-8">
+        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Concept 2 · Notebook workspace</p>
+        <h1 class="mt-1 max-w-2xl text-2xl font-bold tracking-tight text-ink md:text-3xl">Query, draft, and publish in one document</h1>
+        <p class="mt-2 max-w-2xl text-sm text-slate">Each block is prose or a live query. Hit <span class="font-medium text-ink">Run</span> to populate animated results with auto-citations, drag blocks to reorder, then promote the draft into a sourced report.</p>
+      </div>
+
+      <!-- Section tabs -->
+      <div class="flex items-center border-b border-hairline bg-canvas px-4 py-2 md:px-8">
+        <nav role="tablist" aria-label="Sections">
+          <div class="inline-flex gap-0.5 rounded-lg bg-surface p-0.5">
+            <button data-sec="notebook" class="tab cursor-pointer rounded-md bg-canvas px-3 py-1.5 text-sm font-medium text-ink shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Notebook</button>
+            <button data-sec="ask" class="tab cursor-pointer rounded-md px-3 py-1.5 text-sm font-medium text-steel transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Ask</button>
+            <button data-sec="data" class="tab cursor-pointer rounded-md px-3 py-1.5 text-sm font-medium text-steel transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Data</button>
+          </div>
+        </nav>
+        <span class="ml-auto hidden text-xs text-steel sm:inline">Chat &amp; data are the core tools · the notebook is the enhancement</span>
+      </div>
+
+      <!-- Doc body -->
+      <main id="sec-notebook" class="app-sec flex-1 overflow-y-auto">
+        <article class="mx-auto max-w-3xl px-4 py-10 md:px-8">
+          <input value="Federal IT contracting: a 6-year trend" aria-label="Document title" class="mb-2 w-full bg-transparent text-3xl font-bold tracking-tight text-ink placeholder:text-hairline-strong focus:outline-none" />
+          <p id="docMeta" class="mb-8 text-sm text-steel">Draft investigation · last edited just now · <span id="blockCount">3</span> blocks · 1 source</p>
+
+          <div id="blocks"><!-- blocks injected --></div>
+
+          <!-- Insert control -->
+          <div class="relative mt-1">
+            <button id="insertBtn" class="group flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm text-steel transition-colors duration-150 hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+              <span class="grid h-5 w-5 place-items-center rounded border border-hairline-strong text-steel group-hover:border-primary group-hover:text-primary"><svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></span>
+              Add a block
+            </button>
+            <div id="insertMenu" class="absolute left-0 z-10 mt-1 hidden w-56 overflow-hidden rounded-lg border border-hairline bg-canvas py-1 shadow-lg">
+              <button data-add="query" class="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-charcoal hover:bg-surface focus-visible:outline-none focus-visible:bg-surface"><span class="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] text-primary">/query</span> Live query</button>
+              <button data-add="text" class="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-charcoal hover:bg-surface focus-visible:outline-none focus-visible:bg-surface"><span class="rounded bg-surface px-1.5 py-0.5 font-mono text-[11px] text-steel">/text</span> Prose</button>
+              <button data-add="source" class="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-charcoal hover:bg-surface focus-visible:outline-none focus-visible:bg-surface"><span class="rounded bg-tint-mint px-1.5 py-0.5 font-mono text-[11px] text-success">/source</span> Citation</button>
+            </div>
+          </div>
+
+          <!-- Report assembly hint -->
+          <div class="mt-10 rounded-xl border border-hairline bg-tint-lavender/40 p-5">
+            <div class="flex items-start gap-3">
+              <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary text-white" aria-hidden="true"><svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg></span>
+              <div>
+                <h3 class="text-sm font-semibold text-ink">Ready to publish?</h3>
+                <p class="mt-1 text-sm text-slate">“Promote to report” assembles these blocks into a structured, fully-sourced document — every figure keeps its citation.</p>
+                <button class="promote2 mt-3 cursor-pointer rounded-md bg-primary px-3.5 py-1.5 text-sm font-medium text-white transition-colors duration-200 hover:bg-primary-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">Promote to report</button>
+              </div>
+            </div>
+          </div>
+
+          <p class="mt-10 text-xs text-steel">Prototype · Concept 2 of 3 · Aesthetic grounded in the <span class="font-medium text-ink">Notion</span> design reference + MapleQuery design system (ui-ux-pro-max).</p>
+        </article>
+      </main>
+
+      <!-- Ask (chat) section -->
+      <section id="sec-ask" class="app-sec hidden flex flex-1 flex-col">
+        <div id="c2thread" class="flex flex-1 flex-col space-y-5 overflow-y-auto px-4 py-6 md:px-8" aria-live="polite"></div>
+        <div class="shrink-0 border-t border-hairline bg-canvas px-4 py-4 md:px-8">
+          <div class="mx-auto max-w-2xl">
+            <form id="c2form" class="flex items-end gap-2 rounded-xl border border-hairline-strong bg-canvas p-2 focus-within:ring-2 focus-within:ring-primary">
+              <label for="c2input" class="sr-only">Ask a question</label>
+              <textarea id="c2input" rows="1" placeholder="Ask a question about government data…" class="max-h-32 flex-1 resize-none bg-transparent px-2 py-2 text-[15px] text-ink placeholder:text-steel focus:outline-none"></textarea>
+              <button type="submit" class="cursor-pointer rounded-lg bg-primary p-2.5 text-white transition-colors duration-200 hover:bg-primary-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label="Send"><svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z"/></svg></button>
+            </form>
+            <p class="mt-2 text-center text-xs text-steel">Answers come from official datasets and always show their source.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Data viewer section -->
+      <section id="sec-data" class="app-sec hidden flex flex-1 overflow-hidden">
+        <aside class="hidden w-64 shrink-0 overflow-y-auto border-r border-hairline bg-surface md:block" aria-label="Tables">
+          <div class="p-4"><h2 class="mb-3 text-xs font-bold uppercase tracking-wider text-steel">Tables</h2><ul id="c2List" class="space-y-1"></ul></div>
+        </aside>
+        <div class="min-w-0 flex-1 overflow-y-auto">
+          <div class="max-w-4xl px-4 py-8 md:px-8">
+            <label for="c2Select" class="sr-only">Choose a table</label>
+            <select id="c2Select" class="mb-4 w-full cursor-pointer rounded-lg border border-hairline-strong bg-canvas px-3 py-2 text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary md:hidden"></select>
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p id="c2Cat" class="text-xs font-semibold uppercase tracking-wider text-primary">Dataset</p>
+              <h2 id="c2Title" class="mt-1 text-2xl font-bold tracking-tight text-ink">—</h2>
+              <p id="c2Desc" class="mt-1 max-w-2xl text-sm text-slate">—</p>
+            </div>
+            <button id="c2Download" class="cursor-pointer rounded-md bg-primary px-4 py-2 text-sm font-medium text-white transition-colors duration-200 hover:bg-primary-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"><span class="inline-flex items-center gap-1.5"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg> Download CSV</span></button>
+          </div>
+          <dl id="c2Meta" class="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-hairline bg-hairline sm:grid-cols-4"></dl>
+          <div class="mt-5 flex flex-wrap items-center gap-2">
+            <div class="flex items-center gap-2 rounded-lg border border-hairline bg-canvas px-2.5 py-2 text-sm text-steel focus-within:ring-2 focus-within:ring-primary">
+              <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+              <label for="c2Search" class="sr-only">Search this table</label>
+              <input id="c2Search" placeholder="Search this table" class="w-44 bg-transparent text-ink placeholder:text-steel focus:outline-none" />
+            </div>
+            <span id="c2Count" class="ml-auto font-mono text-xs text-steel">0 rows</span>
+          </div>
+          <div class="mt-3 overflow-x-auto rounded-xl border border-hairline bg-canvas">
+            <table class="w-full text-left text-sm"><thead id="c2Head" class="bg-surface-soft"></thead><tbody id="c2Body" class="text-ink"></tbody></table>
+            <div id="c2Empty" class="hidden p-10 text-center"><p class="text-sm font-medium text-ink">No rows match your search</p></div>
+          </div>
+          <p id="c2Source" class="mt-3 flex items-center gap-2 text-xs text-steel"><svg viewBox="0 0 24 24" class="h-4 w-4 text-primary" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7v10l10 5 10-5V7L12 2Z"/></svg><span></span></p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 translate-y-4 rounded-lg bg-ink px-4 py-2.5 text-sm font-medium text-white opacity-0 shadow-lg transition-all duration-300" role="status" aria-live="polite"></div>
+
+  <!-- Modal -->
+  <div id="modal" class="fixed inset-0 z-40 hidden items-center justify-center bg-black/40 p-4">
+    <div class="modal-in w-full max-w-md rounded-xl border border-hairline bg-canvas p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="mb-3 flex items-center gap-2">
+        <span class="grid h-8 w-8 place-items-center rounded-lg bg-primary text-white"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg></span>
+        <h2 id="modalTitle" class="text-lg font-semibold text-ink">Report assembled</h2>
+      </div>
+      <p class="text-sm text-slate">Your blocks were compiled into a structured report with <span id="modalSrc" class="font-medium text-ink">1 source</span> and inline citations. Choose an export:</p>
+      <div class="mt-4 grid grid-cols-3 gap-2">
+        <button class="exp cursor-pointer rounded-md border border-hairline bg-canvas px-3 py-3 text-center text-xs font-medium text-ink transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><svg viewBox="0 0 24 24" class="mx-auto mb-1 h-5 w-5 text-link-blue" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg>Google Docs</button>
+        <button class="exp cursor-pointer rounded-md border border-hairline bg-canvas px-3 py-3 text-center text-xs font-medium text-ink transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><svg viewBox="0 0 24 24" class="mx-auto mb-1 h-5 w-5 text-link-blue" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg>Word</button>
+        <button class="exp cursor-pointer rounded-md border border-hairline bg-canvas px-3 py-3 text-center text-xs font-medium text-ink transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><svg viewBox="0 0 24 24" class="mx-auto mb-1 h-5 w-5 text-success" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM3 9h18M9 21V9"/></svg>CSV</button>
+      </div>
+      <div class="mt-5 flex justify-end">
+        <button id="modalClose" class="cursor-pointer rounded-md px-3 py-1.5 text-sm font-medium text-slate transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    "use strict";
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var blocksEl = document.getElementById("blocks");
+    var uid = 0;
+
+    // ---- Result datasets ----
+    var DEPT = [
+      {d:"National Defence", a:"$612M", b:"$1.18B", c:"+93%"},
+      {d:"Shared Services Canada", a:"$498M", b:"$902M", c:"+81%"},
+      {d:"Employment & Social Dev.", a:"$331M", b:"$566M", c:"+71%"}
+    ];
+    var SPEND = [
+      {y:"18–19", v:3.1, c:"bg-tint-sky"},
+      {y:"19–20", v:3.5, c:"bg-maple-blue/30"},
+      {y:"20–21", v:4.0, c:"bg-maple-blue/40"},
+      {y:"21–22", v:4.5, c:"bg-maple-blue/60"},
+      {y:"22–23", v:5.0, c:"bg-maple-blue/80"},
+      {y:"23–24", v:5.4, c:"bg-amber"}
+    ];
+
+    function esc(s){ return String(s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
+    function handle(top){ return '<button class="block-handle absolute -left-7 cursor-grab text-hairline-strong hover:text-steel" style="top:'+top+'px" aria-label="Drag to reorder"><svg viewBox="0 0 24 24" class="h-5 w-5" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></button>'; }
+
+    function makeBlock(html, top){
+      var wrap = document.createElement("div");
+      wrap.className = "block block-in group relative mb-3";
+      wrap.setAttribute("draggable","true");
+      wrap.dataset.id = "b"+(uid++);
+      wrap.innerHTML = handle(top||4) + html;
+      return wrap;
+    }
+
+    function proseBlock(text){
+      return makeBlock('<p contenteditable="true" class="rounded text-[16px] leading-relaxed text-charcoal focus:outline-none focus:ring-2 focus:ring-primary/30">'+text+'</p>', 4);
+    }
+
+    function queryBlock(q, autorun){
+      var b = makeBlock(
+        '<div class="rounded-lg border border-hairline bg-surface-soft">'+
+          '<div class="flex items-center gap-2 border-b border-hairline px-3 py-2">'+
+            '<span class="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary">Query</span>'+
+            '<span class="flex-1 truncate font-mono text-[13px] text-ink">'+esc(q)+'</span>'+
+            '<button class="run-btn flex cursor-pointer items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-white transition-colors duration-200 hover:bg-primary-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">'+
+              '<svg viewBox="0 0 24 24" class="h-3 w-3" fill="currentColor"><path d="M5 3 19 12 5 21Z"/></svg> Run</button>'+
+          '</div>'+
+          '<div class="result hidden border-t border-hairline"></div>'+
+        '</div>', 12);
+      if(autorun) setTimeout(function(){ runQuery(b); }, reduce?0:400);
+      return b;
+    }
+
+    function runQuery(block){
+      var btn = block.querySelector(".run-btn");
+      var result = block.querySelector(".result");
+      btn.disabled = true;
+      btn.innerHTML = '<svg viewBox="0 0 24 24" class="h-3 w-3 animate-spin" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg> Running';
+      result.classList.remove("hidden");
+      result.innerHTML = '<div class="space-y-2 p-3"><div class="skeleton h-3 w-full rounded"></div><div class="skeleton h-3 w-5/6 rounded"></div><div class="skeleton h-3 w-2/3 rounded"></div></div>';
+      setTimeout(function(){
+        renderResult(result);
+        btn.innerHTML = '<svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Ran';
+        btn.classList.remove("bg-primary","hover:bg-primary-pressed");
+        btn.classList.add("bg-success");
+        showToast("Query ran · result + citation inserted");
+      }, reduce?150:1100);
+    }
+
+    function renderResult(result){
+      var max = 5.4;
+      result.innerHTML =
+        '<div class="p-5">'+
+          '<div class="mb-4 flex items-center justify-between">'+
+            '<h3 class="text-sm font-semibold text-ink">Contracted IT services spend ($B, nominal)</h3>'+
+            '<div class="flex gap-1" role="group" aria-label="View">'+
+              '<button class="vtoggle cursor-pointer rounded bg-surface px-2 py-1 text-xs font-medium text-ink" data-v="bar">Bar</button>'+
+              '<button class="vtoggle cursor-pointer rounded px-2 py-1 text-xs font-medium text-steel transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-v="table">Table</button>'+
+            '</div>'+
+          '</div>'+
+          '<div class="view-bar flex h-52 items-end gap-3" role="img" aria-label="Bar chart of IT services spend 2018-2024">'+
+            SPEND.map(function(d){
+              return '<div class="flex flex-1 flex-col items-center gap-1.5"><div class="flex h-36 w-full items-end"><div class="grow-bar w-full cursor-pointer rounded-t '+d.c+'" style="height:0%" title="'+d.y+': $'+d.v.toFixed(1)+'B"></div></div>'+
+                '<span class="font-mono text-[11px] '+(d.v===max?"font-semibold text-ink":"text-steel")+'">'+d.v.toFixed(1)+'</span><span class="text-[11px] text-steel">'+d.y+'</span></div>';
+            }).join("")+
+          '</div>'+
+          '<div class="view-table hidden overflow-hidden rounded-lg border border-hairline">'+
+            '<table class="w-full text-left text-sm"><thead><tr class="border-b border-hairline bg-surface-soft text-xs uppercase tracking-wide text-steel">'+
+            '<th class="px-3 py-2 font-medium">Department</th><th class="px-3 py-2 text-right font-medium">2018–19</th><th class="px-3 py-2 text-right font-medium">2023–24</th><th class="px-3 py-2 text-right font-medium">Change</th></tr></thead>'+
+            '<tbody class="font-mono text-[13px] text-ink">'+DEPT.map(function(r){ return '<tr class="cursor-pointer border-b border-hairline/70 transition-colors hover:bg-surface-soft last:border-0"><td class="px-3 py-2 font-sans">'+esc(r.d)+'</td><td class="px-3 py-2 text-right">'+r.a+'</td><td class="px-3 py-2 text-right">'+r.b+'</td><td class="px-3 py-2 text-right text-success">'+r.c+'</td></tr>'; }).join("")+'</tbody></table>'+
+          '</div>'+
+          '<p class="mt-4 text-sm text-charcoal">That is a <span class="rounded bg-tint-yellow px-1 font-medium text-ink"><span class="cu" data-to="74">0</span>% nominal increase</span> over six years.</p>'+
+        '</div>'+
+        '<div class="flex flex-wrap items-center gap-2 border-t border-hairline bg-tint-mint/40 px-4 py-2.5 text-xs">'+
+          '<svg viewBox="0 0 24 24" class="h-4 w-4 text-success" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>'+
+          '<span class="font-medium text-charcoal">Source:</span>'+
+          '<a href="#" class="cursor-pointer font-medium text-link-blue hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Public Accounts of Canada, Vol. III — Contracts</a>'+
+          '<span class="text-steel">· Receiver General · 2018–2024 · updated 2024-10-31 · 14,228 rows</span>'+
+        '</div>';
+      // animate bars
+      var bars = result.querySelectorAll(".grow-bar");
+      bars.forEach(function(b,i){ var pct=(SPEND[i].v/max)*100; if(reduce){ b.style.height=pct+"%"; } else { setTimeout(function(){ b.style.height=pct+"%"; }, 90*i); } });
+      // count up
+      result.querySelectorAll(".cu").forEach(countUp);
+    }
+
+    function sourceBlock(){
+      return makeBlock('<div class="flex flex-wrap items-center gap-2 rounded-md bg-tint-mint/50 px-3 py-2 text-xs"><svg viewBox="0 0 24 24" class="h-4 w-4 text-success" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span class="font-medium text-charcoal">Source:</span><a href="#" class="cursor-pointer font-medium text-link-blue hover:underline">Statistics Canada — CPI 18-10-0004</a><span class="text-steel">· updated 2024-11-19</span></div>', 6);
+    }
+
+    function countUp(el){
+      var to = parseFloat(el.getAttribute("data-to")), dec = parseInt(el.getAttribute("data-dec")||"0",10);
+      if(reduce){ el.textContent = to.toFixed(dec); return; }
+      var start=null;
+      function step(ts){ if(!start)start=ts; var p=Math.min((ts-start)/1000,1); el.textContent=(to*(1-Math.pow(1-p,3))).toFixed(dec); if(p<1)requestAnimationFrame(step); else el.textContent=to.toFixed(dec); }
+      requestAnimationFrame(step);
+    }
+
+    function updateMeta(){
+      var n = blocksEl.querySelectorAll(".block").length;
+      document.getElementById("blockCount").textContent = n;
+    }
+
+    // ---- Seed document ----
+    blocksEl.appendChild(proseBlock("Federal departments have leaned harder on outside IT contractors since the pandemic. To size the shift, I pulled contract spend from the Public Accounts and asked MapleQuery to track it over six fiscal years."));
+    blocksEl.appendChild(queryBlock("Total federal IT-services contract spend by fiscal year, 2018–2024", true));
+    blocksEl.appendChild(proseBlock("The next question is whether the growth is concentrated — so I broke it down by department."));
+    updateMeta();
+
+    // ---- Run delegation ----
+    blocksEl.addEventListener("click", function(e){
+      var run = e.target.closest(".run-btn");
+      if(run && !run.disabled){ runQuery(run.closest(".block")); return; }
+      var vt = e.target.closest(".vtoggle");
+      if(vt){ toggleView(vt); return; }
+    });
+    function toggleView(btn){
+      var result = btn.closest(".result");
+      var v = btn.getAttribute("data-v");
+      result.querySelectorAll(".vtoggle").forEach(function(b){
+        var on = b===btn;
+        b.classList.toggle("bg-surface", on); b.classList.toggle("text-ink", on);
+        b.classList.toggle("text-steel", !on);
+      });
+      result.querySelector(".view-bar").classList.toggle("hidden", v!=="bar");
+      result.querySelector(".view-table").classList.toggle("hidden", v!=="table");
+      if(v==="table"){ var rows=result.querySelectorAll(".view-table tbody tr"); rows.forEach(function(r,i){ r.classList.remove("row-in"); void r.offsetWidth; if(!reduce){ r.style.animationDelay=(i*70)+"ms"; r.classList.add("row-in"); } }); }
+    }
+
+    // ---- Insert menu ----
+    var insertBtn = document.getElementById("insertBtn"), insertMenu = document.getElementById("insertMenu");
+    insertBtn.addEventListener("click", function(e){ e.stopPropagation(); insertMenu.classList.toggle("hidden"); });
+    document.addEventListener("click", function(e){ if(!insertMenu.contains(e.target) && e.target!==insertBtn) insertMenu.classList.add("hidden"); });
+    insertMenu.querySelectorAll("[data-add]").forEach(function(opt){
+      opt.addEventListener("click", function(){
+        var type = opt.getAttribute("data-add"), b;
+        if(type==="query") b = queryBlock("New query — describe what you want in plain language", false);
+        else if(type==="text") b = proseBlock("Type your analysis here…");
+        else b = sourceBlock();
+        blocksEl.appendChild(b);
+        insertMenu.classList.add("hidden");
+        updateMeta();
+        b.scrollIntoView({block:"center", behavior:reduce?"auto":"smooth"});
+        showToast("Added "+type+" block");
+      });
+    });
+
+    // ---- Drag to reorder ----
+    var dragEl = null;
+    blocksEl.addEventListener("dragstart", function(e){ var b=e.target.closest(".block"); if(!b)return; dragEl=b; b.classList.add("dragging"); e.dataTransfer.effectAllowed="move"; });
+    blocksEl.addEventListener("dragend", function(){ if(dragEl){ dragEl.classList.remove("dragging"); } blocksEl.querySelectorAll(".drop-target").forEach(function(x){x.classList.remove("drop-target");}); dragEl=null; });
+    blocksEl.addEventListener("dragover", function(e){ e.preventDefault(); var over=e.target.closest(".block"); blocksEl.querySelectorAll(".drop-target").forEach(function(x){x.classList.remove("drop-target");}); if(over&&over!==dragEl) over.classList.add("drop-target"); });
+    blocksEl.addEventListener("drop", function(e){
+      e.preventDefault(); var over=e.target.closest(".block"); if(!over||!dragEl||over===dragEl) return;
+      var rect = over.getBoundingClientRect(); var after = e.clientY > rect.top + rect.height/2;
+      blocksEl.insertBefore(dragEl, after ? over.nextSibling : over);
+      showToast("Block reordered");
+    });
+
+    // ---- Modal ----
+    var modal = document.getElementById("modal");
+    function openModal(){ document.getElementById("modalSrc").textContent = countSources()+" source"+(countSources()===1?"":"s"); modal.classList.remove("hidden"); modal.classList.add("flex"); document.getElementById("modalClose").focus(); }
+    function closeModal(){ modal.classList.add("hidden"); modal.classList.remove("flex"); }
+    function countSources(){ return Math.max(1, blocksEl.querySelectorAll(".result:not(.hidden)").length + blocksEl.querySelectorAll('a[href="#"]').length>0?1:1); }
+    document.getElementById("promoteBtn").addEventListener("click", openModal);
+    document.querySelectorAll(".promote2").forEach(function(b){ b.addEventListener("click", openModal); });
+    document.getElementById("modalClose").addEventListener("click", closeModal);
+    modal.addEventListener("click", function(e){ if(e.target===modal) closeModal(); });
+    document.addEventListener("keydown", function(e){ if(e.key==="Escape") closeModal(); });
+    document.querySelectorAll(".exp").forEach(function(b){ b.addEventListener("click", function(){ closeModal(); showToast("Exporting "+b.textContent.trim()+"…"); }); });
+
+    // ---- Sidebar toggle (mobile) ----
+    document.getElementById("menuBtn").addEventListener("click", function(){
+      var s = document.getElementById("sidebar");
+      s.classList.toggle("hidden"); s.classList.toggle("flex");
+      s.classList.toggle("fixed"); s.classList.toggle("inset-y-0"); s.classList.toggle("left-0"); s.classList.toggle("z-40"); s.classList.toggle("shadow-2xl");
+    });
+
+    // ---- Toast ----
+    var toast = document.getElementById("toast"), tt;
+    function showToast(msg){ toast.textContent=msg; toast.classList.remove("opacity-0","translate-y-4"); toast.classList.add("opacity-100","translate-y-0"); clearTimeout(tt); tt=setTimeout(function(){ toast.classList.add("opacity-0","translate-y-4"); toast.classList.remove("opacity-100","translate-y-0"); }, 2200); }
+  })();
+  </script>
+
+  <script>
+  (function(){
+    "use strict";
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var toast=document.getElementById("toast"), tt;
+    function showToast(msg){ toast.textContent=msg; toast.classList.remove("opacity-0","translate-y-4"); toast.classList.add("opacity-100","translate-y-0"); clearTimeout(tt); tt=setTimeout(function(){ toast.classList.add("opacity-0","translate-y-4"); toast.classList.remove("opacity-100","translate-y-0"); }, 2200); }
+    function esc(s){ return String(s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
+
+    // ---- Section tabs ----
+    var tabs=document.querySelectorAll(".tab");
+    function setSec(sec){
+      document.getElementById("sec-notebook").classList.toggle("hidden", sec!=="notebook");
+      document.getElementById("sec-ask").classList.toggle("hidden", sec!=="ask");
+      document.getElementById("sec-data").classList.toggle("hidden", sec!=="data");
+      document.getElementById("c2hero").classList.toggle("hidden", sec!=="notebook");
+      var sb=document.getElementById("sidebar"); if(sb){ sb.classList.toggle("!hidden", sec==="data"); }
+      tabs.forEach(function(t){ var on=t.getAttribute("data-sec")===sec; t.classList.toggle("bg-canvas", on); t.classList.toggle("shadow-sm", on); t.classList.toggle("text-ink", on); t.classList.toggle("text-steel", !on); });
+      if(sec==="ask") chat.init();
+      if(sec==="data") dv.init();
+    }
+    tabs.forEach(function(t){ t.addEventListener("click", function(){ setSec(t.getAttribute("data-sec")); }); });
+
+    // ---- Chat ----
+    var chat=(function(){
+      var KB=[
+        {k:["it","contract","contracted","spend","spending","technology"],a:"Federal spending on contracted IT services grew from <strong class='text-ink'>$3.1 billion</strong> in 2018–19 to <strong class='text-ink'>$5.4 billion</strong> in 2023–24 — about a <strong class='text-ink'>74% increase</strong>. National Defence grew the most.",src:"Public Accounts of Canada — Contracts (2018–2024)"},
+        {k:["housing","grant","grants","cmhc","province","provinces"],a:"Between 2020 and 2024, CMHC approved roughly <strong class='text-ink'>$14.2 billion</strong> in housing-program funding. B.C. and Ontario approved the most units overall.",src:"CMHC Housing Program Approvals (2020–2024)"},
+        {k:["immigration","backlog","processing","ircc","permanent","residence","pr","wait"],a:"The permanent-residence processing backlog peaked at about <strong class='text-ink'>2.2 million people</strong> in mid-2022 and fell to roughly <strong class='text-ink'>1.1 million</strong> by late 2024.",src:"IRCC Processing Times — Permanent Residence (2019–2024)"}
+      ];
+      var EX=["How has federal IT contract spending changed since 2018?","Which provinces got the most housing grants?","What happened to the immigration backlog?"];
+      var thread=document.getElementById("c2thread"), input=document.getElementById("c2input"), booted=false;
+      function ans(text){ var q=text.toLowerCase(),best=null,sc=0; KB.forEach(function(i){var s=i.k.reduce(function(a,w){return a+(q.indexOf(w)>-1?1:0);},0); if(s>sc){sc=s;best=i;}}); return sc>0?best:null; }
+      function mark(c){ return '<svg viewBox="0 0 80 80" class="'+c+'" fill="none"><circle cx="34" cy="34" r="20" stroke="currentColor" stroke-width="4"/><line x1="48" y1="48" x2="66" y2="66" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><rect x="24" y="26" width="20" height="4" rx="2" fill="currentColor"/><rect x="24" y="33" width="14" height="4" rx="2" fill="currentColor"/><rect x="24" y="40" width="18" height="4" rx="2" fill="currentColor"/></svg>'; }
+      function avatar(){ return '<span class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/15 text-primary" aria-hidden="true">'+mark("h-4 w-4")+'</span>'; }
+      function identity(){ return '<div class="mb-1.5 flex items-center gap-2"><span class="text-sm font-semibold text-ink">MapleQuery</span><span class="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider text-primary">AI</span></div>'; }
+      function sourceCard(a){ var name=a.src.replace(/\s*\(.*\)$/,''), cov=(a.src.match(/\(([^)]*)\)/)||[])[1]||''; return '<div class="mt-3 rounded-lg border border-hairline bg-surface p-3"><div class="mb-1.5 flex items-center justify-between gap-2"><span class="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-primary">Source</span><span class="inline-flex items-center gap-1 rounded-full bg-tint-mint px-2 py-0.5 text-[10px] font-medium text-success"><svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6 9 17l-5-5"/></svg>Verified</span></div><p class="text-sm font-medium text-ink">'+esc(name)+'</p>'+(cov?'<p class="mt-1 font-mono text-[11px] text-steel">Coverage '+esc(cov)+'</p>':'')+'</div>'; }
+      function empty(){ var el=document.createElement("div"); el.id="c2empty"; el.className="msg-in flex flex-1 flex-col items-center justify-center py-10 text-center"; el.innerHTML='<span class="grid h-14 w-14 place-items-center rounded-2xl bg-primary text-white">'+mark("h-7 w-7")+'</span><h2 class="mt-4 text-2xl font-bold tracking-tight text-ink">Ask MapleQuery</h2><p class="mt-2 max-w-md text-slate">Ask a plain-language question and get a clear, sourced answer.</p><p class="mt-7 font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-steel">Try asking</p><div class="mt-3 grid w-full max-w-lg gap-2.5">'+EX.map(function(e){return '<button class="c2ex group flex cursor-pointer items-center gap-3 rounded-xl border border-hairline bg-canvas px-4 py-3.5 text-left text-sm font-medium text-ink transition-all duration-200 hover:-translate-y-0.5 hover:border-primary hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-white"><svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="flex-1">'+esc(e)+'</span></button>';}).join("")+'</div>'; thread.appendChild(el); el.querySelectorAll(".c2ex").forEach(function(b){ b.addEventListener("click", function(){ send(b.textContent.trim()); }); }); }
+      function scrollEnd(){ thread.scrollTop=thread.scrollHeight; }
+      function send(text){ text=(text||"").trim(); if(!text)return; var e=document.getElementById("c2empty"); if(e)e.remove();
+        var u=document.createElement("div"); u.className="msg-in flex justify-end"; u.innerHTML='<div class="max-w-[80%] rounded-2xl rounded-br-md border border-hairline bg-canvas px-4 py-2.5 text-[15px] leading-relaxed text-ink shadow-sm">'+esc(text)+'</div>'; thread.appendChild(u); input.value=""; auto(); scrollEnd();
+        var ty=document.createElement("div"); ty.id="c2typing"; ty.className="msg-in flex items-start gap-3"; ty.innerHTML=avatar()+'<div class="min-w-0">'+identity()+'<div class="inline-flex items-center gap-2.5 rounded-2xl rounded-tl-md border border-hairline bg-canvas px-4 py-3"><span class="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-primary">Searching</span><span class="dot-typing flex gap-1"><span class="h-1.5 w-1.5 rounded-full bg-primary"></span><span class="h-1.5 w-1.5 rounded-full bg-primary"></span><span class="h-1.5 w-1.5 rounded-full bg-primary"></span></span></div></div>'; thread.appendChild(ty); scrollEnd();
+        setTimeout(function(){ var t=document.getElementById("c2typing"); if(t)t.remove(); var a=ans(text); var d=document.createElement("div"); d.className="msg-in flex items-start gap-3";
+          var body=a?'<p class="text-[15px] leading-relaxed text-charcoal">'+a.a+'</p>'+sourceCard(a):'<div class="flex items-start gap-2.5"><svg viewBox="0 0 24 24" class="mt-0.5 h-4 w-4 shrink-0 text-warning" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg><p class="text-[15px] leading-relaxed text-charcoal"><span class="font-semibold text-ink">Not enough evidence to answer that yet.</span> Try IT contract spending, housing grants by province, or the immigration backlog.</p></div>';
+          d.innerHTML=avatar()+'<div class="min-w-0 max-w-[88%]">'+identity()+'<div class="rounded-2xl rounded-tl-md border border-hairline bg-canvas p-4 shadow-sm">'+body+'</div></div>'; thread.appendChild(d); scrollEnd();
+        }, reduce?150:900);
+      }
+      function auto(){ input.style.height="auto"; input.style.height=Math.min(input.scrollHeight,128)+"px"; }
+      return { init:function(){ if(booted)return; booted=true; empty();
+        document.getElementById("c2form").addEventListener("submit", function(e){ e.preventDefault(); send(input.value); });
+        input.addEventListener("keydown", function(e){ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); send(input.value); } });
+        input.addEventListener("input", auto);
+      } };
+    })();
+
+    // ---- Data viewer ----
+    var dv=(function(){
+      var DS=[
+        {id:"it",cat:"Spending",title:"Federal IT Contract Spend",desc:"Annual contracted IT-services spending by federal department.",source:"Public Accounts of Canada — Vol. III, Contracts",meta:{Coverage:"2018–2024",Updated:"2024-10-31",Rows:"6",Completeness:"98%"},cols:[{k:"dept",label:"Department",type:"text"},{k:"y18",label:"2018–19",type:"money"},{k:"y24",label:"2023–24",type:"money"},{k:"chg",label:"Change",type:"pct"}],rows:[{dept:"National Defence",y18:0.61,y24:1.18,chg:93},{dept:"Shared Services Canada",y18:0.50,y24:0.90,chg:81},{dept:"Employment & Social Dev.",y18:0.33,y24:0.57,chg:71},{dept:"Canada Revenue Agency",y18:0.44,y24:0.66,chg:52},{dept:"Public Services & Proc.",y18:0.30,y24:0.45,chg:50},{dept:"Health Canada",y18:0.19,y24:0.26,chg:37}]},
+        {id:"housing",cat:"Housing",title:"Housing Grant Approvals by Province",desc:"CMHC housing-program funding approvals by province.",source:"CMHC Housing Program Approvals",meta:{Coverage:"2020–2024",Updated:"2024-08-15",Rows:"6",Completeness:"95%"},cols:[{k:"prov",label:"Province",type:"text"},{k:"approved",label:"Approved ($M)",type:"num"},{k:"units",label:"Units",type:"int"},{k:"per10k",label:"Per 10K homes",type:"int"}],rows:[{prov:"British Columbia",approved:3120,units:18400,per10k:41},{prov:"Ontario",approved:5980,units:42100,per10k:37},{prov:"Nova Scotia",approved:540,units:3250,per10k:34},{prov:"Quebec",approved:3360,units:28700,per10k:31},{prov:"Alberta",approved:1840,units:14200,per10k:28},{prov:"Manitoba",approved:430,units:3900,per10k:25}]},
+        {id:"immigration",cat:"Immigration",title:"Immigration PR Processing Inventory",desc:"Permanent-residence applications in the processing inventory by year.",source:"IRCC Processing Times — Permanent Residence",meta:{Coverage:"2019–2024",Updated:"2024-11-01",Rows:"6",Completeness:"88%"},cols:[{k:"year",label:"Year",type:"text"},{k:"inv",label:"Inventory (M)",type:"big"},{k:"yoy",label:"YoY change",type:"pct"},{k:"status",label:"Status",type:"text"}],rows:[{year:"2019",inv:1.5,yoy:0,status:"baseline"},{year:"2020",inv:1.6,yoy:7,status:"rising"},{year:"2021",inv:1.8,yoy:13,status:"rising"},{year:"2022",inv:2.2,yoy:22,status:"peak"},{year:"2023",inv:1.6,yoy:-27,status:"falling"},{year:"2024",inv:1.1,yoy:-31,status:"recovering"}]}
+      ];
+      var cur=DS[0],search="",sortKey=null,sortDir=1,booted=false;
+      function fmt(v,t){ if(t==="money")return "$"+Number(v).toFixed(2)+"B"; if(t==="pct")return (v>0?"+":"")+v+"%"; if(t==="num")return "$"+Number(v).toLocaleString(); if(t==="int")return Number(v).toLocaleString(); if(t==="big")return Number(v).toFixed(1)+"M"; return esc(v); }
+      function pills(){ var w=document.getElementById("c2List"); w.innerHTML=""; DS.forEach(function(d){ var on=d.id===cur.id; var li=document.createElement("li"); li.innerHTML='<button class="flex w-full cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary '+(on?"border-primary bg-canvas shadow-sm":"border-transparent hover:border-hairline hover:bg-canvas")+'"><span class="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md '+(on?"bg-primary text-white":"bg-surface text-steel")+'"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5h18v4H3zM3 11h18v4H3zM3 17h18v2H3z"/></svg></span><span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold '+(on?"text-primary":"text-ink")+'">'+esc(d.title)+'</span><span class="mt-0.5 block text-xs text-steel">'+esc(d.cat)+' · '+d.meta.Rows+' rows</span></span></button>'; li.querySelector("button").addEventListener("click", function(){ cur=d; search=""; sortKey=null; sortDir=1; document.getElementById("c2Search").value=""; all(); }); w.appendChild(li); }); var sel=document.getElementById("c2Select"); if(sel){ sel.innerHTML=DS.map(function(d){ return '<option value="'+d.id+'"'+(d.id===cur.id?" selected":"")+'>'+esc(d.title)+'</option>'; }).join(""); } }
+      function header(){ document.getElementById("c2Cat").textContent=cur.cat; document.getElementById("c2Title").textContent=cur.title; document.getElementById("c2Desc").textContent=cur.desc; document.querySelector("#c2Source span").textContent="Source: "+cur.source; var m=document.getElementById("c2Meta"); m.innerHTML=""; Object.keys(cur.meta).forEach(function(k){ var amber=k==="Completeness"&&parseInt(cur.meta[k],10)<100; var box=document.createElement("div"); box.className="bg-canvas px-4 py-3"; box.innerHTML='<dt class="text-[11px] uppercase tracking-wider text-steel">'+esc(k)+'</dt><dd class="mt-1 font-mono text-base font-semibold '+(amber?"text-warning":"text-ink")+'">'+esc(cur.meta[k])+'</dd>'; m.appendChild(box); }); }
+      function computed(){ var rows=cur.rows.slice(); if(search){ var q=search.toLowerCase(); rows=rows.filter(function(r){ return cur.cols.some(function(c){ return String(r[c.k]).toLowerCase().indexOf(q)>-1; }); }); } if(sortKey){ rows.sort(function(a,b){ var x=a[sortKey],y=b[sortKey]; if(typeof x==="number"&&typeof y==="number")return (x-y)*sortDir; return String(x).localeCompare(String(y))*sortDir; }); } return rows; }
+      function table(){ var th=document.getElementById("c2Head"); th.innerHTML='<tr class="border-b border-hairline text-xs uppercase tracking-wide text-steel">'+cur.cols.map(function(c){ var num=c.type!=="text"; var arr=sortKey===c.k?(sortDir>0?" ↑":" ↓"):""; return '<th class="px-4 py-2.5 font-medium '+(num?"text-right":"")+'"><button class="c2thb inline-flex cursor-pointer items-center gap-1 hover:text-ink focus-visible:outline-none" data-k="'+c.k+'">'+esc(c.label)+'<span class="text-primary">'+arr+'</span></button></th>'; }).join("")+'</tr>'; th.querySelectorAll(".c2thb").forEach(function(b){ b.addEventListener("click", function(){ var k=b.getAttribute("data-k"); if(sortKey===k){sortDir*=-1;}else{sortKey=k;sortDir=1;} table(); }); });
+        var rows=computed(), tb=document.getElementById("c2Body"); tb.innerHTML=""; rows.forEach(function(r){ var tr=document.createElement("tr"); tr.className="border-b border-hairline/60 transition-colors duration-150 hover:bg-surface-soft last:border-0"; tr.innerHTML=cur.cols.map(function(c){ var num=c.type!=="text"; var strong=c.k===cur.cols[0].k; var color=c.type==="pct"?(r[c.k]>=0?"text-success":"text-warning"):""; return '<td class="px-4 py-2.5 '+(num?"text-right font-mono":"")+' '+(strong?"font-medium text-ink":"")+' '+color+'">'+fmt(r[c.k],c.type)+'</td>'; }).join(""); tb.appendChild(tr); });
+        document.getElementById("c2Empty").classList.toggle("hidden", rows.length>0); document.getElementById("c2Count").textContent=rows.length+" of "+cur.rows.length+" rows"; }
+      function all(){ pills(); header(); table(); }
+      return { init:function(){ if(booted)return; booted=true; all(); var s; document.getElementById("c2Search").addEventListener("input", function(){ var v=this.value; clearTimeout(s); s=setTimeout(function(){ search=v; table(); }, reduce?0:120); }); document.getElementById("c2Download").addEventListener("click", function(){ showToast("Downloading “"+cur.title+"” as CSV…"); }); var sel=document.getElementById("c2Select"); if(sel){ sel.addEventListener("change", function(){ var id=this.value,i; for(i=0;i<DS.length;i++){ if(DS[i].id===id){ cur=DS[i]; break; } } search=""; sortKey=null; sortDir=1; document.getElementById("c2Search").value=""; all(); }); } } };
+    })();
+  })();
+  </script>
+</body>
+</html>

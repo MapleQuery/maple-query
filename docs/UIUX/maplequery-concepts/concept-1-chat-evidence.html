@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MapleQuery — Concept 1: Chat + Evidence Rail</title>
+  <meta name="description" content="Conversational answers from Canadian government open data, with every claim backed by a visible source." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            canvas: '#F0EEEB', 'surface-soft': '#E7EBEC', 'surface-card': '#DDE4E7',
+            ink: '#13181B', body: '#2D3942', muted: '#5C6B75', hairline: '#D3DADD',
+            coral: '#FD8973', 'coral-active': '#ED7259', navy: '#003A6C', polar: '#CCD5DA', teal: '#4E8197',
+            'maple-blue': '#003A6C', amber: '#FFBF65', success: '#2F7D5B', error: '#C2503B', 'dark-surface': '#13181B',
+          },
+          fontFamily: {
+            display: ['Fraunces', 'Georgia', 'serif'],
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['"Fira Code"', 'ui-monospace', 'monospace'],
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    body { background-color: #F0EEEB; }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+    .skeleton { background: linear-gradient(90deg,#E2E6E8 25%,#EDEFEF 50%,#E2E6E8 75%); background-size:200% 100%; animation: shimmer 1.4s infinite; }
+    @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+    .msg-in { animation: rise .3s ease both; }
+    @keyframes rise { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform:none; } }
+    .src-flash { box-shadow: 0 0 0 2px #FD8973, 0 8px 24px rgba(253,137,115,.22); }
+    .dot-typing span { animation: blink 1.2s infinite; }
+    .dot-typing span:nth-child(2){ animation-delay:.2s } .dot-typing span:nth-child(3){ animation-delay:.4s }
+    @keyframes blink { 0%,60%,100%{opacity:.25} 30%{opacity:1} }
+  </style>
+</head>
+<body class="font-sans text-body antialiased">
+
+  <!-- Top nav -->
+  <header class="sticky top-0 z-30 border-b border-hairline bg-canvas/90 backdrop-blur">
+    <div class="mx-auto flex h-16 max-w-[1400px] items-center gap-3 px-4 md:px-6 lg:px-8">
+      <a href="index.html" class="flex items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy" aria-label="MapleQuery home">
+        <span class="grid h-8 w-8 place-items-center rounded-md bg-navy text-white">
+          <svg viewBox="0 0 80 80" class="h-5 w-5" fill="none"><circle cx="34" cy="34" r="20" stroke="currentColor" stroke-width="4"/><line x1="48" y1="48" x2="66" y2="66" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><rect x="24" y="26" width="20" height="4" rx="2" fill="currentColor"/><rect x="24" y="33" width="14" height="4" rx="2" fill="currentColor"/><rect x="24" y="40" width="18" height="4" rx="2" fill="currentColor"/></svg>
+        </span>
+        <span class="hidden text-lg font-semibold tracking-tight text-ink sm:block">MapleQuery</span>
+      </a>
+      <a href="concept-1-landing.html" class="hidden rounded-full border border-hairline bg-surface-card px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted transition-colors hover:text-ink sm:inline-block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy" title="About Concept 1">Concept 1</a>
+      <nav class="ml-1" aria-label="Sections" role="tablist">
+        <div class="inline-flex gap-0.5 rounded-lg bg-surface-card p-0.5">
+          <button data-sec="ask" class="tab cursor-pointer rounded-md bg-canvas px-3 py-1.5 text-sm font-medium text-ink shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy">Ask</button>
+          <button data-sec="data" class="tab cursor-pointer rounded-md px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy">Data</button>
+        </div>
+      </nav>
+      <button id="newThread" class="ml-auto cursor-pointer rounded-md bg-coral px-3.5 py-2 text-sm font-medium text-ink transition-colors duration-200 hover:bg-coral-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-offset-2 focus-visible:ring-offset-canvas">New chat</button>
+    </div>
+  </header>
+
+  <div id="cap-ask" class="border-b border-hairline bg-surface-soft">
+    <div class="mx-auto max-w-[1400px] px-4 py-3 md:px-6 lg:px-8">
+      <p class="text-sm text-muted"><span class="font-medium text-ink">Chat-first with an evidence rail.</span> Ask a question below — try a suggested prompt. Every answer renders its supporting datasets on the right; click a footnote to highlight its source.</p>
+    </div>
+  </div>
+
+  <main id="sec-ask" class="app-sec mx-auto grid max-w-[1400px] gap-0 lg:grid-cols-[1fr_400px]">
+
+    <!-- Conversation -->
+    <section class="flex min-h-[calc(100vh-8.5rem)] flex-col border-r border-hairline" aria-label="Conversation">
+      <div id="thread" class="flex-1 space-y-8 px-4 py-8 md:px-6 lg:px-8" aria-live="polite"></div>
+
+      <!-- Composer -->
+      <div class="sticky bottom-0 border-t border-hairline bg-canvas/95 px-4 py-4 backdrop-blur md:px-6 lg:px-8">
+        <div id="suggestions" class="mb-3 flex flex-wrap gap-2"></div>
+        <form id="composer" class="flex items-end gap-2 rounded-xl border border-hairline bg-white p-2 shadow-sm focus-within:ring-2 focus-within:ring-navy">
+          <label for="ask" class="sr-only">Ask a question about government data</label>
+          <textarea id="ask" rows="1" placeholder="Ask in plain language — e.g. “Compare housing grant approvals by province since 2020”" class="max-h-32 flex-1 resize-none bg-transparent px-2 py-2 text-[15px] text-ink placeholder:text-muted focus:outline-none"></textarea>
+          <button type="submit" id="send" class="cursor-pointer rounded-lg bg-coral p-2.5 text-ink transition-colors duration-200 hover:bg-coral-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-offset-2 disabled:opacity-40" aria-label="Send">
+            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z"/></svg>
+          </button>
+        </form>
+        <p class="mt-2 px-1 text-xs text-muted">MapleQuery only answers from cited datasets and will tell you when evidence is insufficient. <span class="hidden sm:inline">Press Enter to send, Shift+Enter for a new line.</span></p>
+      </div>
+    </section>
+
+    <!-- Evidence rail -->
+    <aside class="hidden bg-surface-soft lg:block" aria-label="Evidence and sources">
+      <div class="sticky top-16 max-h-[calc(100vh-4rem)] overflow-y-auto px-5 py-8">
+        <h2 class="mb-1 font-display text-xl font-medium text-ink">Evidence</h2>
+        <p class="mb-5 text-sm text-muted">Sources behind the current answer. Click a footnote to highlight it.</p>
+        <ol id="evidenceList" class="space-y-3"></ol>
+        <div id="assembly" class="mt-6"></div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Data viewer section (Claude-themed) -->
+  <!-- Data viewer section (two-pane warehouse) -->
+  <section id="sec-data" class="app-sec hidden h-[calc(100vh-4rem)]">
+    <div class="mx-auto flex h-full max-w-[1400px]">
+      <aside class="hidden w-72 shrink-0 overflow-y-auto border-r border-hairline bg-surface-soft md:block" aria-label="Tables">
+        <div class="p-4">
+          <h2 class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">Tables</h2>
+          <ul id="dvList" class="space-y-1"></ul>
+        </div>
+      </aside>
+      <main class="min-w-0 flex-1 overflow-y-auto">
+        <div class="px-4 py-8 md:px-6 lg:px-8">
+          <label for="dvSelect" class="sr-only">Choose a table</label>
+          <select id="dvSelect" class="mb-4 w-full cursor-pointer rounded-lg border border-hairline bg-white px-3 py-2 text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy md:hidden"></select>
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p id="dvCat" class="text-xs font-semibold uppercase tracking-wider text-navy">Dataset</p>
+              <h2 id="dvTitle" class="mt-1 font-display text-2xl font-medium text-ink">—</h2>
+              <p id="dvDesc" class="mt-1 max-w-2xl text-sm text-body">—</p>
+            </div>
+            <button id="dvDownload" class="cursor-pointer rounded-md bg-coral px-4 py-2 text-sm font-medium text-ink transition-colors duration-200 hover:bg-coral-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-offset-2">
+              <span class="inline-flex items-center gap-1.5"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg> Download CSV</span>
+            </button>
+          </div>
+          <dl id="dvMeta" class="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-hairline bg-hairline sm:grid-cols-4"></dl>
+          <div class="mt-5 flex flex-wrap items-center gap-2">
+            <div class="flex items-center gap-2 rounded-lg border border-hairline bg-white px-2.5 py-2 text-sm text-muted focus-within:ring-2 focus-within:ring-navy">
+              <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+              <label for="dvSearch" class="sr-only">Search this table</label>
+              <input id="dvSearch" placeholder="Search this table" class="w-44 bg-transparent text-ink placeholder:text-muted focus:outline-none" />
+            </div>
+            <span class="text-xs text-muted">Click a column header to sort.</span>
+            <span id="dvCount" class="ml-auto font-mono text-xs text-muted">0 rows</span>
+          </div>
+          <div class="mt-3 overflow-x-auto rounded-xl border border-hairline bg-white">
+            <table class="w-full text-left text-sm"><thead id="dvHead" class="bg-surface-soft"></thead><tbody id="dvBody" class="text-ink"></tbody></table>
+            <div id="dvEmpty" class="hidden p-10 text-center"><p class="text-sm font-medium text-ink">No rows match your search</p></div>
+          </div>
+          <p id="dvSource" class="mt-3 flex items-center gap-2 text-xs text-muted"><svg viewBox="0 0 24 24" class="h-4 w-4 text-navy" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7v10l10 5 10-5V7L12 2Z"/></svg><span></span></p>
+        </div>
+      </main>
+    </div>
+  </section>
+
+  <!-- Toast -->
+  <div id="toast" class="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 translate-y-4 rounded-lg bg-ink px-4 py-2.5 text-sm font-medium text-white opacity-0 shadow-lg transition-all duration-300" role="status" aria-live="polite"></div>
+
+  <footer class="border-t border-hairline bg-canvas">
+    <div class="mx-auto max-w-[1400px] px-4 py-6 text-xs text-muted md:px-6 lg:px-8">
+      Prototype · Concept 1 of 3 · Aesthetic grounded in the <span class="font-medium text-ink">Claude</span> design reference + MapleQuery design system (ui-ux-pro-max).
+    </div>
+  </footer>
+
+  <script>
+  (function(){
+    "use strict";
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var sprite = '<svg viewBox="0 0 80 80" class="h-4 w-4" fill="none"><circle cx="34" cy="34" r="20" stroke="currentColor" stroke-width="4"/><line x1="48" y1="48" x2="66" y2="66" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><rect x="24" y="26" width="20" height="4" rx="2" fill="currentColor"/><rect x="24" y="33" width="14" height="4" rx="2" fill="currentColor"/><rect x="24" y="40" width="18" height="4" rx="2" fill="currentColor"/></svg>';
+    var extLink = '<svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17 17 7M7 7h10v10"/></svg>';
+
+    // ---- Source library ----
+    var SOURCES = {
+      pubacct: {title:"Public Accounts of Canada — Vol. III, Contracts", org:"Receiver General · contract spend by department & object code.", coverage:"2018–2024", updated:"2024-10-31", rows:"14,228", complete:"98%", status:"verified", href:"#"},
+      cpi: {title:"Consumer Price Index (CPI), all-items", org:"Statistics Canada · Table 18-10-0004 · deflate to real 2024 dollars.", coverage:"2018–2024", updated:"2024-11-19", rows:"—", complete:"100%", status:"verified", href:"#"},
+      disclosure: {title:"Proactive Disclosure — Contracts over $10K", org:"Treasury Board · joined on department + fiscal year.", coverage:"2018–2024", updated:"2024-09-30", rows:"61,402", complete:"62%", status:"partial", href:"#"},
+      housing: {title:"CMHC Housing Program Approvals", org:"Canada Mortgage & Housing Corp · approvals by province.", coverage:"2020–2024", updated:"2024-08-15", rows:"8,940", complete:"95%", status:"verified", href:"#"},
+      census: {title:"Census of Population — Dwellings", org:"Statistics Canada · 2021 Census · provincial households.", coverage:"2021", updated:"2023-11-15", rows:"—", complete:"100%", status:"verified", href:"#"},
+      irccp: {title:"IRCC Processing Times — Permanent Residence", org:"Immigration, Refugees & Citizenship Canada · monthly inventory.", coverage:"2019–2024", updated:"2024-11-01", rows:"3,210", complete:"88%", status:"verified", href:"#"}
+    };
+
+    // ---- Canned answers (keyword-matched) ----
+    var KB = [
+      { match:["it","contract","contracted","spend","spending","technology"],
+        time:"4.2s",
+        sources:["pubacct","cpi","disclosure"],
+        assembled:["Normalized currency & fiscal-year formats across 3 datasets","Joined contracts to disclosure on dept_id, fy","Deflated to real 2024 dollars using CPI","Ranked departments by absolute change"],
+        html:
+          '<p>Federal spending on contracted IT services rose from <strong class="text-ink">$3.1B in 2018–19 to $5.4B in 2023–24</strong>, an increase of roughly <strong class="text-ink">74%</strong>'+cite("pubacct",1)+'. Adjusted for inflation, real growth was about 52%'+cite("cpi",2)+'.</p>'+
+          '<p class="mt-3">The three departments with the largest absolute increases were:</p>'+
+          table([["National Defence","$612M","$1.18B","+93%"],["Shared Services Canada","$498M","$902M","+81%"],["Employment & Social Dev.","$331M","$566M","+71%"]],"contracted_it_by_dept · 2018–2024")+
+          '<p class="mt-3 text-[15px] leading-relaxed text-body">National Defence drove the steepest growth, more than doubling its contracted IT spend. Data joins Public Accounts with the over-$10K disclosure'+cite("disclosure",3)+'.</p>'
+      },
+      { match:["housing","grant","grants","cmhc","province","provinces"],
+        time:"3.6s",
+        sources:["housing","census"],
+        assembled:["Normalized province codes across 2 datasets","Joined approvals to 2021 Census households","Computed approvals per 10K households","Sorted by approval rate"],
+        html:
+          '<p>Across 2020–2024, CMHC approved <strong class="text-ink">~$14.2B</strong> in housing-program funding'+cite("housing",1)+'. Normalized per 10,000 households'+cite("census",2)+', approval rates were highest in:</p>'+
+          table([["British Columbia","—","18,400 units","41 / 10K"],["Ontario","—","42,100 units","37 / 10K"],["Nova Scotia","—","3,250 units","34 / 10K"]],"housing_approvals_by_province · 2020–2024")+
+          '<p class="mt-3 text-[15px] leading-relaxed text-body">B.C. and Ontario lead in absolute volume; per-household, smaller provinces like Nova Scotia punch above their size.</p>'
+      },
+      { match:["immigration","backlog","processing","ircc","permanent","residence","pr"],
+        time:"3.1s",
+        sources:["irccp"],
+        assembled:["Loaded monthly PR inventory","Computed year-over-year change","Flagged months with >88% completeness"],
+        html:
+          '<p>The permanent-residence processing inventory peaked at <strong class="text-ink">2.2M persons in mid-2022</strong> and fell to <strong class="text-ink">~1.1M by late 2024</strong>'+cite("irccp",1)+' — roughly a 50% reduction from the peak.</p>'+
+          table([["2021","1.8M","—","baseline"],["2022","2.2M","+22%","peak"],["2024","1.1M","-50%","recovering"]],"pr_inventory · 2019–2024")+
+          '<p class="mt-3 text-[15px] leading-relaxed text-body">Note: 12% of monthly records are provisional and may be revised'+cite("irccp",1)+'.</p>'
+      }
+    ];
+
+    function cite(srcId, n){
+      return '<button class="cite align-super text-[11px] font-semibold text-navy hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy" data-src="'+srcId+'" aria-label="Jump to source '+n+'">['+n+']</button>';
+    }
+    function esc(s){ return String(s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
+    function table(rows, caption){
+      var body = rows.map(function(r){
+        return '<tr class="cursor-pointer border-b border-hairline/70 transition-colors duration-150 hover:bg-surface-soft last:border-0">'+
+          '<td class="px-4 py-2 font-sans">'+esc(r[0])+'</td>'+
+          '<td class="px-4 py-2 text-right">'+esc(r[1])+'</td>'+
+          '<td class="px-4 py-2 text-right">'+esc(r[2])+'</td>'+
+          '<td class="px-4 py-2 text-right text-success">'+esc(r[3])+'</td></tr>';
+      }).join("");
+      return '<div class="mt-3 overflow-hidden rounded-lg border border-hairline bg-white">'+
+        '<div class="flex items-center justify-between border-b border-hairline bg-surface-soft px-4 py-2">'+
+        '<span class="font-mono text-xs font-medium text-muted">'+esc(caption)+'</span>'+
+        '<button class="open-explorer cursor-pointer rounded px-2 py-1 text-xs font-medium text-navy transition-colors hover:bg-surface-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy">Open in explorer</button></div>'+
+        '<table class="w-full text-left text-sm"><thead><tr class="border-b border-hairline text-xs uppercase tracking-wide text-muted">'+
+        '<th class="px-4 py-2 font-medium">Item</th><th class="px-4 py-2 text-right font-medium">From</th><th class="px-4 py-2 text-right font-medium">To</th><th class="px-4 py-2 text-right font-medium">Change</th>'+
+        '</tr></thead><tbody class="font-mono text-[13px] text-ink">'+body+'</tbody></table></div>';
+    }
+
+    var thread = document.getElementById("thread");
+    var evidenceList = document.getElementById("evidenceList");
+    var assembly = document.getElementById("assembly");
+    var form = document.getElementById("composer");
+    var ask = document.getElementById("ask");
+
+    function scrollEnd(){ thread.parentElement.scrollIntoView; window.scrollTo({top: document.body.scrollHeight, behavior: reduce?'auto':'smooth'}); }
+
+    function addUser(text){
+      var el = document.createElement("div");
+      el.className = "msg-in flex justify-end";
+      el.innerHTML = '<div class="max-w-[80%] rounded-2xl rounded-br-md border border-hairline bg-white px-4 py-2.5 text-[15px] leading-relaxed text-ink shadow-sm">'+esc(text)+'</div>';
+      thread.appendChild(el);
+      scrollEnd();
+    }
+    function addTyping(){
+      var el = document.createElement("div");
+      el.id = "typing";
+      el.className = "msg-in flex gap-3";
+      el.innerHTML = avatar()+'<div class="min-w-0">'+identity()+'<div class="inline-flex items-center gap-2.5 rounded-2xl rounded-tl-md border border-hairline bg-white px-4 py-3"><span class="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-navy">Searching</span><div class="dot-typing flex gap-1"><span class="h-1.5 w-1.5 rounded-full bg-coral"></span><span class="h-1.5 w-1.5 rounded-full bg-coral"></span><span class="h-1.5 w-1.5 rounded-full bg-coral"></span></div></div></div>';
+      thread.appendChild(el);
+      renderRailSkeleton();
+      scrollEnd();
+    }
+    function avatar(){
+      return '<span class="mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-coral/15 text-navy" aria-hidden="true">'+sprite+'</span>';
+    }
+    function identity(){
+      return '<div class="mb-1.5 flex items-center gap-2"><span class="text-sm font-semibold text-ink">MapleQuery</span><span class="rounded bg-coral/10 px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider text-navy">AI</span></div>';
+    }
+    function addAnswer(ans){
+      var t = document.getElementById("typing"); if(t) t.remove();
+      var el = document.createElement("div");
+      el.className = "msg-in flex gap-3";
+      el.innerHTML = avatar()+
+        '<div class="max-w-[90%] space-y-3">'+
+          identity()+
+          '<div class="space-y-3 text-[15px] leading-relaxed text-body">'+ans.html+'</div>'+
+          '<div class="flex flex-wrap items-center gap-2 pt-1">'+
+            '<button class="add-report cursor-pointer rounded-md border border-hairline bg-white px-3 py-1.5 text-xs font-medium text-ink transition-colors duration-200 hover:bg-surface-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy">Add to report</button>'+
+            '<button class="chart-btn cursor-pointer rounded-md border border-hairline bg-white px-3 py-1.5 text-xs font-medium text-ink transition-colors duration-200 hover:bg-surface-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy">Chart this</button>'+
+            '<button class="export-btn cursor-pointer rounded-md border border-hairline bg-white px-3 py-1.5 text-xs font-medium text-ink transition-colors duration-200 hover:bg-surface-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy">Export CSV</button>'+
+            '<span class="ml-auto text-xs text-muted">'+ans.sources.length+' sources · answered in '+ans.time+'</span>'+
+          '</div>'+
+        '</div>';
+      thread.appendChild(el);
+      renderRail(ans.sources, ans.assembled);
+      scrollEnd();
+    }
+    function addInsufficient(text){
+      var t = document.getElementById("typing"); if(t) t.remove();
+      var el = document.createElement("div");
+      el.className = "msg-in flex gap-3";
+      el.innerHTML = avatar()+
+        '<div class="max-w-[90%]">'+identity()+
+        '<div class="rounded-lg border border-amber/40 bg-amber/10 p-4">'+
+          '<div class="mb-1 flex items-center gap-2"><svg viewBox="0 0 24 24" class="h-4 w-4 text-[#b7791f]" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg><span class="text-sm font-semibold text-ink">Not enough evidence to answer confidently</span></div>'+
+          '<p class="text-sm leading-relaxed text-body">'+esc(text)+'</p>'+
+          '<div class="mt-3 flex flex-wrap gap-2"><button class="add-report cursor-pointer rounded-md bg-ink px-3 py-1.5 text-xs font-medium text-white transition-colors duration-200 hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy">Show what is known</button><button class="atip cursor-pointer rounded-md border border-hairline bg-white px-3 py-1.5 text-xs font-medium text-ink transition-colors duration-200 hover:bg-surface-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy">File an ATIP request</button></div>'+
+        '</div></div>';
+      thread.appendChild(el);
+      renderRailEmpty();
+      scrollEnd();
+    }
+
+    // ---- Evidence rail rendering ----
+    function srcCard(id, n){
+      var s = SOURCES[id];
+      var badge = s.status === "verified"
+        ? '<span class="rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-semibold text-success">Verified</span>'
+        : '<span class="rounded-full bg-amber/20 px-2 py-0.5 text-[11px] font-semibold text-[#b7791f]">Partial · '+s.complete+'</span>';
+      return '<li id="src-'+id+'" class="scroll-mt-20 rounded-lg border border-hairline bg-white p-4 transition-shadow duration-200 hover:shadow-sm">'+
+        '<div class="flex items-start justify-between gap-2"><span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-coral/15 text-xs font-semibold text-navy">'+n+'</span>'+badge+'</div>'+
+        '<h3 class="mt-2 text-sm font-semibold text-ink">'+esc(s.title)+'</h3>'+
+        '<p class="mt-1 text-xs text-body">'+esc(s.org)+'</p>'+
+        '<dl class="mt-3 grid grid-cols-2 gap-2 text-[11px]">'+
+          '<div><dt class="text-muted">Coverage</dt><dd class="font-mono text-ink">'+s.coverage+'</dd></div>'+
+          '<div><dt class="text-muted">Updated</dt><dd class="font-mono text-ink">'+s.updated+'</dd></div>'+
+          '<div><dt class="text-muted">Rows used</dt><dd class="font-mono text-ink">'+s.rows+'</dd></div>'+
+          '<div><dt class="text-muted">Completeness</dt><dd class="font-mono '+(s.status==="verified"?"text-success":"text-[#b7791f]")+'">'+s.complete+'</dd></div>'+
+        '</dl>'+
+        '<a href="'+s.href+'" class="mt-3 inline-flex cursor-pointer items-center gap-1 text-xs font-medium text-navy hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy">View on Open Government Portal '+extLink+'</a></li>';
+    }
+    function renderRail(ids, steps){
+      evidenceList.innerHTML = ids.map(function(id,i){ return srcCard(id, i+1); }).join("");
+      assembly.innerHTML = '<div class="rounded-lg border border-dashed border-hairline bg-white/60 p-4"><h3 class="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">How this answer was built</h3><ol class="space-y-2 text-xs text-body">'+
+        steps.map(function(s,i){ return '<li class="flex gap-2"><span class="font-mono text-navy">'+(i+1)+'.</span> '+esc(s)+'</li>'; }).join("")+'</ol></div>';
+    }
+    function renderRailSkeleton(){
+      evidenceList.innerHTML = '<li class="space-y-2 rounded-lg border border-hairline bg-white p-4"><div class="skeleton h-3 w-2/3 rounded"></div><div class="skeleton h-3 w-full rounded"></div><div class="skeleton h-3 w-1/2 rounded"></div></li>'+
+                               '<li class="space-y-2 rounded-lg border border-hairline bg-white p-4"><div class="skeleton h-3 w-1/2 rounded"></div><div class="skeleton h-3 w-3/4 rounded"></div></li>';
+      assembly.innerHTML = "";
+    }
+    function renderRailEmpty(){
+      evidenceList.innerHTML = '<li class="rounded-lg border border-dashed border-hairline bg-white/50 p-6 text-center"><svg viewBox="0 0 24 24" class="mx-auto mb-2 h-6 w-6 text-[#b7791f]" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><p class="text-sm font-medium text-ink">No supporting dataset found</p><p class="mt-1 text-xs text-muted">MapleQuery won’t cite what it can’t verify.</p></li>';
+      assembly.innerHTML = "";
+    }
+
+    // ---- Routing ----
+    function answerFor(text){
+      var q = text.toLowerCase();
+      var best = null, bestScore = 0;
+      KB.forEach(function(item){
+        var score = item.match.reduce(function(a,kw){ return a + (q.indexOf(kw) > -1 ? 1 : 0); }, 0);
+        if(score > bestScore){ bestScore = score; best = item; }
+      });
+      return bestScore > 0 ? best : null;
+    }
+
+    function send(text){
+      text = (text||"").trim();
+      if(!text) return;
+      addUser(text);
+      ask.value = ""; autosize();
+      addTyping();
+      var delay = reduce ? 250 : 1100;
+      setTimeout(function(){
+        var ans = answerFor(text);
+        if(ans) addAnswer(ans);
+        else addInsufficient("I don’t have a verified dataset that answers this directly. Try one of the suggested prompts, or narrow the question to a department, program, or year range so I can map it to a source.");
+      }, delay);
+    }
+
+    // ---- Events ----
+    form.addEventListener("submit", function(e){ e.preventDefault(); send(ask.value); });
+    ask.addEventListener("keydown", function(e){
+      if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); send(ask.value); }
+    });
+    function autosize(){ ask.style.height = "auto"; ask.style.height = Math.min(ask.scrollHeight, 128) + "px"; }
+    ask.addEventListener("input", autosize);
+
+    // Suggestions
+    var SUGGEST = ["How has federal IT contract spending changed since 2018?","Compare housing grant approvals by province since 2020","What happened to the immigration PR backlog?"];
+    var sugWrap = document.getElementById("suggestions");
+    SUGGEST.forEach(function(s){
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "cursor-pointer rounded-full border border-hairline bg-white px-3 py-1.5 text-xs font-medium text-body transition-colors duration-200 hover:border-navy hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy";
+      b.textContent = s;
+      b.addEventListener("click", function(){ send(s); });
+      sugWrap.appendChild(b);
+    });
+
+    // Delegated clicks: citations, actions
+    var toast = document.getElementById("toast");
+    var toastTimer;
+    function showToast(msg){
+      toast.textContent = msg;
+      toast.classList.remove("opacity-0","translate-y-4");
+      toast.classList.add("opacity-100","translate-y-0");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(function(){ toast.classList.add("opacity-0","translate-y-4"); toast.classList.remove("opacity-100","translate-y-0"); }, 2200);
+    }
+    document.addEventListener("click", function(e){
+      var c = e.target.closest(".cite");
+      if(c){ highlightSource(c.getAttribute("data-src")); return; }
+      if(e.target.closest(".add-report")){ showToast("Added to report draft"); return; }
+      if(e.target.closest(".chart-btn")){ showToast("Chart view coming in the report builder"); return; }
+      if(e.target.closest(".export-btn")){ showToast("CSV export started"); return; }
+      if(e.target.closest(".open-explorer")){ showToast("Opening in advanced explorer (Concept 3)"); return; }
+      if(e.target.closest(".atip")){ showToast("ATIP request template opened"); return; }
+    });
+    function highlightSource(id){
+      var card = document.getElementById("src-"+id);
+      if(!card){ showToast("Source not in current evidence set"); return; }
+      card.scrollIntoView({block:"nearest", behavior: reduce?"auto":"smooth"});
+      card.classList.add("src-flash");
+      setTimeout(function(){ card.classList.remove("src-flash"); }, 1400);
+    }
+
+    document.getElementById("newThread").addEventListener("click", function(){
+      thread.innerHTML = ""; renderRailEmpty();
+      ask.focus(); showToast("Started a new investigation");
+    });
+
+    // ---- Seed conversation ----
+    addUser("How much has federal spending on contracted IT services changed since 2018, and which departments grew the most?");
+    addAnswer(KB[0]);
+    addUser("Did any single vendor win more than 20% of that growth?");
+    addInsufficient("Vendor-level detail exists in proactive disclosure, but ~38% of the relevant contracts list the supplier as “Various” or redact the vendor name. I can’t verify a 20% threshold from the available records without overstating certainty.");
+    // restore the rich evidence rail from the first answer as the "current" context
+    renderRail(KB[0].sources, KB[0].assembled);
+    autosize();
+  })();
+  </script>
+
+  <script>
+  (function(){
+    "use strict";
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var toast=document.getElementById("toast"), tt;
+    function showToast(msg){ toast.textContent=msg; toast.classList.remove("opacity-0","translate-y-4"); toast.classList.add("opacity-100","translate-y-0"); clearTimeout(tt); tt=setTimeout(function(){ toast.classList.add("opacity-0","translate-y-4"); toast.classList.remove("opacity-100","translate-y-0"); }, 2200); }
+
+    // ---- Section tabs ----
+    var tabs=document.querySelectorAll(".tab");
+    function setSec(sec){
+      document.getElementById("sec-ask").classList.toggle("hidden", sec!=="ask");
+      document.getElementById("sec-data").classList.toggle("hidden", sec!=="data");
+      document.getElementById("cap-ask").classList.toggle("hidden", sec!=="ask");
+      tabs.forEach(function(t){ var on=t.getAttribute("data-sec")===sec; t.classList.toggle("bg-canvas", on); t.classList.toggle("shadow-sm", on); t.classList.toggle("text-ink", on); t.classList.toggle("text-muted", !on); });
+      if(sec==="data") dv.init();
+    }
+    tabs.forEach(function(t){ t.addEventListener("click", function(){ setSec(t.getAttribute("data-sec")); }); });
+
+    // ---- Data viewer ----
+    var dv = (function(){
+      var DATASETS=[
+        { id:"it", cat:"Spending", title:"Federal IT Contract Spend", desc:"Annual contracted IT-services spending by federal department.",
+          source:"Public Accounts of Canada — Vol. III, Contracts", meta:{Coverage:"2018–2024",Updated:"2024-10-31",Rows:"6",Completeness:"98%"},
+          cols:[{k:"dept",label:"Department",type:"text"},{k:"y18",label:"2018–19",type:"money"},{k:"y24",label:"2023–24",type:"money"},{k:"chg",label:"Change",type:"pct"}],
+          rows:[{dept:"National Defence",y18:0.61,y24:1.18,chg:93},{dept:"Shared Services Canada",y18:0.50,y24:0.90,chg:81},{dept:"Employment & Social Dev.",y18:0.33,y24:0.57,chg:71},{dept:"Canada Revenue Agency",y18:0.44,y24:0.66,chg:52},{dept:"Public Services & Proc.",y18:0.30,y24:0.45,chg:50},{dept:"Health Canada",y18:0.19,y24:0.26,chg:37}] },
+        { id:"housing", cat:"Housing", title:"Housing Grant Approvals by Province", desc:"CMHC housing-program funding approvals by province.",
+          source:"CMHC Housing Program Approvals", meta:{Coverage:"2020–2024",Updated:"2024-08-15",Rows:"6",Completeness:"95%"},
+          cols:[{k:"prov",label:"Province",type:"text"},{k:"approved",label:"Approved ($M)",type:"num"},{k:"units",label:"Units",type:"int"},{k:"per10k",label:"Per 10K homes",type:"int"}],
+          rows:[{prov:"British Columbia",approved:3120,units:18400,per10k:41},{prov:"Ontario",approved:5980,units:42100,per10k:37},{prov:"Nova Scotia",approved:540,units:3250,per10k:34},{prov:"Quebec",approved:3360,units:28700,per10k:31},{prov:"Alberta",approved:1840,units:14200,per10k:28},{prov:"Manitoba",approved:430,units:3900,per10k:25}] },
+        { id:"immigration", cat:"Immigration", title:"Immigration PR Processing Inventory", desc:"Permanent-residence applications in the processing inventory by year.",
+          source:"IRCC Processing Times — Permanent Residence", meta:{Coverage:"2019–2024",Updated:"2024-11-01",Rows:"6",Completeness:"88%"},
+          cols:[{k:"year",label:"Year",type:"text"},{k:"inv",label:"Inventory (M)",type:"big"},{k:"yoy",label:"YoY change",type:"pct"},{k:"status",label:"Status",type:"text"}],
+          rows:[{year:"2019",inv:1.5,yoy:0,status:"baseline"},{year:"2020",inv:1.6,yoy:7,status:"rising"},{year:"2021",inv:1.8,yoy:13,status:"rising"},{year:"2022",inv:2.2,yoy:22,status:"peak"},{year:"2023",inv:1.6,yoy:-27,status:"falling"},{year:"2024",inv:1.1,yoy:-31,status:"recovering"}] }
+      ];
+      var cur=DATASETS[0], search="", sortKey=null, sortDir=1, booted=false;
+      function esc(s){ return String(s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
+      function fmt(v,t){ if(t==="money")return "$"+Number(v).toFixed(2)+"B"; if(t==="pct")return (v>0?"+":"")+v+"%"; if(t==="num")return "$"+Number(v).toLocaleString(); if(t==="int")return Number(v).toLocaleString(); if(t==="big")return Number(v).toFixed(1)+"M"; return esc(v); }
+      function list(){ var w=document.getElementById("dvList"); w.innerHTML=""; DATASETS.forEach(function(d){ var on=d.id===cur.id; var li=document.createElement("li"); li.innerHTML='<button class="dvitem flex w-full cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy '+(on?"border-navy bg-white shadow-sm":"border-transparent hover:border-hairline hover:bg-white")+'"><span class="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md '+(on?"bg-navy text-white":"bg-surface-card text-muted")+'"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5h18v4H3zM3 11h18v4H3zM3 17h18v2H3z"/></svg></span><span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold '+(on?"text-navy":"text-ink")+'">'+esc(d.title)+'</span><span class="mt-0.5 block text-xs text-muted">'+esc(d.cat)+' · '+d.meta.Rows+' rows</span></span></button>'; li.querySelector("button").addEventListener("click", function(){ cur=d; search=""; sortKey=null; sortDir=1; document.getElementById("dvSearch").value=""; renderAll(); }); w.appendChild(li); }); var sel=document.getElementById("dvSelect"); if(sel){ sel.innerHTML=DATASETS.map(function(d){ return '<option value="'+d.id+'"'+(d.id===cur.id?" selected":"")+'>'+esc(d.title)+'</option>'; }).join(""); } }
+      function header(){ document.getElementById("dvCat").textContent=cur.cat; document.getElementById("dvTitle").textContent=cur.title; document.getElementById("dvDesc").textContent=cur.desc; document.querySelector("#dvSource span").textContent="Source: "+cur.source; var m=document.getElementById("dvMeta"); m.innerHTML=""; Object.keys(cur.meta).forEach(function(k){ var amber=k==="Completeness"&&parseInt(cur.meta[k],10)<100; var box=document.createElement("div"); box.className="bg-white px-4 py-3"; box.innerHTML='<dt class="text-[11px] uppercase tracking-wider text-muted">'+esc(k)+'</dt><dd class="mt-1 font-mono text-base font-semibold '+(amber?"text-[#b7791f]":"text-ink")+'">'+esc(cur.meta[k])+'</dd>'; m.appendChild(box); }); }
+      function computed(){ var rows=cur.rows.slice(); if(search){ var q=search.toLowerCase(); rows=rows.filter(function(r){ return cur.cols.some(function(c){ return String(r[c.k]).toLowerCase().indexOf(q)>-1; }); }); } if(sortKey){ rows.sort(function(a,b){ var x=a[sortKey],y=b[sortKey]; if(typeof x==="number"&&typeof y==="number")return (x-y)*sortDir; return String(x).localeCompare(String(y))*sortDir; }); } return rows; }
+      function table(){
+        var th=document.getElementById("dvHead");
+        th.innerHTML='<tr class="border-b border-hairline text-xs uppercase tracking-wide text-muted">'+cur.cols.map(function(c){ var num=c.type!=="text"; var arr=sortKey===c.k?(sortDir>0?" ↑":" ↓"):""; return '<th class="px-4 py-2.5 font-medium '+(num?"text-right":"")+'"><button class="thb inline-flex cursor-pointer items-center gap-1 hover:text-ink focus-visible:outline-none" data-k="'+c.k+'">'+esc(c.label)+'<span class="text-navy">'+arr+'</span></button></th>'; }).join("")+'</tr>';
+        th.querySelectorAll(".thb").forEach(function(b){ b.addEventListener("click", function(){ var k=b.getAttribute("data-k"); if(sortKey===k){sortDir*=-1;}else{sortKey=k;sortDir=1;} table(); }); });
+        var rows=computed(), tb=document.getElementById("dvBody"); tb.innerHTML="";
+        rows.forEach(function(r){ var tr=document.createElement("tr"); tr.className="border-b border-hairline/60 transition-colors duration-150 hover:bg-surface-soft last:border-0"; tr.innerHTML=cur.cols.map(function(c){ var num=c.type!=="text"; var strong=c.k===cur.cols[0].k; var color=c.type==="pct"?(r[c.k]>=0?"text-success":"text-[#b7791f]"):""; return '<td class="px-4 py-2.5 '+(num?"text-right font-mono":"")+' '+(strong?"font-medium text-ink":"")+' '+color+'">'+fmt(r[c.k],c.type)+'</td>'; }).join(""); tb.appendChild(tr); });
+        document.getElementById("dvEmpty").classList.toggle("hidden", rows.length>0);
+        document.getElementById("dvCount").textContent=rows.length+" of "+cur.rows.length+" rows";
+      }
+      function renderAll(){ list(); header(); table(); }
+      return { init:function(){ if(booted) return; booted=true; renderAll();
+        var s; document.getElementById("dvSearch").addEventListener("input", function(){ var v=this.value; clearTimeout(s); s=setTimeout(function(){ search=v; table(); }, reduce?0:120); });
+        document.getElementById("dvDownload").addEventListener("click", function(){ showToast("Downloading “"+cur.title+"” as CSV…"); });
+        var sel=document.getElementById("dvSelect"); if(sel){ sel.addEventListener("change", function(){ var id=this.value,i; for(i=0;i<DATASETS.length;i++){ if(DATASETS[i].id===id){ cur=DATASETS[i]; break; } } search=""; sortKey=null; sortDir=1; document.getElementById("dvSearch").value=""; renderAll(); }); }
+      } };
+    })();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MapleQuery — Data Viewer</title>
+  <meta name="description" content="Browse official Canadian government datasets in clean, searchable tables — no spreadsheets or code required." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: { extend: {
+        colors: { canvas:'#ffffff', soft:'#f8fafc', surface:'#f1f5f9', hairline:'#e2e8f0', ink:'#0f172a', body:'#334155', muted:'#64748b', 'maple-blue':'#1e40af', blue:'#3b82f6', amber:'#f59e0b', success:'#16a34a' },
+        fontFamily: { sans:['Inter','system-ui','sans-serif'], mono:['"Fira Code"','ui-monospace','monospace'] },
+      } },
+    };
+  </script>
+  <style>
+    html,body{ height:100%; }
+    body { background-color:#ffffff; }
+    @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important;scroll-behavior:auto!important} .row-r{opacity:1!important;transform:none!important} }
+    .row-r{ opacity:0; transform: translateY(4px); transition: opacity .35s ease, transform .35s ease; }
+    .row-r.in{ opacity:1; transform:none; }
+    .pane::-webkit-scrollbar{ width:10px; height:10px; } .pane::-webkit-scrollbar-thumb{ background:#cbd5e1; border-radius:9999px; } .pane::-webkit-scrollbar-track{ background:transparent; }
+  </style>
+</head>
+<body class="flex h-full flex-col overflow-hidden font-sans text-body antialiased">
+
+  <!-- Header -->
+  <header class="z-30 shrink-0 border-b border-hairline bg-canvas">
+    <div class="flex h-16 items-center justify-between px-4 md:px-6">
+      <a href="index.html" class="flex items-center gap-2.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-maple-blue">
+        <span class="grid h-8 w-8 place-items-center rounded-md bg-maple-blue text-white" aria-hidden="true"><svg viewBox="0 0 80 80" class="h-5 w-5" fill="none"><circle cx="34" cy="34" r="20" stroke="currentColor" stroke-width="4"/><line x1="48" y1="48" x2="66" y2="66" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><rect x="24" y="26" width="20" height="4" rx="2" fill="currentColor"/><rect x="24" y="33" width="14" height="4" rx="2" fill="currentColor"/><rect x="24" y="40" width="18" height="4" rx="2" fill="currentColor"/></svg></span>
+        <span class="text-lg font-semibold tracking-tight text-ink">MapleQuery</span>
+      </a>
+      <div class="flex items-center gap-2">
+        <span class="hidden items-center gap-1.5 rounded-md border border-hairline bg-soft px-2.5 py-1 text-xs text-muted sm:flex"><span class="h-1.5 w-1.5 rounded-full bg-success"></span> Data warehouse · 3 tables</span>
+        <button id="menuBtn" class="cursor-pointer rounded-md border border-hairline p-1.5 text-muted hover:bg-soft md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-maple-blue" aria-label="Toggle tables list"><svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Two-pane warehouse -->
+  <div class="flex min-h-0 flex-1">
+
+    <!-- Left: tables list -->
+    <aside id="sidebar" class="pane hidden w-72 shrink-0 overflow-y-auto border-r border-hairline bg-soft md:block" aria-label="Tables">
+      <div class="p-4">
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-muted">Tables</h2>
+          <span id="dsTotal" class="rounded-full bg-surface px-2 py-0.5 text-[11px] font-medium text-muted">3</span>
+        </div>
+        <label for="dsSearch" class="sr-only">Search tables</label>
+        <div class="mb-3 flex items-center gap-2 rounded-lg border border-hairline bg-canvas px-2.5 py-2 text-sm text-muted focus-within:ring-2 focus-within:ring-maple-blue">
+          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="dsSearch" placeholder="Search tables" class="w-full bg-transparent text-ink placeholder:text-muted focus:outline-none" />
+        </div>
+        <ul id="dsList" class="space-y-1"></ul>
+      </div>
+    </aside>
+
+    <!-- Right: data -->
+    <main id="dataPane" class="pane min-w-0 flex-1 overflow-y-auto">
+      <div class="px-4 py-6 md:px-8">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wider text-maple-blue" id="dsCat">Government data</p>
+            <h1 id="dsTitle" class="mt-1 text-2xl font-bold tracking-tight text-ink md:text-3xl">—</h1>
+            <p id="dsDesc" class="mt-1 max-w-2xl text-sm text-body">—</p>
+          </div>
+          <button id="downloadBtn" class="cursor-pointer rounded-lg bg-maple-blue px-4 py-2 text-sm font-medium text-white transition-colors duration-200 hover:bg-blue focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-maple-blue focus-visible:ring-offset-2">
+            <span class="inline-flex items-center gap-1.5"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg> Download CSV</span>
+          </button>
+        </div>
+
+        <dl id="dsMeta" class="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-hairline bg-hairline sm:grid-cols-4"></dl>
+
+        <div class="mt-5 flex flex-wrap items-center gap-2">
+          <div class="flex items-center gap-2 rounded-lg border border-hairline bg-canvas px-2.5 py-2 text-sm text-muted focus-within:ring-2 focus-within:ring-maple-blue">
+            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <label for="rowSearch" class="sr-only">Search rows</label>
+            <input id="rowSearch" placeholder="Search this table" class="w-44 bg-transparent text-ink placeholder:text-muted focus:outline-none" />
+          </div>
+          <span class="text-xs text-muted">Click a column header to sort.</span>
+          <span id="rowCount" class="ml-auto font-mono text-xs text-muted">0 rows</span>
+        </div>
+
+        <div class="mt-3 overflow-x-auto rounded-xl border border-hairline">
+          <table class="w-full text-left text-sm">
+            <thead id="thead" class="bg-soft"></thead>
+            <tbody id="tbody" class="text-ink"></tbody>
+          </table>
+          <div id="emptyRows" class="hidden p-10 text-center">
+            <svg viewBox="0 0 24 24" class="mx-auto mb-2 h-6 w-6 text-muted" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <p class="text-sm font-medium text-ink">No rows match your search</p>
+          </div>
+        </div>
+
+        <p id="dsSource" class="mt-3 flex items-center gap-2 text-xs text-muted"><svg viewBox="0 0 24 24" class="h-4 w-4 text-maple-blue" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7v10l10 5 10-5V7L12 2Z"/></svg><span></span></p>
+      </div>
+    </main>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 translate-y-4 rounded-lg bg-ink px-4 py-2.5 text-sm font-medium text-white opacity-0 shadow-lg transition-all duration-300" role="status" aria-live="polite"></div>
+
+  <script>
+  (function(){
+    "use strict";
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var DATASETS = [
+      { id:"it", cat:"Spending", title:"Federal IT Contract Spend", desc:"Annual contracted IT-services spending by federal department.",
+        source:"Public Accounts of Canada — Volume III, Contracts (Open Government Portal)",
+        meta:{ Coverage:"2018–2024", Updated:"2024-10-31", Rows:"10", Completeness:"98%" },
+        cols:[ {k:"dept",label:"Department",type:"text"}, {k:"y18",label:"2018–19",type:"money"}, {k:"y24",label:"2023–24",type:"money"}, {k:"chg",label:"Change",type:"pct"} ],
+        rows:[ {dept:"National Defence",y18:0.61,y24:1.18,chg:93},{dept:"Shared Services Canada",y18:0.50,y24:0.90,chg:81},{dept:"Employment & Social Dev.",y18:0.33,y24:0.57,chg:71},{dept:"Canada Revenue Agency",y18:0.44,y24:0.66,chg:52},{dept:"Public Services & Proc.",y18:0.30,y24:0.45,chg:50},{dept:"Immigration, Refugees & Cit.",y18:0.21,y24:0.32,chg:51},{dept:"Global Affairs Canada",y18:0.28,y24:0.39,chg:39},{dept:"Health Canada",y18:0.19,y24:0.26,chg:37},{dept:"Transport Canada",y18:0.16,y24:0.21,chg:31},{dept:"Environment & Climate",y18:0.14,y24:0.18,chg:29} ] },
+      { id:"housing", cat:"Housing", title:"Housing Grant Approvals by Province", desc:"CMHC housing-program funding approvals by province.",
+        source:"CMHC Housing Program Approvals (Open Government Portal)",
+        meta:{ Coverage:"2020–2024", Updated:"2024-08-15", Rows:"8", Completeness:"95%" },
+        cols:[ {k:"prov",label:"Province",type:"text"}, {k:"approved",label:"Approved ($M)",type:"num"}, {k:"units",label:"Units",type:"int"}, {k:"per10k",label:"Per 10K homes",type:"int"} ],
+        rows:[ {prov:"British Columbia",approved:3120,units:18400,per10k:41},{prov:"Ontario",approved:5980,units:42100,per10k:37},{prov:"Nova Scotia",approved:540,units:3250,per10k:34},{prov:"Quebec",approved:3360,units:28700,per10k:31},{prov:"Alberta",approved:1840,units:14200,per10k:28},{prov:"Manitoba",approved:430,units:3900,per10k:25},{prov:"Saskatchewan",approved:360,units:3100,per10k:23},{prov:"New Brunswick",approved:280,units:2050,per10k:21} ] },
+      { id:"immigration", cat:"Immigration", title:"Immigration PR Processing Inventory", desc:"Permanent-residence applications in the processing inventory by year.",
+        source:"IRCC Processing Times — Permanent Residence (Open Government Portal)",
+        meta:{ Coverage:"2019–2024", Updated:"2024-11-01", Rows:"6", Completeness:"88%" },
+        cols:[ {k:"year",label:"Year",type:"text"}, {k:"inv",label:"Inventory",type:"big"}, {k:"yoy",label:"YoY change",type:"pct"}, {k:"status",label:"Status",type:"badge"} ],
+        rows:[ {year:"2019",inv:1.5,yoy:0,status:"baseline"},{year:"2020",inv:1.6,yoy:7,status:"rising"},{year:"2021",inv:1.8,yoy:13,status:"rising"},{year:"2022",inv:2.2,yoy:22,status:"peak"},{year:"2023",inv:1.6,yoy:-27,status:"falling"},{year:"2024",inv:1.1,yoy:-31,status:"recovering"} ] }
+    ];
+    var state = { ds:DATASETS[0], search:"", sortKey:null, sortDir:1 };
+
+    function esc(s){ return String(s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
+    function fmt(val,type){
+      if(type==="money") return "$"+Number(val).toFixed(2)+"B";
+      if(type==="pct") return (val>0?"+":"")+val+"%";
+      if(type==="num") return "$"+Number(val).toLocaleString();
+      if(type==="int") return Number(val).toLocaleString();
+      if(type==="big") return Number(val).toFixed(1)+"M";
+      if(type==="badge"){ var c=val==="peak"?"bg-amber/15 text-amber":(val==="recovering"||val==="falling")?"bg-success/15 text-success":"bg-surface text-muted"; return '<span class="rounded px-1.5 py-0.5 text-[11px] font-medium '+c+'">'+esc(val)+'</span>'; }
+      return esc(val);
+    }
+
+    function renderList(){
+      var ul=document.getElementById("dsList");
+      var q=document.getElementById("dsSearch").value.toLowerCase();
+      var list=DATASETS.filter(function(d){ return !q || d.title.toLowerCase().indexOf(q)>-1 || d.cat.toLowerCase().indexOf(q)>-1; });
+      document.getElementById("dsTotal").textContent=list.length;
+      ul.innerHTML="";
+      list.forEach(function(d){
+        var li=document.createElement("li");
+        var active=d.id===state.ds.id;
+        li.innerHTML='<button class="ds-btn flex w-full cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-maple-blue '+(active?"border-maple-blue bg-canvas shadow-sm":"border-transparent hover:border-hairline hover:bg-canvas")+'" data-id="'+d.id+'">'+
+          '<span class="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md '+(active?"bg-maple-blue text-white":"bg-surface text-muted")+'"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5h18v4H3zM3 11h18v4H3zM3 17h18v2H3z"/></svg></span>'+
+          '<span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold '+(active?"text-maple-blue":"text-ink")+'">'+esc(d.title)+'</span><span class="mt-0.5 block text-xs text-muted">'+esc(d.cat)+' · '+d.meta.Rows+' rows</span></span></button>';
+        li.querySelector("button").addEventListener("click", function(){ select(d.id); });
+        ul.appendChild(li);
+      });
+    }
+    function select(id){
+      state.ds=DATASETS.filter(function(d){return d.id===id;})[0];
+      state.search=""; state.sortKey=null; state.sortDir=1;
+      document.getElementById("rowSearch").value="";
+      renderList(); header(); table();
+      document.getElementById("dataPane").scrollTop=0;
+      if(window.innerWidth<768){ document.getElementById("sidebar").classList.add("hidden"); }
+    }
+    function header(){
+      var d=state.ds;
+      document.getElementById("dsCat").textContent=d.cat;
+      document.getElementById("dsTitle").textContent=d.title;
+      document.getElementById("dsDesc").textContent=d.desc;
+      document.querySelector("#dsSource span").textContent="Source: "+d.source;
+      var meta=document.getElementById("dsMeta"); meta.innerHTML="";
+      Object.keys(d.meta).forEach(function(k){
+        var amber=k==="Completeness"&&parseInt(d.meta[k],10)<100;
+        var box=document.createElement("div"); box.className="bg-canvas px-4 py-3";
+        box.innerHTML='<dt class="text-[11px] uppercase tracking-wider text-muted">'+esc(k)+'</dt><dd class="mt-1 font-mono text-base font-semibold '+(amber?"text-amber":"text-ink")+'">'+esc(d.meta[k])+'</dd>';
+        meta.appendChild(box);
+      });
+    }
+    function computed(){
+      var d=state.ds, rows=d.rows.slice();
+      if(state.search){ var q=state.search.toLowerCase(); rows=rows.filter(function(r){ return d.cols.some(function(c){ return String(r[c.k]).toLowerCase().indexOf(q)>-1; }); }); }
+      if(state.sortKey){ rows.sort(function(a,b){ var x=a[state.sortKey],y=b[state.sortKey]; if(typeof x==="number"&&typeof y==="number")return (x-y)*state.sortDir; return String(x).localeCompare(String(y))*state.sortDir; }); }
+      return rows;
+    }
+    function table(){
+      var d=state.ds;
+      var thead=document.getElementById("thead");
+      thead.innerHTML='<tr class="border-b border-hairline text-xs uppercase tracking-wide text-muted">'+
+        d.cols.map(function(c){ var num=c.type!=="text"&&c.type!=="badge"; var arr=state.sortKey===c.k?(state.sortDir>0?" ↑":" ↓"):""; return '<th class="px-4 py-2.5 font-medium '+(num?"text-right":"")+'"><button class="th-sort inline-flex cursor-pointer items-center gap-1 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-maple-blue" data-k="'+c.k+'">'+esc(c.label)+'<span class="text-maple-blue">'+arr+'</span></button></th>'; }).join("")+'</tr>';
+      thead.querySelectorAll(".th-sort").forEach(function(b){ b.addEventListener("click", function(){ var k=b.getAttribute("data-k"); if(state.sortKey===k){state.sortDir*=-1;}else{state.sortKey=k;state.sortDir=1;} table(); }); });
+      var rows=computed(), tb=document.getElementById("tbody"); tb.innerHTML="";
+      rows.forEach(function(r){
+        var tr=document.createElement("tr"); tr.className="row-r border-b border-hairline/70 transition-colors duration-150 hover:bg-soft last:border-0";
+        tr.innerHTML=d.cols.map(function(c){ var num=c.type!=="text"&&c.type!=="badge"; var strong=c.k===d.cols[0].k; var color=c.type==="pct"?(r[c.k]>=0?"text-success":"text-amber"):""; return '<td class="px-4 py-2.5 '+(num?"text-right font-mono":"")+' '+(strong?"font-medium text-ink":"")+' '+color+'">'+fmt(r[c.k],c.type)+'</td>'; }).join("");
+        tb.appendChild(tr);
+      });
+      document.getElementById("emptyRows").classList.toggle("hidden", rows.length>0);
+      document.getElementById("rowCount").textContent=rows.length+" of "+d.rows.length+" rows";
+      tb.querySelectorAll(".row-r").forEach(function(tr,i){ if(reduce){tr.classList.add("in");} else { setTimeout(function(){tr.classList.add("in");}, Math.min(i*40,500)); } });
+    }
+
+    var st;
+    document.getElementById("rowSearch").addEventListener("input", function(){ var v=this.value; clearTimeout(st); st=setTimeout(function(){ state.search=v; table(); }, reduce?0:120); });
+    document.getElementById("dsSearch").addEventListener("input", renderList);
+    document.getElementById("downloadBtn").addEventListener("click", function(){ showToast("Downloading “"+state.ds.title+"” as CSV…"); });
+    document.getElementById("menuBtn").addEventListener("click", function(){ var sb=document.getElementById("sidebar"); sb.classList.toggle("hidden"); sb.classList.toggle("fixed"); sb.classList.toggle("inset-y-0"); sb.classList.toggle("left-0"); sb.classList.toggle("top-16"); sb.classList.toggle("z-40"); sb.classList.toggle("w-72"); sb.classList.toggle("shadow-2xl"); });
+
+    var toast=document.getElementById("toast"), tt;
+    function showToast(msg){ toast.textContent=msg; toast.classList.remove("opacity-0","translate-y-4"); toast.classList.add("opacity-100","translate-y-0"); clearTimeout(tt); tt=setTimeout(function(){ toast.classList.add("opacity-0","translate-y-4"); toast.classList.remove("opacity-100","translate-y-0"); }, 2200); }
+
+    renderList(); header(); table();
+  })();
+  </script>
+</body>
+</html>

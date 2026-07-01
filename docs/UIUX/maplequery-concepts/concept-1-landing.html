@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MapleQuery — Chat + Evidence Rail (Concept 1)</title>
+  <meta name="description" content="Ask Canadian government open data in plain language and get answers you can cite — every claim backed by a visible source." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: { extend: {
+        colors: { canvas:'#F0EEEB','surface-soft':'#E7EBEC','surface-card':'#DDE4E7', ink:'#13181B', body:'#2D3942', muted:'#5C6B75', hairline:'#D3DADD', coral:'#FD8973', 'coral-active':'#ED7259', navy:'#003A6C', polar:'#CCD5DA', teal:'#4E8197', amber:'#FFBF65', 'maple-blue':'#003A6C', success:'#2F7D5B', 'dark-surface':'#13181B' },
+        fontFamily: { display:['Fraunces','Georgia','serif'], sans:['Inter','system-ui','sans-serif'], mono:['"Fira Code"','monospace'] },
+      } },
+    };
+  </script>
+  <style>
+    body { background-color:#F0EEEB; }
+    @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important;scroll-behavior:auto!important} .reveal{opacity:1!important;transform:none!important} }
+    .reveal { opacity:0; transform: translateY(20px); transition: opacity .7s cubic-bezier(.16,1,.3,1), transform .7s cubic-bezier(.16,1,.3,1); }
+    .reveal.in { opacity:1; transform:none; }
+    .reveal[data-d="1"]{transition-delay:.08s}.reveal[data-d="2"]{transition-delay:.16s}.reveal[data-d="3"]{transition-delay:.24s}.reveal[data-d="4"]{transition-delay:.32s}
+    .float-a{ animation: floatA 9s ease-in-out infinite } .float-b{ animation: floatB 11s ease-in-out infinite }
+    @keyframes floatA{0%,100%{transform:translate(0,0)}50%{transform:translate(14px,-18px)}}
+    @keyframes floatB{0%,100%{transform:translate(0,0)}50%{transform:translate(-16px,12px)}}
+    .grow-bar{ transition: height 1.1s cubic-bezier(.16,1,.3,1); }
+    .hero-grad{ background: radial-gradient(120% 90% at 88% -5%, rgba(253,137,115,.20), transparent 55%), radial-gradient(90% 80% at 0% 15%, rgba(0,58,108,.12), transparent 55%), radial-gradient(80% 70% at 55% 105%, rgba(255,191,101,.16), transparent 60%); }
+    .underline-grow{ background-image: linear-gradient(transparent 60%, rgba(253,137,115,.45) 0); background-size: 0% 100%; background-repeat:no-repeat; transition: background-size .8s ease .3s; }
+    .underline-grow.in{ background-size:100% 100%; }
+    .cite-demo{ animation: blink 2.4s ease-in-out infinite; } @keyframes blink{0%,100%{background-color:rgba(253,137,115,.18)}50%{background-color:rgba(253,137,115,.38)}}
+  </style>
+</head>
+<body class="font-sans text-body antialiased">
+
+  <!-- Nav -->
+  <header class="sticky top-0 z-30 border-b border-hairline bg-canvas/85 backdrop-blur">
+    <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 md:px-6">
+      <a href="index.html" class="flex items-center gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy rounded-md">
+        <span class="grid h-8 w-8 place-items-center rounded-md bg-navy text-white" aria-hidden="true">
+          <svg viewBox="0 0 80 80" class="h-5 w-5" fill="none"><circle cx="34" cy="34" r="20" stroke="currentColor" stroke-width="4"/><line x1="48" y1="48" x2="66" y2="66" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><rect x="24" y="26" width="20" height="4" rx="2" fill="currentColor"/><rect x="24" y="33" width="14" height="4" rx="2" fill="currentColor"/><rect x="24" y="40" width="18" height="4" rx="2" fill="currentColor"/></svg>
+        </span>
+        <span class="text-lg font-semibold tracking-tight text-ink">MapleQuery</span>
+      </a>
+      <nav class="hidden items-center gap-6 text-sm md:flex" aria-label="Primary">
+        <a href="#problem" class="cursor-pointer text-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy">Problem</a>
+        <a href="#how" class="cursor-pointer text-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy">How it works</a>
+        <a href="#trust" class="cursor-pointer text-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy">Trust</a>
+        <a href="index.html" class="cursor-pointer text-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy">All concepts</a>
+      </nav>
+      <a href="concept-1-chat-evidence.html" class="cursor-pointer rounded-md bg-coral px-4 py-2 text-sm font-medium text-ink transition-colors duration-200 hover:bg-coral-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-offset-2 focus-visible:ring-offset-canvas">Launch the demo</a>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero-grad relative overflow-hidden">
+    <span class="float-a pointer-events-none absolute left-[8%] top-24 h-24 w-24 rounded-2xl bg-coral/10" aria-hidden="true"></span>
+    <span class="float-b pointer-events-none absolute right-[10%] top-40 h-16 w-16 rounded-full bg-teal/15" aria-hidden="true"></span>
+    <span class="float-a pointer-events-none absolute bottom-10 right-[22%] h-10 w-10 rounded-lg bg-amber/20" aria-hidden="true"></span>
+    <div class="mx-auto grid max-w-6xl items-center gap-10 px-4 py-20 md:px-6 md:py-24 lg:grid-cols-[1.1fr_0.9fr]">
+      <div>
+        <p class="reveal mb-4 inline-flex items-center gap-2 rounded-full border border-hairline bg-white/70 px-3 py-1 text-xs font-medium text-muted">
+          <span class="h-1.5 w-1.5 rounded-full bg-coral"></span> Concept 1 · Chat + evidence rail
+        </p>
+        <h1 class="reveal max-w-3xl font-display text-4xl font-medium leading-[1.08] tracking-tight text-ink sm:text-5xl md:text-6xl" data-d="1">
+          Ask hard questions of <span class="underline-grow">government data</span> — and get answers you can cite.
+        </h1>
+        <p class="reveal mt-6 max-w-xl text-lg leading-relaxed text-body" data-d="2">
+          MapleQuery turns fragmented Canadian open data into a plain-language conversation. Every figure carries a footnote that traces straight back to its original record.
+        </p>
+        <div class="reveal mt-8 flex flex-wrap items-center gap-3" data-d="3">
+          <a href="concept-1-chat-evidence.html" class="cursor-pointer rounded-md bg-coral px-5 py-2.5 text-sm font-medium text-ink transition-colors duration-200 hover:bg-coral-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-offset-2 focus-visible:ring-offset-canvas">Launch the live demo</a>
+          <a href="#how" class="cursor-pointer rounded-md border border-hairline bg-white px-5 py-2.5 text-sm font-medium text-ink transition-colors duration-200 hover:bg-surface-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy">See how it works</a>
+        </div>
+        <dl class="reveal mt-12 grid max-w-lg grid-cols-3 gap-6" data-d="4">
+          <div><dd class="font-display text-3xl font-medium text-ink"><span class="countup" data-to="2">0</span> min</dd><dt class="mt-1 text-xs text-muted">Time to a cited answer</dt></div>
+          <div><dd class="font-display text-3xl font-medium text-ink"><span class="countup" data-to="7.17" data-dec="2">0</span>M</dd><dt class="mt-1 text-xs text-muted">Open Data Portal visits / yr</dt></div>
+          <div><dd class="font-display text-3xl font-medium text-ink"><span class="countup" data-to="100">0</span>%</dd><dt class="mt-1 text-xs text-muted">Answers cited or refused</dt></div>
+        </dl>
+      </div>
+
+      <!-- Hero chat mock -->
+      <div class="reveal" data-d="2">
+        <div class="overflow-hidden rounded-2xl border border-hairline bg-white shadow-xl">
+          <div class="flex items-center gap-1.5 border-b border-hairline bg-surface-soft px-4 py-2.5">
+            <span class="h-2.5 w-2.5 rounded-full bg-coral/40"></span><span class="h-2.5 w-2.5 rounded-full bg-amber/40"></span><span class="h-2.5 w-2.5 rounded-full bg-teal/40"></span>
+            <span class="ml-2 font-mono text-[11px] text-muted">maplequery — ask</span>
+          </div>
+          <div class="space-y-3 p-4">
+            <div class="flex justify-end"><div class="max-w-[80%] rounded-2xl rounded-tr-sm bg-surface-card px-3 py-2 text-sm text-ink">How has federal IT contract spending changed since 2018?</div></div>
+            <div class="rounded-2xl rounded-tl-sm bg-canvas px-3 py-2.5 text-sm leading-relaxed text-body ring-1 ring-hairline">
+              Spending rose from <span class="font-medium text-ink">$3.1B</span> to <span class="font-medium text-ink">$5.4B</span><span class="cite-demo ml-0.5 rounded px-1 align-super text-[10px] font-semibold text-navy">[1]</span> — about <span class="font-medium text-ink">74%</span>.
+            </div>
+            <div class="rounded-lg border border-hairline bg-surface-soft p-3">
+              <p class="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted"><svg viewBox="0 0 24 24" class="h-3.5 w-3.5 text-navy" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7v10l10 5 10-5V7L12 2Z"/></svg> Evidence [1]</p>
+              <p class="text-xs font-medium text-ink">Public Accounts of Canada — Vol. III</p>
+              <p class="font-mono text-[11px] text-muted">2018–2024 · updated 2024-10-31 · 14,228 rows</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Problem -->
+  <section id="problem" class="border-y border-hairline bg-surface-soft scroll-mt-16">
+    <div class="mx-auto max-w-6xl px-4 py-16 md:px-6">
+      <h2 class="reveal font-display text-3xl font-medium tracking-tight text-ink">The data is public. Using it isn't.</h2>
+      <p class="reveal mt-3 max-w-2xl text-body" data-d="1">Access to government data has improved; usability hasn't kept pace. The friction lives in four places.</p>
+      <div class="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+        <div class="reveal rounded-xl border border-hairline bg-white p-5" data-d="1"><div class="mb-3 grid h-9 w-9 place-items-center rounded-lg bg-coral/15 text-navy"><svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h7v7H3zM14 7h7v4h-7zM14 14h7v3h-7zM3 17h7"/></svg></div><h3 class="text-sm font-semibold text-ink">Fragmented</h3><p class="mt-1 text-sm text-body">One topic is scattered across departments, datasets, and formats.</p></div>
+        <div class="reveal rounded-xl border border-hairline bg-white p-5" data-d="2"><div class="mb-3 grid h-9 w-9 place-items-center rounded-lg bg-amber/20 text-[#b7791f]"><svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></div><h3 class="text-sm font-semibold text-ink">Inconsistent</h3><p class="mt-1 text-sm text-body">Different structures, standards, gaps, and stale records.</p></div>
+        <div class="reveal rounded-xl border border-hairline bg-white p-5" data-d="3"><div class="mb-3 grid h-9 w-9 place-items-center rounded-lg bg-teal/15 text-teal"><svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17V9m5 8V5m5 12v-6m5 6V8"/></svg></div><h3 class="text-sm font-semibold text-ink">Technical</h3><p class="mt-1 text-sm text-body">Joining and cleaning needs tools and skills many newsrooms lack.</p></div>
+        <div class="reveal rounded-xl border border-hairline bg-white p-5" data-d="4"><div class="mb-3 grid h-9 w-9 place-items-center rounded-lg bg-success/15 text-success"><svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 2m6-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg></div><h3 class="text-sm font-semibold text-ink">Time-consuming</h3><p class="mt-1 text-sm text-body">Prep eats the hours meant for analysis and writing.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section id="how" class="scroll-mt-16">
+    <div class="mx-auto max-w-6xl px-4 py-16 md:px-6">
+      <p class="reveal mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-navy">How it works</p>
+      <h2 class="reveal max-w-3xl font-display text-3xl font-medium leading-tight tracking-tight text-ink md:text-4xl" data-d="1">Ask, read the cited answer, trace every source</h2>
+      <div class="mt-10 grid gap-5 md:grid-cols-3">
+        <div class="reveal rounded-xl border border-hairline bg-white p-6" data-d="1">
+          <span class="font-mono text-sm text-navy">01</span>
+          <h3 class="mt-2 font-display text-xl font-medium text-ink">Ask in plain language</h3>
+          <p class="mt-2 text-sm leading-relaxed text-body">No SQL, no spreadsheets. Type a question the way you'd ask a colleague — MapleQuery finds, normalizes, and joins the right datasets.</p>
+        </div>
+        <div class="reveal rounded-xl border border-hairline bg-white p-6" data-d="2">
+          <span class="font-mono text-sm text-navy">02</span>
+          <h3 class="mt-2 font-display text-xl font-medium text-ink">Read a cited answer</h3>
+          <p class="mt-2 text-sm leading-relaxed text-body">Get a clear answer with tables and figures. Every number carries a footnote; when evidence is thin, MapleQuery says so instead of guessing.</p>
+        </div>
+        <div class="reveal rounded-xl border border-hairline bg-white p-6" data-d="3">
+          <span class="font-mono text-sm text-navy">03</span>
+          <h3 class="mt-2 font-display text-xl font-medium text-ink">Trace the evidence rail</h3>
+          <p class="mt-2 text-sm leading-relaxed text-body">A side panel shows the datasets behind the answer — coverage, freshness, completeness — with one-click links to the original records.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Trust + animated chart -->
+  <section id="trust" class="border-y border-hairline bg-dark-surface/[0.02] scroll-mt-16">
+    <div class="mx-auto grid max-w-6xl gap-10 px-4 py-16 md:grid-cols-2 md:px-6">
+      <div>
+        <h2 class="reveal font-display text-3xl font-medium tracking-tight text-ink">Trust is a feature, not a footnote</h2>
+        <ul class="mt-6 space-y-4">
+          <li class="reveal flex gap-3" data-d="1"><span class="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-success/15 text-success"><svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6 9 17l-5-5"/></svg></span><div><p class="text-sm font-semibold text-ink">First-class citations</p><p class="text-sm text-body">Every figure links to the original record on the source portal.</p></div></li>
+          <li class="reveal flex gap-3" data-d="2"><span class="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-amber/20 text-[#b7791f]"><svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 9v4m0 4h.01"/></svg></span><div><p class="text-sm font-semibold text-ink">Honest uncertainty</p><p class="text-sm text-body">When evidence is thin, MapleQuery says so instead of guessing.</p></div></li>
+          <li class="reveal flex gap-3" data-d="3"><span class="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-teal/15 text-teal"><svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7v10l10 5 10-5V7L12 2Z"/></svg></span><div><p class="text-sm font-semibold text-ink">Visible provenance</p><p class="text-sm text-body">Coverage, freshness, and completeness shown for every dataset.</p></div></li>
+        </ul>
+      </div>
+      <div class="reveal rounded-2xl border border-hairline bg-white p-6 shadow-sm" data-d="2">
+        <div class="mb-1 flex items-center justify-between"><h3 class="text-sm font-semibold text-ink">Federal IT-services spend ($B)</h3><span class="rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-semibold text-success">cited</span></div>
+        <p class="mb-4 font-mono text-[11px] text-muted">Public Accounts of Canada · 2018–2024</p>
+        <div id="heroChart" class="flex h-48 items-end gap-2.5" role="img" aria-label="Bar chart of IT services spend rising from 3.1B in 2018-19 to 5.4B in 2023-24"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="mx-auto max-w-6xl px-4 py-16 md:px-6">
+    <div class="reveal relative overflow-hidden rounded-2xl bg-navy p-8 text-white md:p-12">
+      <span class="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full" style="background: radial-gradient(circle, rgba(253,137,115,.85), rgba(255,191,101,.45) 55%, transparent 72%)" aria-hidden="true"></span>
+      <span class="pointer-events-none absolute -bottom-24 right-1/4 h-56 w-56 rounded-full" style="background: radial-gradient(circle, rgba(255,191,101,.30), transparent 70%)" aria-hidden="true"></span>
+      <div class="relative">
+        <h2 class="font-display text-2xl font-medium md:text-3xl">Try the chat + evidence rail</h2>
+        <p class="mt-3 max-w-2xl text-white/85">Ask a question, watch the answer build with live citations, and click any footnote to trace it. It's a working prototype — type your own questions or use a suggested prompt.</p>
+        <div class="mt-6 flex flex-wrap gap-3">
+          <a href="concept-1-chat-evidence.html" class="cursor-pointer rounded-md bg-white px-5 py-2.5 text-sm font-medium text-navy transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">Launch the demo</a>
+          <a href="index.html" class="cursor-pointer rounded-md border border-white/40 px-5 py-2.5 text-sm font-medium text-white transition-colors duration-200 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">See the other concepts</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="border-t border-hairline bg-canvas">
+    <div class="mx-auto max-w-6xl px-4 py-6 text-xs text-muted md:px-6">Concept 1 landing · Aesthetic grounded in the <span class="font-medium text-ink">Claude</span> design reference + MapleQuery design system (ui-ux-pro-max).</div>
+  </footer>
+
+  <script>
+  (function(){
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var revs = document.querySelectorAll(".reveal");
+    if(reduce){ revs.forEach(function(r){ r.classList.add("in"); }); }
+    else { var io = new IntersectionObserver(function(es){ es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add("in"); io.unobserve(e.target);} }); }, {threshold:.15}); revs.forEach(function(r){ io.observe(r); }); }
+    var ug = document.querySelector(".underline-grow"); if(ug){ if(reduce) ug.classList.add("in"); else setTimeout(function(){ug.classList.add("in");},500); }
+
+    function countUp(el){ var to=parseFloat(el.getAttribute("data-to")), dec=parseInt(el.getAttribute("data-dec")||"0",10); if(reduce){el.textContent=to.toFixed(dec);return;} var s=null; function step(ts){ if(!s)s=ts; var p=Math.min((ts-s)/1200,1); el.textContent=(to*(1-Math.pow(1-p,3))).toFixed(dec); if(p<1)requestAnimationFrame(step); else el.textContent=to.toFixed(dec);} requestAnimationFrame(step); }
+    var counts=document.querySelectorAll(".countup");
+    if(reduce){counts.forEach(countUp);} else { var cio=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){countUp(e.target);cio.unobserve(e.target);}});},{threshold:.6}); counts.forEach(function(c){cio.observe(c);}); }
+
+    var data=[{y:"18–19",v:3.1,c:"bg-surface-card"},{y:"19–20",v:3.5,c:"bg-maple-blue/20"},{y:"20–21",v:4.0,c:"bg-maple-blue/30"},{y:"21–22",v:4.5,c:"bg-maple-blue/50"},{y:"22–23",v:5.0,c:"bg-maple-blue/70"},{y:"23–24",v:5.4,c:"bg-amber"}];
+    var max=5.4, chart=document.getElementById("heroChart");
+    data.forEach(function(d){ var col=document.createElement("div"); col.className="flex flex-1 flex-col items-center gap-1.5"; col.innerHTML='<div class="flex h-36 w-full items-end"><div class="grow-bar w-full cursor-pointer rounded-t '+d.c+'" style="height:0%" title="'+d.y+': $'+d.v.toFixed(1)+'B"></div></div><span class="font-mono text-[11px] '+(d.v===max?"font-semibold text-ink":"text-muted")+'">'+d.v.toFixed(1)+'</span><span class="text-[11px] text-muted">'+d.y+'</span>'; chart.appendChild(col); });
+    function grow(){ chart.querySelectorAll(".grow-bar").forEach(function(b,i){ var pct=(data[i].v/max)*100; if(reduce){b.style.height=pct+"%";} else { setTimeout(function(){b.style.height=pct+"%";},120*i);} }); }
+    if(reduce){grow();} else { var bio=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){grow();bio.unobserve(e.target);}});},{threshold:.4}); bio.observe(chart); }
+  })();
+  </script>
+</body>
+</html>

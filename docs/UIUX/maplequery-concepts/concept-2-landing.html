@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MapleQuery — Notebook Workspace (Concept 2)</title>
+  <meta name="description" content="A document workspace where query blocks become a draft investigation that exports to a fully-sourced report." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: { extend: {
+        colors: {
+          canvas:'#ffffff', surface:'#f6f5f4', 'surface-soft':'#fafaf9', hairline:'#e5e3df', 'hairline-strong':'#c8c4be',
+          'ink-deep':'#000000', ink:'#1a1a1a', charcoal:'#37352f', slate:'#5d5b54', steel:'#787671',
+          primary:'#5645d4', 'primary-pressed':'#4534b3', 'link-blue':'#0075de',
+          'tint-peach':'#ffe8d4','tint-rose':'#fde0ec','tint-mint':'#d9f3e1','tint-lavender':'#e6e0f5','tint-sky':'#dcecfa','tint-yellow':'#fef7d6',
+          success:'#1aae39', warning:'#dd5b00', 'maple-blue':'#1e40af', amber:'#f59e0b',
+        },
+        fontFamily: { sans:['Inter','system-ui','sans-serif'], mono:['"Fira Code"','ui-monospace','monospace'] },
+      } },
+    };
+  </script>
+  <style>
+    body { background-color:#ffffff; }
+    @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important;scroll-behavior:auto!important} .reveal{opacity:1!important;transform:none!important} }
+    .reveal { opacity:0; transform: translateY(20px); transition: opacity .7s cubic-bezier(.16,1,.3,1), transform .7s cubic-bezier(.16,1,.3,1); }
+    .reveal.in { opacity:1; transform:none; }
+    .reveal[data-d="1"]{transition-delay:.08s}.reveal[data-d="2"]{transition-delay:.16s}.reveal[data-d="3"]{transition-delay:.24s}.reveal[data-d="4"]{transition-delay:.32s}
+    .float-a{ animation: floatA 9s ease-in-out infinite } .float-b{ animation: floatB 12s ease-in-out infinite } .float-c{ animation: floatA 10s ease-in-out infinite }
+    @keyframes floatA{0%,100%{transform:translate(0,0) rotate(-3deg)}50%{transform:translate(10px,-16px) rotate(3deg)}}
+    @keyframes floatB{0%,100%{transform:translate(0,0) rotate(4deg)}50%{transform:translate(-14px,10px) rotate(-4deg)}}
+    .hero-grad{ background: radial-gradient(110% 80% at 85% -10%, rgba(86,69,212,.12), transparent 55%), radial-gradient(90% 70% at 0% 10%, rgba(255,200,120,.12), transparent 50%); }
+    .grow-bar{ transition: height 1s cubic-bezier(.16,1,.3,1); }
+    .blk-in{ animation: blkin .5s cubic-bezier(.16,1,.3,1) both; } @keyframes blkin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+    .blk-in[data-s="1"]{animation-delay:.15s}.blk-in[data-s="2"]{animation-delay:.3s}.blk-in[data-s="3"]{animation-delay:.45s}
+  </style>
+</head>
+<body class="font-sans text-charcoal antialiased">
+
+  <!-- Nav -->
+  <header class="sticky top-0 z-30 border-b border-hairline bg-canvas/85 backdrop-blur">
+    <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 md:px-6">
+      <a href="index.html" class="flex items-center gap-2.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+        <span class="grid h-8 w-8 place-items-center rounded-md bg-primary text-white" aria-hidden="true"><svg viewBox="0 0 80 80" class="h-5 w-5" fill="none"><circle cx="34" cy="34" r="20" stroke="currentColor" stroke-width="4"/><line x1="48" y1="48" x2="66" y2="66" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><rect x="24" y="26" width="20" height="4" rx="2" fill="currentColor"/><rect x="24" y="33" width="14" height="4" rx="2" fill="currentColor"/><rect x="24" y="40" width="18" height="4" rx="2" fill="currentColor"/></svg></span>
+        <span class="text-lg font-semibold tracking-tight text-ink">MapleQuery</span>
+      </a>
+      <nav class="hidden items-center gap-6 text-sm md:flex" aria-label="Primary">
+        <a href="#why" class="cursor-pointer text-slate transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Why</a>
+        <a href="#how" class="cursor-pointer text-slate transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">How it works</a>
+        <a href="index.html" class="cursor-pointer text-slate transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">All concepts</a>
+      </nav>
+      <a href="concept-2-notebook.html" class="cursor-pointer rounded-md bg-primary px-4 py-2 text-sm font-medium text-white transition-colors duration-200 hover:bg-primary-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">Open the notebook</a>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero-grad relative overflow-hidden">
+    <span class="float-a pointer-events-none absolute left-[6%] top-28 h-12 w-12 rounded-lg bg-tint-peach" aria-hidden="true"></span>
+    <span class="float-b pointer-events-none absolute right-[8%] top-24 h-10 w-10 rounded-lg bg-tint-mint" aria-hidden="true"></span>
+    <span class="float-c pointer-events-none absolute bottom-12 left-[20%] h-8 w-8 rounded-lg bg-tint-sky" aria-hidden="true"></span>
+    <span class="float-b pointer-events-none absolute bottom-20 right-[24%] h-9 w-9 rounded-lg bg-tint-rose" aria-hidden="true"></span>
+    <div class="mx-auto grid max-w-6xl items-center gap-10 px-4 py-20 md:px-6 md:py-24 lg:grid-cols-[1fr_1fr]">
+      <div>
+        <p class="reveal mb-4 inline-flex items-center gap-2 rounded-full border border-hairline bg-white px-3 py-1 text-xs font-medium text-primary-pressed">
+          <span class="h-1.5 w-1.5 rounded-full bg-primary"></span> Concept 2 · Notebook workspace
+        </p>
+        <h1 class="reveal max-w-2xl text-4xl font-extrabold leading-[1.05] tracking-tight text-ink sm:text-5xl md:text-6xl" data-d="1">
+          Query, draft, and publish in <span class="text-primary">one document</span>.
+        </h1>
+        <p class="reveal mt-6 max-w-xl text-lg leading-relaxed text-slate" data-d="2">
+          A workspace shaped like the story you're writing. Each block is prose or a live query — run it for cited results, reorder freely, then promote the whole draft into a sourced report.
+        </p>
+        <div class="reveal mt-8 flex flex-wrap items-center gap-3" data-d="3">
+          <a href="concept-2-notebook.html" class="cursor-pointer rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-white transition-colors duration-200 hover:bg-primary-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">Open the notebook</a>
+          <a href="#how" class="cursor-pointer rounded-md border border-hairline-strong bg-white px-5 py-2.5 text-sm font-medium text-ink transition-colors duration-200 hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">See how it works</a>
+        </div>
+        <dl class="reveal mt-12 grid max-w-md grid-cols-3 gap-6" data-d="4">
+          <div><dd class="text-3xl font-extrabold text-ink"><span class="countup" data-to="4">0</span></dd><dt class="mt-1 text-xs text-steel">Block types</dt></div>
+          <div><dd class="text-3xl font-extrabold text-ink"><span class="countup" data-to="1">0</span>-click</dd><dt class="mt-1 text-xs text-steel">Promote to report</dt></div>
+          <div><dd class="text-3xl font-extrabold text-ink"><span class="countup" data-to="100">0</span>%</dd><dt class="mt-1 text-xs text-steel">Figures keep citations</dt></div>
+        </dl>
+      </div>
+
+      <!-- Notebook mock -->
+      <div class="reveal" data-d="2">
+        <div class="overflow-hidden rounded-2xl border border-hairline bg-white shadow-2xl">
+          <div class="flex items-center gap-2 border-b border-hairline bg-surface px-4 py-2.5">
+            <svg viewBox="0 0 24 24" class="h-4 w-4 text-primary" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg>
+            <span class="text-xs font-medium text-ink">Federal IT contracting: a 6-year trend</span>
+          </div>
+          <div class="space-y-3 p-4">
+            <p class="blk-in text-sm leading-relaxed text-charcoal" data-s="1">Departments leaned harder on outside IT contractors since the pandemic. To size the shift…</p>
+            <div class="blk-in rounded-lg border border-hairline bg-surface-soft" data-s="2">
+              <div class="flex items-center gap-2 border-b border-hairline px-3 py-2"><span class="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">Query</span><span class="flex-1 truncate font-mono text-[11px] text-ink">IT spend by fiscal year 2018–2024</span><span class="rounded bg-success px-2 py-0.5 text-[10px] font-medium text-white">Ran</span></div>
+              <div class="flex h-24 items-end gap-1.5 p-3" id="miniChart"></div>
+            </div>
+            <div class="blk-in flex flex-wrap items-center gap-1.5 rounded-md bg-tint-mint/60 px-2.5 py-1.5 text-[11px]" data-s="3"><svg viewBox="0 0 24 24" class="h-3.5 w-3.5 text-success" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span class="font-medium text-charcoal">Source:</span><span class="text-link-blue">Public Accounts of Canada</span><span class="text-steel">· 2018–2024</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Why -->
+  <section id="why" class="border-y border-hairline bg-surface scroll-mt-16">
+    <div class="mx-auto max-w-6xl px-4 py-16 md:px-6">
+      <h2 class="reveal text-3xl font-extrabold tracking-tight text-ink">Built for the way a story comes together</h2>
+      <p class="reveal mt-3 max-w-2xl text-slate" data-d="1">Journalists already live in documents. The notebook keeps the exploration and the draft in the same place — no copy-paste between a query tool and a doc.</p>
+      <div class="mt-10 grid gap-5 md:grid-cols-3">
+        <div class="reveal rounded-xl border border-hairline bg-tint-lavender/50 p-6" data-d="1"><div class="mb-3 grid h-9 w-9 place-items-center rounded-lg bg-white text-primary"><svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h10M4 18h7"/></svg></div><h3 class="text-base font-semibold text-ink">Familiar surface</h3><p class="mt-1 text-sm text-charcoal">Looks like the doc tools newsrooms already use. Nothing new to learn.</p></div>
+        <div class="reveal rounded-xl border border-hairline bg-tint-sky/50 p-6" data-d="2"><div class="mb-3 grid h-9 w-9 place-items-center rounded-lg bg-white text-maple-blue"><svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3 19 12 5 21Z"/></svg></div><h3 class="text-base font-semibold text-ink">Live, not pasted</h3><p class="mt-1 text-sm text-charcoal">Query blocks run inline and stay connected to their source data.</p></div>
+        <div class="reveal rounded-xl border border-hairline bg-tint-peach/60 p-6" data-d="3"><div class="mb-3 grid h-9 w-9 place-items-center rounded-lg bg-white text-warning"><svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg></div><h3 class="text-base font-semibold text-ink">One-click report</h3><p class="mt-1 text-sm text-charcoal">Promote the draft to a structured, fully-cited export for Docs or Word.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section id="how" class="scroll-mt-16">
+    <div class="mx-auto max-w-6xl px-4 py-16 md:px-6">
+      <p class="reveal mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-primary">How it works</p>
+      <h2 class="reveal max-w-3xl text-3xl font-extrabold leading-tight tracking-tight text-ink md:text-4xl" data-d="1">Write a block, run a query, promote to report</h2>
+      <div class="mt-10 grid gap-5 md:grid-cols-3">
+        <div class="reveal rounded-xl border border-hairline bg-white p-6" data-d="1"><span class="font-mono text-sm text-primary">01</span><h3 class="mt-2 text-xl font-bold text-ink">Mix prose & queries</h3><p class="mt-2 text-sm leading-relaxed text-slate">Type <span class="font-mono text-xs text-primary">/query</span>, <span class="font-mono text-xs text-primary">/text</span>, or <span class="font-mono text-xs text-primary">/source</span> to add blocks. Drag to reorder anytime.</p></div>
+        <div class="reveal rounded-xl border border-hairline bg-white p-6" data-d="2"><span class="font-mono text-sm text-primary">02</span><h3 class="mt-2 text-xl font-bold text-ink">Run for live results</h3><p class="mt-2 text-sm leading-relaxed text-slate">Hit Run and a query block fills with an animated chart or table — plus an auto-generated citation underneath.</p></div>
+        <div class="reveal rounded-xl border border-hairline bg-white p-6" data-d="3"><span class="font-mono text-sm text-primary">03</span><h3 class="mt-2 text-xl font-bold text-ink">Promote to report</h3><p class="mt-2 text-sm leading-relaxed text-slate">Assemble the blocks into a structured report and export — every figure carries its source.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Trust + animated chart -->
+  <section class="border-y border-hairline bg-surface-soft">
+    <div class="mx-auto grid max-w-6xl gap-10 px-4 py-16 md:grid-cols-2 md:px-6">
+      <div>
+        <h2 class="reveal text-3xl font-extrabold tracking-tight text-ink">Every figure stays sourced</h2>
+        <ul class="mt-6 space-y-4">
+          <li class="reveal flex gap-3" data-d="1"><span class="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-tint-mint text-success"><svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6 9 17l-5-5"/></svg></span><div><p class="text-sm font-semibold text-ink">Auto-citations</p><p class="text-sm text-slate">Each result block writes its own source line you can click through.</p></div></li>
+          <li class="reveal flex gap-3" data-d="2"><span class="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-tint-peach text-warning"><svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 9v4m0 4h.01"/></svg></span><div><p class="text-sm font-semibold text-ink">Honest gaps</p><p class="text-sm text-slate">Partial or redacted data is flagged, never quietly smoothed over.</p></div></li>
+          <li class="reveal flex gap-3" data-d="3"><span class="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-tint-lavender text-primary"><svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7v10l10 5 10-5V7L12 2Z"/></svg></span><div><p class="text-sm font-semibold text-ink">Provenance kept on export</p><p class="text-sm text-slate">Citations survive the trip to Google Docs or Word.</p></div></li>
+        </ul>
+      </div>
+      <div class="reveal rounded-2xl border border-hairline bg-white p-6 shadow-sm" data-d="2">
+        <div class="mb-1 flex items-center justify-between"><h3 class="text-sm font-semibold text-ink">Federal IT-services spend ($B)</h3><span class="rounded-full bg-tint-mint px-2 py-0.5 text-[11px] font-semibold text-success">cited</span></div>
+        <p class="mb-4 font-mono text-[11px] text-steel">Public Accounts of Canada · 2018–2024</p>
+        <div id="heroChart" class="flex h-48 items-end gap-2.5" role="img" aria-label="Bar chart of IT services spend rising from 3.1B to 5.4B"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="mx-auto max-w-6xl px-4 py-16 md:px-6">
+    <div class="reveal overflow-hidden rounded-2xl bg-primary p-8 text-white md:p-12">
+      <h2 class="text-2xl font-extrabold md:text-3xl">Open the notebook</h2>
+      <p class="mt-3 max-w-2xl text-white/90">Run a query block to watch it fill with an animated chart and citation, drag blocks around, then promote it to a report. It's a working prototype.</p>
+      <div class="mt-6 flex flex-wrap gap-3">
+        <a href="concept-2-notebook.html" class="cursor-pointer rounded-md bg-white px-5 py-2.5 text-sm font-medium text-primary transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">Open the notebook</a>
+        <a href="index.html" class="cursor-pointer rounded-md border border-white/40 px-5 py-2.5 text-sm font-medium text-white transition-colors duration-200 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">See the other concepts</a>
+      </div>
+    </div>
+  </section>
+
+  <footer class="border-t border-hairline bg-canvas">
+    <div class="mx-auto max-w-6xl px-4 py-6 text-xs text-steel md:px-6">Concept 2 landing · Aesthetic grounded in the <span class="font-medium text-ink">Notion</span> design reference + MapleQuery design system (ui-ux-pro-max).</div>
+  </footer>
+
+  <script>
+  (function(){
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var revs = document.querySelectorAll(".reveal");
+    if(reduce){ revs.forEach(function(r){ r.classList.add("in"); }); }
+    else { var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add("in");io.unobserve(e.target);}});},{threshold:.15}); revs.forEach(function(r){io.observe(r);}); }
+
+    function countUp(el){ var to=parseFloat(el.getAttribute("data-to")), dec=parseInt(el.getAttribute("data-dec")||"0",10); if(reduce){el.textContent=to.toFixed(dec);return;} var s=null; function step(ts){if(!s)s=ts;var p=Math.min((ts-s)/1200,1);el.textContent=(to*(1-Math.pow(1-p,3))).toFixed(dec);if(p<1)requestAnimationFrame(step);else el.textContent=to.toFixed(dec);} requestAnimationFrame(step); }
+    var counts=document.querySelectorAll(".countup");
+    if(reduce){counts.forEach(countUp);} else { var cio=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){countUp(e.target);cio.unobserve(e.target);}});},{threshold:.6}); counts.forEach(function(c){cio.observe(c);}); }
+
+    var data=[{y:"18–19",v:3.1,c:"bg-tint-sky"},{y:"19–20",v:3.5,c:"bg-maple-blue/30"},{y:"20–21",v:4.0,c:"bg-maple-blue/40"},{y:"21–22",v:4.5,c:"bg-maple-blue/60"},{y:"22–23",v:5.0,c:"bg-maple-blue/80"},{y:"23–24",v:5.4,c:"bg-amber"}];
+    var max=5.4, chart=document.getElementById("heroChart");
+    data.forEach(function(d){ var col=document.createElement("div"); col.className="flex flex-1 flex-col items-center gap-1.5"; col.innerHTML='<div class="flex h-36 w-full items-end"><div class="grow-bar w-full cursor-pointer rounded-t '+d.c+'" style="height:0%" title="'+d.y+': $'+d.v.toFixed(1)+'B"></div></div><span class="font-mono text-[11px] '+(d.v===max?"font-semibold text-ink":"text-steel")+'">'+d.v.toFixed(1)+'</span><span class="text-[11px] text-steel">'+d.y+'</span>'; chart.appendChild(col); });
+    function grow(){ chart.querySelectorAll(".grow-bar").forEach(function(b,i){ var pct=(data[i].v/max)*100; if(reduce){b.style.height=pct+"%";} else { setTimeout(function(){b.style.height=pct+"%";},120*i);} }); }
+    if(reduce){grow();} else { var bio=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){grow();bio.unobserve(e.target);}});},{threshold:.4}); bio.observe(chart); }
+
+    // Mini chart in hero mock
+    var mini=document.getElementById("miniChart");
+    data.forEach(function(d){ var bar=document.createElement("div"); bar.className="grow-bar flex-1 rounded-t "+d.c; bar.style.height="0%"; mini.appendChild(bar); });
+    function growMini(){ mini.querySelectorAll(".grow-bar").forEach(function(b,i){ var pct=(data[i].v/max)*100; if(reduce){b.style.height=pct+"%";} else { setTimeout(function(){b.style.height=pct+"%";}, 400+90*i);} }); }
+    growMini();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MapleQuery — Ask</title>
+  <meta name="description" content="Ask a plain-language question about Canadian government data and get a clear, sourced answer." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: { extend: {
+        colors: {
+          canvas:'#faf9f5','surface-soft':'#f5f0e8','surface-card':'#efe9de', white:'#ffffff',
+          ink:'#141413', body:'#3d3d3a', muted:'#6c6a64', hairline:'#e6dfd8',
+          coral:'#cc785c', 'coral-active':'#a9583e', success:'#5db872', amber:'#e8a55a', error:'#c64545',
+        },
+        fontFamily: { display:['Fraunces','Georgia','serif'], sans:['Inter','system-ui','sans-serif'], mono:['"JetBrains Mono"','ui-monospace','monospace'] },
+      } },
+    };
+  </script>
+  <style>
+    html,body{ height:100%; }
+    body { background-color:#faf9f5; }
+    @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important;scroll-behavior:auto!important} }
+    #thread{ scroll-behavior:smooth; }
+    .msg-in { animation: rise .35s cubic-bezier(.16,1,.3,1) both; } @keyframes rise { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:none} }
+    .fade-in { animation: fade .5s ease both; } @keyframes fade { from{opacity:0} to{opacity:1} }
+    .dot-typing span { animation: blink 1.2s infinite; } .dot-typing span:nth-child(2){animation-delay:.2s} .dot-typing span:nth-child(3){animation-delay:.4s}
+    @keyframes blink { 0%,60%,100%{opacity:.2;transform:translateY(0)} 30%{opacity:1;transform:translateY(-2px)} }
+  </style>
+</head>
+<body class="flex h-full flex-col overflow-hidden font-sans text-body antialiased">
+
+  <!-- Header -->
+  <header class="z-30 shrink-0 border-b border-hairline bg-canvas">
+    <div class="mx-auto flex h-16 max-w-3xl items-center justify-between px-4">
+      <a href="index.html" class="flex items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral" aria-label="MapleQuery home">
+        <span class="grid h-8 w-8 place-items-center rounded-md bg-coral text-white" aria-hidden="true"><svg viewBox="0 0 80 80" class="h-5 w-5" fill="none"><circle cx="34" cy="34" r="20" stroke="currentColor" stroke-width="4"/><line x1="48" y1="48" x2="66" y2="66" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><rect x="24" y="26" width="20" height="4" rx="2" fill="currentColor"/><rect x="24" y="33" width="14" height="4" rx="2" fill="currentColor"/><rect x="24" y="40" width="18" height="4" rx="2" fill="currentColor"/></svg></span>
+        <span class="text-lg font-semibold tracking-tight text-ink">MapleQuery</span>
+      </a>
+      <div class="flex items-center gap-2">
+        <span class="hidden items-center gap-1.5 rounded-full border border-hairline bg-white px-2.5 py-1 text-xs text-muted sm:flex"><span class="h-1.5 w-1.5 rounded-full bg-success"></span> 3 datasets connected</span>
+        <button id="resetBtn" class="hidden cursor-pointer rounded-md border border-hairline bg-white px-3 py-1.5 text-sm font-medium text-ink transition-colors duration-200 hover:bg-surface-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral">New chat</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Thread (internal scroll) -->
+  <div id="thread" class="min-h-0 flex-1 overflow-y-auto" aria-live="polite">
+    <div id="threadInner" class="mx-auto flex min-h-full max-w-3xl flex-col px-4 py-6"></div>
+  </div>
+
+  <!-- Composer -->
+  <div class="shrink-0 border-t border-hairline bg-canvas">
+    <div class="mx-auto max-w-3xl px-4 py-4">
+      <form id="composer" class="flex items-end gap-2 rounded-2xl border border-hairline bg-white p-2 shadow-sm transition-shadow focus-within:shadow-md focus-within:ring-2 focus-within:ring-coral">
+        <label for="ask" class="sr-only">Ask a question</label>
+        <textarea id="ask" rows="1" placeholder="Ask anything about government data…" class="max-h-32 flex-1 resize-none bg-transparent px-3 py-2.5 text-[15px] leading-relaxed text-ink placeholder:text-muted focus:outline-none"></textarea>
+        <button type="submit" id="send" class="cursor-pointer rounded-xl bg-coral p-3 text-white transition-colors duration-200 hover:bg-coral-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-40" aria-label="Send"><svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z"/></svg></button>
+      </form>
+      <p class="mt-2 flex items-center justify-center gap-1.5 text-center text-xs text-muted"><svg viewBox="0 0 24 24" class="h-3.5 w-3.5 text-coral" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7v10l10 5 10-5V7L12 2Z"/></svg> Answers are grounded in cited datasets — and refuse when evidence is thin.</p>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="pointer-events-none fixed bottom-24 left-1/2 z-50 -translate-x-1/2 translate-y-4 rounded-lg bg-ink px-4 py-2.5 text-sm font-medium text-white opacity-0 shadow-lg transition-all duration-300" role="status" aria-live="polite"></div>
+
+  <script>
+  (function(){
+    "use strict";
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var thread = document.getElementById("thread");
+    var inner = document.getElementById("threadInner");
+    var ask = document.getElementById("ask");
+    var sendBtn = document.getElementById("send");
+    var resetBtn = document.getElementById("resetBtn");
+    var started = false;
+
+    // Concept-4 magnifier mark — sized + colorable via currentColor
+    function mark(cls){ return '<svg viewBox="0 0 80 80" class="'+cls+'" fill="none"><circle cx="34" cy="34" r="20" stroke="currentColor" stroke-width="4"/><line x1="48" y1="48" x2="66" y2="66" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><rect x="24" y="26" width="20" height="4" rx="2" fill="currentColor"/><rect x="24" y="33" width="14" height="4" rx="2" fill="currentColor"/><rect x="24" y="40" width="18" height="4" rx="2" fill="currentColor"/></svg>'; }
+    function esc(s){ return String(s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
+    function avatar(){ return '<span class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-coral/15 text-coral" aria-hidden="true">'+mark("h-4 w-4")+'</span>'; }
+    function identity(){ return '<div class="mb-1.5 flex items-center gap-2"><span class="text-sm font-semibold text-ink">MapleQuery</span><span class="rounded bg-coral/10 px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider text-coral">AI</span></div>'; }
+
+    // Knowledge base — plain answer + a single clear source
+    var KB = [
+      { k:["it","contract","contracted","spend","spending","technology"],
+        a:"Federal spending on contracted IT services grew from <strong class='text-ink'>$3.1 billion</strong> in 2018–19 to <strong class='text-ink'>$5.4 billion</strong> in 2023–24 — about a <strong class='text-ink'>74% increase</strong>. National Defence grew the most, more than doubling its IT contract spend.",
+        src:"Public Accounts of Canada — Contracts", cov:"2018–2024" },
+      { k:["housing","grant","grants","cmhc","province","provinces"],
+        a:"Between 2020 and 2024, CMHC approved roughly <strong class='text-ink'>$14.2 billion</strong> in housing-program funding. British Columbia and Ontario approved the most units overall, while smaller provinces like Nova Scotia ranked highest per household.",
+        src:"CMHC Housing Program Approvals", cov:"2020–2024" },
+      { k:["immigration","backlog","processing","ircc","permanent","residence","pr","wait"],
+        a:"The permanent-residence processing backlog peaked at about <strong class='text-ink'>2.2 million people</strong> in mid-2022 and fell to roughly <strong class='text-ink'>1.1 million</strong> by late 2024 — about half the peak.",
+        src:"IRCC Processing Times — Permanent Residence", cov:"2019–2024" }
+    ];
+    var EXAMPLES = [
+      "How has federal IT contract spending changed since 2018?",
+      "Which provinces got the most housing grants?",
+      "What happened to the immigration backlog?"
+    ];
+
+    function answerFor(text){
+      var q=text.toLowerCase(), best=null, score=0;
+      KB.forEach(function(item){ var s=item.k.reduce(function(a,w){return a+(q.indexOf(w)>-1?1:0);},0); if(s>score){score=s;best=item;} });
+      return score>0?best:null;
+    }
+
+    function welcome(){
+      inner.innerHTML =
+        '<div id="welcome" class="fade-in flex flex-1 flex-col items-center justify-center py-10 text-center">'+
+          '<span class="grid h-16 w-16 place-items-center rounded-2xl bg-coral text-white">'+mark("h-8 w-8")+'</span>'+
+          '<h1 class="mt-5 font-display text-4xl font-medium tracking-tight text-ink">Ask MapleQuery</h1>'+
+          '<p class="mt-2 max-w-md text-body">Ask a question in plain language. You\u2019ll get a clear answer with the official source it came from — no spreadsheets or jargon.</p>'+
+          '<p class="mt-8 font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-muted">Try asking</p>'+
+          '<div class="mt-3 grid w-full max-w-lg gap-2.5">'+
+            EXAMPLES.map(function(e){ return '<button class="ex group flex cursor-pointer items-center gap-3 rounded-xl border border-hairline bg-white px-4 py-3.5 text-left text-sm font-medium text-ink transition-all duration-200 hover:-translate-y-0.5 hover:border-coral hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral"><span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-coral/10 text-coral transition-colors group-hover:bg-coral group-hover:text-white"><svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span><span class="flex-1">'+esc(e)+'</span></button>'; }).join("")+
+          '</div>'+
+          '<div class="mt-7 inline-flex items-center gap-1.5 text-xs text-muted"><span class="h-1.5 w-1.5 rounded-full bg-success"></span> Connected to 3 government datasets</div>'+
+        '</div>';
+      inner.querySelectorAll(".ex").forEach(function(b){ b.addEventListener("click", function(){ send(b.textContent.trim()); }); });
+    }
+
+    function ensureStarted(){
+      if(started) return;
+      started = true;
+      inner.className = "mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6";
+      inner.innerHTML = "";
+      resetBtn.classList.remove("hidden");
+    }
+
+    function addUser(text){
+      var el=document.createElement("div"); el.className="msg-in flex justify-end";
+      el.innerHTML='<div class="max-w-[80%] rounded-2xl rounded-br-md border border-hairline bg-white px-4 py-2.5 text-[15px] leading-relaxed text-ink shadow-sm">'+esc(text)+'</div>';
+      inner.appendChild(el); scrollEnd();
+    }
+    function addTyping(){
+      var el=document.createElement("div"); el.id="typing"; el.className="msg-in flex items-start gap-3";
+      el.innerHTML=avatar()+'<div class="min-w-0">'+identity()+
+        '<div class="inline-flex items-center gap-2.5 rounded-2xl rounded-tl-md border border-hairline bg-white px-4 py-3">'+
+          '<span class="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-coral">Searching</span>'+
+          '<span class="dot-typing flex gap-1"><span class="h-1.5 w-1.5 rounded-full bg-coral"></span><span class="h-1.5 w-1.5 rounded-full bg-coral"></span><span class="h-1.5 w-1.5 rounded-full bg-coral"></span></span>'+
+        '</div></div>';
+      inner.appendChild(el); scrollEnd();
+    }
+    function sourceCard(ans){
+      return '<div class="mt-3 rounded-lg border border-hairline bg-surface-soft p-3">'+
+        '<div class="mb-1.5 flex items-center justify-between gap-2">'+
+          '<span class="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-coral">Source</span>'+
+          '<span class="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-medium text-success"><svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6 9 17l-5-5"/></svg>Verified</span>'+
+        '</div>'+
+        '<p class="text-sm font-medium text-ink">'+esc(ans.src)+'</p>'+
+        '<div class="mt-1.5 flex items-center justify-between">'+
+          '<span class="font-mono text-[11px] text-muted">Coverage '+esc(ans.cov)+'</span>'+
+          '<a href="#" class="open inline-flex cursor-pointer items-center gap-1 text-xs font-medium text-coral hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral">Open on data portal <svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17 17 7M7 7h10v10"/></svg></a>'+
+        '</div></div>';
+    }
+    function addAnswer(ans){
+      var t=document.getElementById("typing"); if(t)t.remove();
+      var el=document.createElement("div"); el.className="msg-in flex items-start gap-3";
+      var innerHtml = ans
+        ? '<p class="text-[15px] leading-relaxed text-body">'+ans.a+'</p>'+sourceCard(ans)
+        : '<div class="flex items-start gap-2.5"><svg viewBox="0 0 24 24" class="mt-0.5 h-4 w-4 shrink-0 text-amber" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg><p class="text-[15px] leading-relaxed text-body"><span class="font-semibold text-ink">Not enough evidence to answer that confidently.</span> Try federal IT contract spending, housing grants by province, or the immigration backlog — or add a department, program, or year.</p></div>';
+      el.innerHTML=avatar()+'<div class="min-w-0 max-w-[88%]">'+identity()+'<div class="rounded-2xl rounded-tl-md border border-hairline bg-white p-4 shadow-sm">'+innerHtml+'</div></div>';
+      inner.appendChild(el); scrollEnd();
+    }
+    function scrollEnd(){ requestAnimationFrame(function(){ thread.scrollTop = thread.scrollHeight; }); }
+
+    function send(text){
+      text=(text||"").trim(); if(!text) return;
+      ensureStarted();
+      addUser(text); ask.value=""; autosize(); sendBtn.disabled=true; addTyping();
+      setTimeout(function(){ addAnswer(answerFor(text)); }, reduce?200:1000);
+    }
+
+    document.getElementById("composer").addEventListener("submit", function(e){ e.preventDefault(); send(ask.value); });
+    ask.addEventListener("keydown", function(e){ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); send(ask.value); } });
+    function autosize(){ ask.style.height="auto"; ask.style.height=Math.min(ask.scrollHeight,128)+"px"; }
+    ask.addEventListener("input", function(){ autosize(); sendBtn.disabled = ask.value.trim()===""; });
+    sendBtn.disabled = true;
+
+    // toast for source links
+    var toast=document.getElementById("toast"), tt;
+    function showToast(msg){ toast.textContent=msg; toast.classList.remove("opacity-0","translate-y-4"); toast.classList.add("opacity-100","translate-y-0"); clearTimeout(tt); tt=setTimeout(function(){ toast.classList.add("opacity-0","translate-y-4"); toast.classList.remove("opacity-100","translate-y-0"); }, 2200); }
+    inner.addEventListener("click", function(e){ var o=e.target.closest(".open"); if(o){ e.preventDefault(); showToast("Opening source on the Open Government Portal…"); } });
+
+    resetBtn.addEventListener("click", function(){ started=false; inner.className="mx-auto flex min-h-full max-w-3xl flex-col px-4 py-6"; resetBtn.classList.add("hidden"); welcome(); ask.focus(); });
+
+    welcome();
+  })();
+  </script>
+</body>
+</html>
+
+
+
+

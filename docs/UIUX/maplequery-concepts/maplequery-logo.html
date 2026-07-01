@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MapleQuery — Magnifying Glass Marks</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: #0a0a0a; color: #fafafa;
+            min-height: 100vh; padding: 60px 40px;
+        }
+        h1 { font-size: 12px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: #444; margin-bottom: 40px; }
+        .grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 28px; max-width: 1400px; margin-bottom: 64px;
+        }
+        .card {
+            background: #111; border: 1px solid #1a1a1a; border-radius: 14px;
+            padding: 40px 20px; display: flex; flex-direction: column;
+            align-items: center; gap: 16px; transition: border-color 0.2s;
+        }
+        .card:hover { border-color: #333; }
+        .card svg { width: 64px; height: 64px; }
+        .card h2 { font-size: 11px; font-weight: 600; color: #777; }
+        .card p { font-size: 10px; color: #444; text-align: center; line-height: 1.4; }
+    </style>
+</head>
+<body>
+    <h1>MapleQuery — Magnifying Glass Concepts</h1>
+    <div class="grid">
+
+        <!-- 1: Classic thick -->
+        <div class="card">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="34" cy="34" r="20" stroke="#fafafa" stroke-width="6" fill="none"/>
+                <line x1="48" y1="48" x2="68" y2="68" stroke="#fafafa" stroke-width="6" stroke-linecap="round"/>
+            </svg>
+            <h2>1 — Classic</h2>
+            <p>Thick stroke, clean. The baseline.</p>
+        </div>
+
+        <!-- 2: Thin elegant -->
+        <div class="card">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="34" cy="34" r="22" stroke="#fafafa" stroke-width="2.5" fill="none"/>
+                <line x1="50" y1="50" x2="70" y2="70" stroke="#fafafa" stroke-width="2.5" stroke-linecap="round"/>
+            </svg>
+            <h2>2 — Thin</h2>
+            <p>Lightweight stroke. Elegant, premium feel.</p>
+        </div>
+
+        <!-- 3: Filled lens -->
+        <div class="card">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="33" cy="33" r="21" fill="#fafafa"/>
+                <rect x="46" y="50" width="6" height="22" rx="3" fill="#fafafa" transform="rotate(-45 49 51)"/>
+            </svg>
+            <h2>3 — Solid</h2>
+            <p>Filled circle + handle. Bold favicon presence.</p>
+        </div>
+
+        <!-- 4: Bars inside lens -->
+        <div class="card">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="34" cy="34" r="20" stroke="#fafafa" stroke-width="4" fill="none"/>
+                <line x1="48" y1="48" x2="66" y2="66" stroke="#fafafa" stroke-width="5" stroke-linecap="round"/>
+                <rect x="24" y="26" width="20" height="4" rx="2" fill="#fafafa"/>
+                <rect x="24" y="33" width="14" height="4" rx="2" fill="#fafafa"/>
+                <rect x="24" y="40" width="18" height="4" rx="2" fill="#fafafa"/>
+            </svg>
+            <h2>4 — Query Results</h2>
+            <p>Bars inside the lens. Search + data combined.</p>
+        </div>
+
+        <!-- 5: Dotted lens -->
+        <div class="card">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="34" cy="34" r="20" stroke="#fafafa" stroke-width="4" stroke-dasharray="6 4" fill="none"/>
+                <line x1="48" y1="48" x2="66" y2="66" stroke="#fafafa" stroke-width="5" stroke-linecap="round"/>
+            </svg>
+            <h2>5 — Dashed</h2>
+            <p>Dashed circle. Suggests scanning, in-progress, exploration.</p>
+        </div>
+
+        <!-- 6: Square lens -->
+        <div class="card">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="14" y="14" width="38" height="38" rx="8" stroke="#fafafa" stroke-width="5" fill="none"/>
+                <line x1="46" y1="46" x2="66" y2="66" stroke="#fafafa" stroke-width="5" stroke-linecap="round"/>
+            </svg>
+            <h2>6 — Rounded Square</h2>
+            <p>Square lens. Different, modern, app-icon shape.</p>
+        </div>
+
+        <!-- 7: Crosshair inside -->
+        <div class="card">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="34" cy="34" r="20" stroke="#fafafa" stroke-width="4" fill="none"/>
+                <line x1="34" y1="22" x2="34" y2="46" stroke="#fafafa" stroke-width="3" stroke-linecap="round"/>
+                <line x1="22" y1="34" x2="46" y2="34" stroke="#fafafa" stroke-width="3" stroke-linecap="round"/>
+                <line x1="48" y1="48" x2="66" y2="66" stroke="#fafafa" stroke-width="5" stroke-linecap="round"/>
+            </svg>
+            <h2>7 — Crosshair</h2>
+            <p>Targeting/precision. Focused search energy.</p>
+        </div>
+
+        <!-- 8: Double ring -->
+        <div class="card">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="34" cy="34" r="20" stroke="#fafafa" stroke-width="3" fill="none"/>
+                <circle cx="34" cy="34" r="13" stroke="#fafafa" stroke-width="3" fill="none"/>
+                <line x1="48" y1="48" x2="68" y2="68" stroke="#fafafa" stroke-width="4" stroke-linecap="round"/>
+            </svg>
+            <h2>8 — Double Ring</h2>
+            <p>Two concentric circles. Depth, layers, nested queries.</p>
+        </div>
+
+        <!-- 9: Magnifier with cursor/arrow -->
+        <div class="card">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="36" cy="32" r="18" stroke="#fafafa" stroke-width="4" fill="none"/>
+                <line x1="48" y1="44" x2="64" y2="60" stroke="#fafafa" stroke-width="4" stroke-linecap="round"/>
+                <path d="M28 30 L28 42 L32 38 L36 44 L38 42 L34 36 L38 36 Z" fill="#fafafa"/>
+            </svg>
+            <h2>9 — Click Search</h2>
+            <p>Cursor inside lens. Interactive, click-to-query.</p>
+        </div>
+
+        <!-- 10: Tilted playful -->
+        <div class="card">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <g transform="rotate(-20 40 40)">
+                    <circle cx="36" cy="32" r="19" stroke="#fafafa" stroke-width="5" fill="none"/>
+                    <line x1="49" y1="45" x2="66" y2="62" stroke="#fafafa" stroke-width="6" stroke-linecap="round"/>
+                </g>
+            </svg>
+            <h2>10 — Tilted</h2>
+            <p>Rotated angle. Casual, indie, less corporate.</p>
+        </div>
+
+        <!-- 11: Spark/shine on lens -->
+        <div class="card">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="34" cy="34" r="20" stroke="#fafafa" stroke-width="4.5" fill="none"/>
+                <line x1="48" y1="48" x2="66" y2="66" stroke="#fafafa" stroke-width="5" stroke-linecap="round"/>
+                <circle cx="26" cy="26" r="4" fill="#fafafa" opacity="0.6"/>
+            </svg>
+            <h2>11 — Glint</h2>
+            <p>Shine dot on the glass. Subtle polish detail.</p>
+        </div>
+
+        <!-- 12: M inside lens -->
+        <div class="card">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="34" cy="34" r="21" stroke="#fafafa" stroke-width="4" fill="none"/>
+                <line x1="49" y1="49" x2="67" y2="67" stroke="#fafafa" stroke-width="5" stroke-linecap="round"/>
+                <path d="M24 42 L24 26 L34 36 L44 26 L44 42" stroke="#fafafa" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            </svg>
+            <h2>12 — M Inside</h2>
+            <p>Letter M in the lens. Monogram + search. Branded.</p>
+        </div>
+    </div>
+</body>
+</html>
