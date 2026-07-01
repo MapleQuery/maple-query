@@ -39,10 +39,33 @@ import typer
 
 from semantic_enrich.clients.bq import RealBqClient
 from semantic_enrich.config.settings import Settings
+from semantic_enrich.core.column_generator import (
+    ColumnsGenerateRequest,
+)
+from semantic_enrich.core.column_generator import (
+    run_generate as run_columns_generate,
+)
+from semantic_enrich.core.column_inputs import (
+    ColumnsExtractRequest,
+)
+from semantic_enrich.core.column_inputs import (
+    run_extract as run_columns_extract,
+)
+from semantic_enrich.core.columns_load import (
+    ColumnsLoadRequest,
+)
+from semantic_enrich.core.columns_load import (
+    run_load as run_columns_load,
+)
 from semantic_enrich.core.dataset_extract import ExtractRequest, run_extract
 from semantic_enrich.core.dataset_generator import GenerateRequest, run_generate
 from semantic_enrich.core.datasets_load import LoadRequest, run_load
-from semantic_enrich.core.embedding_pass import EmbedRequest, run_embed
+from semantic_enrich.core.embedding_pass import (
+    ColumnsEmbedRequest,
+    EmbedRequest,
+    run_columns_embed,
+    run_embed,
+)
 from semantic_enrich.core.smoke import run_smoke_test, write_models_lock
 from semantic_enrich.providers.logging import configure_logging, get_logger
 
@@ -281,6 +304,167 @@ def datasets_load(
         dry_run=dry_run or settings.dry_run,
     )
     _dispatch(lambda: run_load(request=request, settings=settings, bq=bq))
+
+
+# ──────────────────────────────────────────────────────────────────
+# columns-extract  (laptop)
+# ──────────────────────────────────────────────────────────────────
+
+
+@app.command("columns-extract")
+def columns_extract(
+    run_id: str | None = typer.Option(
+        None, "--run-id", help="Override WHENRICH_RUN_ID. Reuse to resume."
+    ),
+    limit_packages: int | None = typer.Option(
+        None, "--limit-packages", help="Cap candidates to N for smoke runs."
+    ),
+    limit_package_ids: list[str] | None = typer.Option(
+        None,
+        "--limit-package-ids",
+        help="Repeatable; restrict to these package_ids.",
+    ),
+    limit_orgs: list[str] | None = typer.Option(
+        None, "--limit-orgs", help="Repeatable; restrict to these org codes."
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run/--no-dry-run",
+        help="Emits would_have_extracted_columns events alongside the JSONL.",
+    ),
+    staging_dir: Path | None = typer.Option(
+        None, "--staging-dir", help="Override WHENRICH_STAGING_DIR."
+    ),
+) -> None:
+    """Laptop-side. Read raw.documents + raw.rows + semantic.datasets;
+    write stage/<run_id>/column_inputs/*.jsonl."""
+    configure_logging()
+    settings = _build_settings(run_id=run_id, staging_dir=staging_dir)
+    log = get_logger("semantic_enrich.entrypoint")
+    if not settings.gcp_project_id:
+        log.error("missing_project_id", subcommand="columns-extract")
+        raise typer.Exit(3)
+    try:
+        bq = RealBqClient.for_project(settings.gcp_project_id)
+    except Exception as exc:
+        log.error("bq_auth_failed", error=str(exc))
+        raise typer.Exit(3) from exc
+    request = ColumnsExtractRequest(
+        run_id=settings.run_id,
+        dry_run=dry_run or settings.dry_run,
+        limit_packages=limit_packages,
+        limit_package_ids=limit_package_ids,
+        limit_orgs=limit_orgs,
+    )
+    _dispatch(lambda: run_columns_extract(request=request, settings=settings, bq=bq))
+
+
+# ──────────────────────────────────────────────────────────────────
+# columns-generate  (GPU box)
+# ──────────────────────────────────────────────────────────────────
+
+
+@app.command("columns-generate")
+def columns_generate(
+    run_id: str | None = typer.Option(
+        None, "--run-id",
+        help="REQUIRED unless WHENRICH_RUN_ID is set. Must match a prior "
+             "columns-extract run.",
+    ),
+    chunk_size: int | None = typer.Option(
+        None, "--chunk-size", help="Override WHENRICH_COLUMN_CHUNK_SIZE."
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run/--no-dry-run",
+        help="Skips model loads; writes placeholder JSONL.",
+    ),
+    staging_dir: Path | None = typer.Option(
+        None, "--staging-dir", help="Override WHENRICH_STAGING_DIR."
+    ),
+) -> None:
+    """GPU-side. Read stage/<run_id>/column_inputs/*.jsonl; chunk; generate;
+    write stage/<run_id>/columns/*.jsonl."""
+    configure_logging()
+    settings = _build_settings(run_id=run_id, staging_dir=staging_dir)
+    request = ColumnsGenerateRequest(
+        run_id=settings.run_id,
+        dry_run=dry_run or settings.dry_run,
+        chunk_size=chunk_size,
+    )
+    _dispatch(lambda: run_columns_generate(request=request, settings=settings))
+
+
+# ──────────────────────────────────────────────────────────────────
+# columns-embed  (GPU box)
+# ──────────────────────────────────────────────────────────────────
+
+
+@app.command("columns-embed")
+def columns_embed(
+    run_id: str | None = typer.Option(
+        None, "--run-id",
+        help="REQUIRED unless WHENRICH_RUN_ID is set. Must match a prior "
+             "columns-generate run.",
+    ),
+    batch_size: int | None = typer.Option(
+        None, "--batch-size",
+        help="Override WHENRICH_EMBEDDING_BATCH_SIZE.",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run/--no-dry-run",
+        help="Skips embed calls; emits would_have_embedded_columns events.",
+    ),
+    staging_dir: Path | None = typer.Option(
+        None, "--staging-dir", help="Override WHENRICH_STAGING_DIR."
+    ),
+) -> None:
+    """GPU-side. Augment stage/<run_id>/columns/*.jsonl with embeddings."""
+    configure_logging()
+    settings = _build_settings(run_id=run_id, staging_dir=staging_dir)
+    request = ColumnsEmbedRequest(
+        run_id=settings.run_id,
+        dry_run=dry_run or settings.dry_run,
+        batch_size=batch_size,
+    )
+    _dispatch(lambda: run_columns_embed(request=request, settings=settings))
+
+
+# ──────────────────────────────────────────────────────────────────
+# columns-load  (laptop)
+# ──────────────────────────────────────────────────────────────────
+
+
+@app.command("columns-load")
+def columns_load(
+    run_id: str | None = typer.Option(
+        None, "--run-id",
+        help="REQUIRED unless WHENRICH_RUN_ID is set. Must match a prior "
+             "columns-embed run.",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run/--no-dry-run",
+        help="Skips the MERGE; emits would_have_loaded per row.",
+    ),
+    staging_dir: Path | None = typer.Option(
+        None, "--staging-dir", help="Override WHENRICH_STAGING_DIR."
+    ),
+) -> None:
+    """Laptop-side. Coalesce + MERGE into semantic.columns."""
+    configure_logging()
+    settings = _build_settings(run_id=run_id, staging_dir=staging_dir)
+    log = get_logger("semantic_enrich.entrypoint")
+    if not settings.gcp_project_id:
+        log.error("missing_project_id", subcommand="columns-load")
+        raise typer.Exit(3)
+    try:
+        bq = RealBqClient.for_project(settings.gcp_project_id)
+    except Exception as exc:
+        log.error("bq_auth_failed", error=str(exc))
+        raise typer.Exit(3) from exc
+    request = ColumnsLoadRequest(
+        run_id=settings.run_id,
+        dry_run=dry_run or settings.dry_run,
+    )
+    _dispatch(lambda: run_columns_load(request=request, settings=settings, bq=bq))
 
 
 # ──────────────────────────────────────────────────────────────────

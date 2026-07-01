@@ -12,6 +12,12 @@ A Python package + Typer CLI for two responsibilities:
    - `datasets-embed` (GPU box) — reads datasets, calls `embed_batch`, atomically rewrites each JSONL with `embedding` populated.
    - `datasets-load` (laptop) — coalesces the JSONL, `bq load`s into a session-scoped staging table, MERGEs into `semantic.datasets`.
 
+3. **Columns pipeline (4.5).** Four more CLI subcommands that materialise one row per `(package_id, column_name)` into `semantic.columns`. Same machine split, same `stage/<run_id>/` contract; reads `semantic.datasets.summary` for cross-pass context.
+   - `columns-extract` (laptop) — reads `raw.documents`, `raw.rows`, and `semantic.datasets`, writes `stage/<run_id>/column_inputs/*.jsonl`. One file per package; per-package fan-out at `extract_concurrency=16` workers means a ~3,693-package backfill completes in ~10-20 minutes rather than ~hours.
+   - `columns-generate` (GPU box) — reads column_inputs, chunks each package into ≤100-column batches, calls `generate_json_list` once per chunk, validates the 1:1 column-name mapping invariant per chunk and per package, writes `stage/<run_id>/columns/*.jsonl`.
+   - `columns-embed` (GPU box) — reads columns, embeds the `description` field. Same loop as `datasets-embed`; `embedding_pass._embed_files` is parameterised on artifact + row type.
+   - `columns-load` (laptop) — coalesces the JSONL, validates pre-load, `bq load`s into a session-scoped staging table, MERGEs into `semantic.columns` on `(package_id, column_name)`. Failure markers and embedding-null rows are filtered out at coalesce time.
+
 The on-disk `stage/<run_id>/` dir is the only contract between the two machines — `rsync` (or `scp -r`) moves it. The GPU box never speaks to `googleapis.com`.
 
 ## Models
@@ -42,6 +48,13 @@ If a card can't hold 14B-bf16, swap to `Qwen/Qwen2.5-7B-Instruct` via `WHENRICH_
 | `WHENRICH_FLUSH_EVERY_N_PACKAGES`  | `500`                         | Stage flush cadence                                      |
 | `WHENRICH_STAGING_DIR`             | `services/semantic-enrich/stage` | Where the per-`<run_id>` JSONLs live                  |
 | `WHENRICH_RUN_ID`                  | new UUID per process          | Override with `--run-id` to resume                       |
+| `WHENRICH_EXTRACT_CONCURRENCY`     | `16`                          | Per-package BQ fan-out for `*-extract`                   |
+| `WHENRICH_COLUMN_CHUNK_SIZE`       | `100`                         | Columns per `generate_json_list` call (4.5)              |
+| `WHENRICH_COLUMN_CHUNK_MAX_CHUNKS_PER_PACKAGE` | `20`              | Wide-package safety belt (4.5)                           |
+| `WHENRICH_COLUMN_SAMPLE_VALUES_CAP` | `10`                         | Per-column sample-value cap (4.5)                        |
+| `WHENRICH_COLUMN_NAME_ALLOWLIST_RE` | (see settings.py)            | Column-name allowlist regex (4.5)                        |
+| `WHENRICH_COLUMN_CHUNK_RETRY_TEMPERATURE` | `0.2`                  | Temperature for the single retry on chunk invariant violation (4.5) |
+| `WHENRICH_BQ_COLUMNS_TABLE`        | `columns`                     | Target table name in `semantic.*`                        |
 
 `WHENRICH_DEV=1` swaps the structlog JSON renderer for the console renderer so local runs are readable.
 
@@ -169,6 +182,106 @@ If a stage dir is corrupted: delete `stage/<RUN_ID>/<artifact>/` for the affecte
 ### Fallback (all-on-GPU-box)
 
 If the operator prefers to skip the rsync dance and the GPU box can reach `googleapis.com`, copy `~/.config/gcloud/application_default_credentials.json` to the GPU box and `export GOOGLE_APPLICATION_CREDENTIALS=/path/to/copied/adc.json`. With ADC in place, all four subcommands can run on the GPU box. The laptop-broker model is canonical because the refresh token is personal and 7-day-expiring, and most lab/GPU boxes are firewalled from `googleapis.com`.
+
+## Columns pipeline — operator runbook
+
+Same two-machine flow as the datasets pipeline, on a separate `--run-id`. Run the datasets pipeline first so `semantic.datasets.summary` is populated — the columns prompt picks it up automatically via `columns-extract`. If you run columns before datasets, the prompt falls back to raw-side context only (logged as `package_summary_unavailable`) and column descriptions are strictly weaker; the canonical order below makes the cross-pass lookup hit.
+
+### Prereqs
+
+- 4.1–4.4 done (laptop has ADC + `WHENRICH_GCP_PROJECT_ID`; GPU box has the venv + `MODELS.lock`).
+- `semantic.datasets` populated end-to-end (i.e. you've completed the datasets-pipeline runbook above).
+
+### Smoke ladder
+
+```sh
+# (laptop) — pick one package id that the datasets pipeline has already loaded
+PKG=<some package id>
+uv run semantic-enrich columns-extract --run-id smoke-cols-1 --limit-package-ids "$PKG"
+rsync -av services/semantic-enrich/stage/smoke-cols-1/ \
+  gpu-box:.../services/semantic-enrich/stage/smoke-cols-1/
+
+# (GPU box — `conda activate semantic-enrich` first)
+semantic-enrich columns-generate --run-id smoke-cols-1
+semantic-enrich columns-embed    --run-id smoke-cols-1
+rsync -av gpu-box:.../services/semantic-enrich/stage/smoke-cols-1/ \
+  services/semantic-enrich/stage/smoke-cols-1/
+
+# (laptop)
+uv run semantic-enrich columns-load --run-id smoke-cols-1
+bq query --use_legacy_sql=false \
+  "SELECT package_id, column_name, semantic_type, description
+   FROM \`<proj>.semantic.columns\`
+   WHERE package_id = '$PKG'
+   ORDER BY column_name"
+
+# Repeat with --limit-packages 10, then 100, with distinct --run-id values.
+# Human-review each rung — verify descriptions read coherently and
+# semantic_type values aren't all defaulting to "text".
+```
+
+### Full backfill
+
+```sh
+RUN_ID="m3-columns-$(date +%Y-%m-%d)"
+# (laptop) — ~10-20 min for ~3,693 packages at 16-way fan-out
+uv run semantic-enrich columns-extract --run-id "$RUN_ID"
+rsync -av services/semantic-enrich/stage/"$RUN_ID"/ \
+  gpu-box:.../services/semantic-enrich/stage/"$RUN_ID"/
+
+# (GPU box — `conda activate semantic-enrich` first) — ~2-3 hours
+# for ~3,693 packages × ~1.5 median chunks × ~30 s/chunk; wide
+# packages (the 1,383-column outlier) take ~7 min each.
+semantic-enrich columns-generate --run-id "$RUN_ID"
+semantic-enrich columns-embed    --run-id "$RUN_ID"
+rsync -av gpu-box:.../services/semantic-enrich/stage/"$RUN_ID"/ \
+  services/semantic-enrich/stage/"$RUN_ID"/
+# ~900 MB pull. ~30 seconds on a residential uplink.
+
+# (laptop) — one bq load + one MERGE. Seconds to a few minutes.
+uv run semantic-enrich columns-load --run-id "$RUN_ID"
+```
+
+### Validation queries
+
+```sh
+PROJ=<your project>
+# Row count in the 100K-200K band (parent expects ~150K).
+bq query --use_legacy_sql=false \
+  "SELECT COUNT(*) FROM \`$PROJ.semantic.columns\`"
+# All embeddings 1024-dim.
+bq query --use_legacy_sql=false \
+  "SELECT COUNT(*) FROM \`$PROJ.semantic.columns\`
+   WHERE ARRAY_LENGTH(embedding) != 1024"
+# All descriptions present + ≥20 chars.
+bq query --use_legacy_sql=false \
+  "SELECT COUNT(*) FROM \`$PROJ.semantic.columns\`
+   WHERE description IS NULL OR LENGTH(description) < 20"
+# Every dataset row has at least one column row.
+bq query --use_legacy_sql=false \
+  "SELECT d.package_id FROM \`$PROJ.semantic.datasets\` d
+   LEFT JOIN (SELECT package_id, COUNT(*) AS n
+              FROM \`$PROJ.semantic.columns\` GROUP BY package_id) c
+   USING (package_id)
+   WHERE c.n IS NULL OR c.n = 0"
+```
+
+### Recovery
+
+Each subcommand is resumable with the same `--run-id`:
+
+- `columns-extract` re-skips packages already in `stage/<run_id>/column_inputs/`.
+- `columns-generate` re-skips packages already in `stage/<run_id>/columns/` — including failure-marker packages (so a re-run doesn't reprocess a known-bad package without operator intervention; delete the failure marker line to retry).
+- `columns-embed` re-skips rows with non-null `embedding`.
+- `columns-load` is idempotent via the MERGE's `s.generated_at > t.generated_at` guard.
+
+### Disk hygiene
+
+The `columns/*.jsonl` for the full backfill is ~900 MB (150K rows × ~6 KB/row with embeddings as JSON). After acceptance, archive:
+
+```sh
+tar -czf "$RUN_ID-stage.tar.gz" services/semantic-enrich/stage/"$RUN_ID"/
+```
 
 ## How the library API is used
 

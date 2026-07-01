@@ -43,3 +43,21 @@ def assert_datasets_schema(schema: list[bigquery.SchemaField]) -> None:
         raise AssertionError(
             "semantic_datasets.json must declare embedding ARRAY<FLOAT64>"
         )
+
+
+def assert_columns_schema(schema: list[bigquery.SchemaField]) -> None:
+    """Drift guard for `semantic.columns`. Same posture as 4.4's
+    `assert_datasets_schema` — catches a 4.2 schema change before any
+    load job runs."""
+    fields = {f.name: f for f in schema}
+    embed = fields.get("embedding")
+    if embed is None or embed.field_type != "FLOAT64" or embed.mode != "REPEATED":
+        raise AssertionError(
+            "semantic_columns.json must declare embedding ARRAY<FLOAT64>"
+        )
+    for required in ("package_id", "column_name", "description", "generated_at"):
+        f = fields.get(required)
+        if f is None or f.mode != "REQUIRED":
+            raise AssertionError(
+                f"semantic_columns.json must declare {required} REQUIRED"
+            )

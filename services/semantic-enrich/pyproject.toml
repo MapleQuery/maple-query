@@ -55,6 +55,12 @@ dev = [
   # Layering contract enforcement — see [tool.importlinter] below.
   "import-linter>=2.0,<3",
 ]
+# One-shot OpenAI bypass for `columns-generate` (see
+# scripts/columns_generate_openai.py). Strictly optional — the
+# canonical pipeline runs the local Qwen path.
+openai = [
+  "openai>=1.50,<2",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/semantic_enrich"]
@@ -73,6 +79,11 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF"]
 # matches whether ruff is invoked from inside the package or from the
 # repo root.
 "**/entrypoint.py" = ["B008"]
+# The columns prompt template is pinned verbatim. Em-dashes in the
+# instructions are intentional and snapshot-tested; the RUF001
+# "ambiguous character" lint is a false positive against pinned
+# prompt content.
+"**/column_prompt.py" = ["RUF001"]
 
 [tool.mypy]
 python_version = "3.12"

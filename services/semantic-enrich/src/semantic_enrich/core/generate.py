@@ -89,6 +89,42 @@ def generate_json(
     return _coerce_to_dict(result, max_tokens=max_tokens)
 
 
+def generate_json_list(
+    prompt: str,
+    schema: dict[str, Any] | type[pydantic.BaseModel] | Any,
+    *,
+    model: GenerationModel,
+    max_tokens: int = 1500,
+    temperature: float = 0.0,
+) -> list[dict[str, Any]]:
+    """Run one constrained-JSON generation that returns a JSON array.
+
+    Same shape as `generate_json`, but the response is a `list[dict]`
+    rather than a `dict`. Used by 4.5's columns generator where the
+    prompt asks the model for one JSON array per chunk.
+
+    `schema` is forwarded to outlines unchanged; outlines 1.x supports
+    JSON-schema dicts (e.g. `COLUMNS_GUIDED_JSON_SCHEMA`) as well as
+    Python generics like `list[ColumnOutput]`.
+    """
+    gen_kwargs: dict[str, Any] = {"max_new_tokens": max_tokens}
+    if temperature == 0.0:
+        gen_kwargs["do_sample"] = False
+    else:
+        gen_kwargs["do_sample"] = True
+        gen_kwargs["temperature"] = temperature
+
+    try:
+        result = model(prompt, schema, **gen_kwargs)
+    except (json.JSONDecodeError, pydantic.ValidationError) as exc:
+        raise MaxTokensExceededError(
+            f"constrained JSON-array generation produced malformed output; "
+            f"likely truncated at max_tokens={max_tokens}",
+        ) from exc
+
+    return _coerce_to_list(result, max_tokens=max_tokens)
+
+
 def get_tokenizer(model: GenerationModel) -> Any:
     """Return the HF tokenizer backing the outlines model.
 
@@ -153,4 +189,44 @@ def _coerce_to_dict(result: Any, *, max_tokens: int) -> dict[str, Any]:
     raise TypeError(
         f"outlines returned unexpected type {type(result).__name__}; "
         "expected dict, str, or pydantic.BaseModel",
+    )
+
+
+def _coerce_to_list(result: Any, *, max_tokens: int) -> list[dict[str, Any]]:
+    """Normalise outlines's return shape into a list of dicts.
+
+    Mirrors `_coerce_to_dict` but for array-shaped schemas. Accepts a
+    Python list of dicts (or pydantic models) and a JSON string.
+    """
+    if isinstance(result, list):
+        out: list[dict[str, Any]] = []
+        for entry in result:
+            if isinstance(entry, pydantic.BaseModel):
+                out.append(entry.model_dump())
+            elif isinstance(entry, dict):
+                out.append(entry)
+            else:
+                raise TypeError(
+                    f"outlines list entry has unexpected type "
+                    f"{type(entry).__name__}; expected dict or "
+                    "pydantic.BaseModel",
+                )
+        return out
+    if isinstance(result, str):
+        try:
+            parsed = json.loads(result)
+        except json.JSONDecodeError as exc:
+            raise MaxTokensExceededError(
+                f"outlines returned non-JSON string at max_tokens={max_tokens}: "
+                f"{result[:200]!r}",
+            ) from exc
+        if not isinstance(parsed, list):
+            raise TypeError(
+                f"outlines returned JSON that decoded to "
+                f"{type(parsed).__name__}; expected an array",
+            )
+        return [dict(e) for e in parsed]
+    raise TypeError(
+        f"outlines returned unexpected type {type(result).__name__}; "
+        "expected list or str for a list-schema response",
     )

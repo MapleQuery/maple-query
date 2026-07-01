@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     bq_rows_table: str = "rows"
     bq_dataset_semantic: str = "semantic"
     bq_datasets_table: str = "datasets"
+    bq_columns_table: str = "columns"
 
     # Generation tunables.
     generation_max_tokens: int = 800
@@ -92,6 +93,24 @@ class Settings(BaseSettings):
     # 16 concurrent workers cut that to ~12 minutes and stay well
     # under BQ's per-user concurrent-jobs ceiling.
     extract_concurrency: int = 16
+
+    # ── 4.5 columns enrichment ──
+    # Per §7.3: 100 columns/chunk balances output-token budget against
+    # call count. A 1,383-column outlier becomes 14 chunks.
+    column_chunk_size: int = 100
+    # Wide-package safety belt (§7.4). 20 x 100 = 2,000 columns —
+    # ~45% headroom over the corpus's 1,383-column max.
+    column_chunk_max_chunks_per_package: int = 20
+    # ≤10 distinct sample values per column (parent §10).
+    column_sample_values_cap: int = 10
+    # Column-name allowlist (§5.3). Admits identifier-ish, hyphens,
+    # dots, slashes, spaces. Rejects quotes, backslashes, backticks,
+    # `$`-prefixed paths, and anything ≥ 200 chars.
+    column_name_allowlist_re: str = r"^[A-Za-z0-9_][A-Za-z0-9_\-./ ]{0,199}$"
+    # Single-retry temperature on per-chunk invariant violation (§8.3).
+    # `temperature=0` is deterministic — a retry would reproduce the
+    # same failure — so a small bump samples a different completion.
+    column_chunk_retry_temperature: float = 0.2
 
     # Staging.
     staging_dir: Path = Field(default_factory=_find_staging_dir)

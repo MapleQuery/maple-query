@@ -52,3 +52,26 @@ DATASET_CARD_GUIDED_JSON: dict[str, Any] = {
         "date_range_end": {"type": ["string", "null"], "format": "date"},
     },
 }
+
+
+# Per-chunk columns response. The prompt asks the model for one JSON
+# array; outlines constrains the decoder against this schema. Mirrors
+# the `ColumnOutput` pydantic model in `types.py`.
+COLUMNS_GUIDED_JSON_SCHEMA: dict[str, Any] = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["column_name", "description"],
+        "properties": {
+            "column_name": {"type": "string"},
+            "semantic_type": {"type": "string"},
+            "description": {"type": "string", "minLength": 20, "maxLength": 600},
+            "sample_values": {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": 10,
+            },
+        },
+    },
+}
