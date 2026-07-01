@@ -223,7 +223,6 @@ class ColumnInputs(pydantic.BaseModel):
 
     package_id: str
     package_title: str | None = None
-    package_description: str | None = None
     package_subjects: tuple[str, ...] = ()
     package_summary: str | None = None
     representative_document_id: str

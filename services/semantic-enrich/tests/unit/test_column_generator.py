@@ -23,7 +23,6 @@ def _inputs(column_names: tuple[str, ...]) -> ColumnInputs:
     return ColumnInputs(
         package_id="pkg-1",
         package_title="t",
-        package_description="d",
         package_subjects=(),
         package_summary=None,
         representative_document_id="doc",
@@ -80,7 +79,6 @@ def test_chunk_carries_sample_values_per_column() -> None:
     inputs = ColumnInputs(
         package_id="pkg",
         package_title=None,
-        package_description=None,
         package_subjects=(),
         package_summary=None,
         representative_document_id="doc",

@@ -28,7 +28,6 @@ def _candidate_row(
     doc_id: str,
     *,
     title: str | None = None,
-    description: str | None = None,
     row_count: int = 5,
     subjects: list[str] | None = None,
 ) -> dict:
@@ -38,7 +37,6 @@ def _candidate_row(
             {
                 "document_id": doc_id,
                 "title": title or f"Title for {package_id}",
-                "description": description,
                 "subjects": subjects or ["s1"],
                 "organization_code": "org",
                 "file_format": "csv",
@@ -131,7 +129,7 @@ def test_extract_resume_skips_already_extracted(tmp_path: Path) -> None:
     inputs = tmp_path / "r1" / "column_inputs"
     inputs.mkdir(parents=True)
     (inputs / "000.jsonl").write_text(
-        '{"package_id":"pkg-a","package_title":null,"package_description":null,'
+        '{"package_id":"pkg-a","package_title":null,'
         '"package_subjects":[],"package_summary":null,'
         '"representative_document_id":"doc","column_names":["a"],'
         '"sample_values":{"a":[]},"dropped_columns":[],'

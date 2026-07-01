@@ -287,7 +287,6 @@ def _extract_one_package(
     rep = _pick_representative(resources)
     rep_doc_id = str(rep["document_id"])
     package_title = _first_non_null(resources, "title")
-    package_description = _first_non_null(resources, "description")
     subjects: set[str] = set()
     for r in resources:
         rs = r.get("subjects") or []
@@ -355,7 +354,6 @@ def _extract_one_package(
     inputs = ColumnInputs(
         package_id=package_id,
         package_title=package_title,
-        package_description=package_description,
         package_subjects=tuple(sorted_subjects),
         package_summary=package_summary,
         representative_document_id=rep_doc_id,
@@ -436,7 +434,6 @@ SELECT
   ARRAY_AGG(STRUCT(
     document_id,
     title,
-    description,
     subjects,
     organization_code,
     file_format,
@@ -580,35 +577,28 @@ def _fetch_sample_values(
     sample values for every column name in `column_names`, drawn from
     the representative resource.
 
-    PRD §5.4 specifies one query per column; with ~150K columns total
-    that's hours of latency even at 16-way concurrency. The batched
-    form below issues one query per package and partitions the
-    results by column inside SQL.
-
-    JSON path construction uses bracket notation `$["<col>"]` so
-    hyphens, dots, slashes, and spaces (admitted by the allowlist)
-    parse correctly under BQ `JSON_VALUE`. The allowlist already
-    excludes `"` and `\\`, so the bracketed literal is unambiguous.
+    BQ's `JSON_VALUE(json, path)` requires `path` to be a compile-time
+    string literal and does not accept bracket notation of any form
+    (`$['name']`, `$["name"]` both fail). Field access on the `JSON`
+    type via subscript (`json_expr[name]`) *does* accept runtime
+    values and works for any key, including ones with hyphens, dots,
+    slashes, and spaces. So we `PARSE_JSON` in a CTE, cross-join with
+    `UNNEST(@names)`, and pull each field with `LAX_STRING(j[n])`.
     """
     if not column_names:
         return {}
     fq = f"`{project_id}.{dataset_raw}.{rows_table}`"
-    # Pair each column with its JSON path on the Python side; passing
-    # both as array parameters means the SQL stays parameter-bound
-    # for the path literals.
-    paths = [f'$["{name}"]' for name in column_names]
     sql = f"""
-WITH name_paths AS (
-  SELECT name, path
-  FROM UNNEST(@names) AS name WITH OFFSET AS i
-  JOIN UNNEST(@paths) AS path WITH OFFSET AS j ON i = j
+WITH parsed AS (
+  SELECT PARSE_JSON(STRING(row)) AS j
+  FROM {fq}
+  WHERE document_id = @document_id
 ),
 cells AS (
   SELECT
-    np.name AS col_name,
-    JSON_VALUE(PARSE_JSON(STRING(r.row)), np.path) AS v
-  FROM {fq} r, name_paths np
-  WHERE r.document_id = @document_id
+    n AS col_name,
+    LAX_STRING(p.j[n]) AS v
+  FROM parsed p, UNNEST(@names) AS n
 ),
 distinct_cells AS (
   SELECT DISTINCT col_name, v
@@ -629,7 +619,6 @@ ORDER BY col_name, rn;
         bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter
     ] = [
         bigquery.ArrayQueryParameter("names", "STRING", column_names),
-        bigquery.ArrayQueryParameter("paths", "STRING", paths),
         bigquery.ScalarQueryParameter("document_id", "STRING", document_id),
         bigquery.ScalarQueryParameter("cap", "INT64", per_column_cap),
     ]

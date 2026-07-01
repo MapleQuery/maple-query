@@ -54,7 +54,6 @@ def _seed_column_inputs(
         # Encode the package_id in the title so the fake can extract
         # it from the rendered prompt.
         "package_title": title or package_id,
-        "package_description": "desc",
         "package_subjects": [],
         "package_summary": None,
         "representative_document_id": "doc",
