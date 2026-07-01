@@ -39,6 +39,10 @@ dependencies = [
   # Retry primitives for BQ calls. Same choice as warehouse-load so
   # the policies stay comparable.
   "tenacity>=8.3,<9",
+  # OpenAI client — powers datasets-embed / columns-embed after the
+  # 4.7 swap plus the datasets-reembed / columns-reembed one-off
+  # backfill. text-embedding-3-small returns 1536-dim vectors.
+  "openai>=1.50,<2",
 ]
 
 [project.scripts]
@@ -54,12 +58,6 @@ dev = [
   "hypothesis>=6.103,<7",
   # Layering contract enforcement — see [tool.importlinter] below.
   "import-linter>=2.0,<3",
-]
-# One-shot OpenAI bypass for `columns-generate` (see
-# scripts/columns_generate_openai.py). Strictly optional — the
-# canonical pipeline runs the local Qwen path.
-openai = [
-  "openai>=1.50,<2",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -110,6 +108,8 @@ module = [
   "google.cloud.*",
   "google.api_core",
   "google.api_core.*",
+  "openai",
+  "openai.*",
 ]
 ignore_missing_imports = true
 

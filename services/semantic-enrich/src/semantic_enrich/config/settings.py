@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 
 from dotenv import find_dotenv
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -126,3 +126,25 @@ class Settings(BaseSettings):
     # Run identity. A new UUID per process by default; operators
     # override with --run-id to resume an existing stage dir.
     run_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+
+    # ── 4.7 OpenAI embedding swap ──
+    # After 4.7 lands, datasets-embed / columns-embed and the reembed
+    # subcommands call OpenAI text-embedding-3-small (1536-dim).
+    #
+    # Both the WHENRICH_-prefixed and unprefixed forms are accepted;
+    # the prefixed form wins, same posture as gcp_project_id.
+    openai_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "WHENRICH_OPENAI_API_KEY", "OPENAI_API_KEY"
+        ),
+    )
+    openai_embedding_model: str = "text-embedding-3-small"
+    # Sanity-check knob: the reembed pass and the retargeted embed
+    # subcommands assert every vector matches this before writing.
+    # A mismatch means the operator pointed at a different model and
+    # forgot to update the dim.
+    openai_embedding_dim: int = 1536
+    openai_embedding_batch_size: int = 128
+    openai_request_timeout_s: float = 30.0
+    openai_max_retries: int = 3

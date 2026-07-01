@@ -348,3 +348,28 @@ class ColumnsLoadRunSummary:
     rows_updated: int
     rows_unchanged: int
     duration_ms: int
+
+
+# ── 4.7 reembed run summaries ──
+
+
+@dataclass(frozen=True)
+class DatasetsReembedRunSummary:
+    run_id: str
+    dry_run: bool
+    rows_read: int
+    rows_embedded: int
+    rows_failed: int
+    rows_merged: int
+    duration_ms: int
+
+
+@dataclass(frozen=True)
+class ColumnsReembedRunSummary:
+    run_id: str
+    dry_run: bool
+    rows_read: int
+    rows_embedded: int
+    rows_failed: int
+    rows_merged: int
+    duration_ms: int

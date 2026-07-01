@@ -1,9 +1,10 @@
 """`datasets-embed` and `columns-embed` orchestrators.
 
-GPU-box-side. Reads each `stage/<run_id>/<artifact>/*.jsonl` in path-
-ascending order, batch-embeds the source field of rows that don't
-already carry an embedding, validates each vector, and atomically
-rewrites the file with `embedding` populated.
+Reads each `stage/<run_id>/<artifact>/*.jsonl` in path-ascending
+order, batch-embeds the source field of rows that don't already carry
+an embedding via OpenAI text-embedding-3-small (post-4.7), validates
+each vector, and atomically rewrites the file with `embedding`
+populated.
 
 `_embed_files` is parameterised on `artifact`, `row_type`, and a
 `text_for_row` callable so the same buffer/flush/validate loop drives
@@ -12,8 +13,8 @@ The two public entry points (`run_embed`, `run_columns_embed`) are
 thin wrappers that hand the generic core their type-specific
 callbacks.
 
-The embed callable is injected so tests can replace it with a
-deterministic fake.
+The OpenAI client is injected so tests can replace it with a
+deterministic fake at the `OpenAIClient` Protocol boundary.
 """
 from __future__ import annotations
 
@@ -26,27 +27,23 @@ from pathlib import Path
 import structlog
 from pydantic import BaseModel
 
+from semantic_enrich.clients.openai import OpenAIClient
 from semantic_enrich.config.settings import Settings
-from semantic_enrich.core import embed as embed_mod
 from semantic_enrich.core import stage_io
 from semantic_enrich.providers.logging import get_logger
 from semantic_enrich.types import (
     ColumnsEmbedRunSummary,
     DatasetsEmbedRunSummary,
-    EmbeddingModel,
     StagedColumnRow,
     StagedDatasetCard,
 )
-
-EmbedBatchFn = Callable[..., list[list[float]]]
-LoadEmbeddingModelFn = Callable[..., EmbeddingModel]
 
 
 @dataclass(frozen=True)
 class EmbedRequest:
     run_id: str
     dry_run: bool
-    batch_size: int | None  # None → settings.embedding_batch_size
+    batch_size: int | None  # None → settings.openai_embedding_batch_size
 
 
 @dataclass(frozen=True)
@@ -56,7 +53,7 @@ class ColumnsEmbedRequest:
     batch_size: int | None
 
 
-# ── Datasets entry point (4.4, unchanged surface) ──
+# ── Datasets entry point (4.4 surface, 4.7 backend) ──
 
 
 def preflight(*, settings: Settings, request: EmbedRequest) -> list[Path]:
@@ -76,14 +73,13 @@ def run_embed(
     *,
     request: EmbedRequest,
     settings: Settings,
-    load_embedding_model: LoadEmbeddingModelFn = embed_mod.load_embedding_model,
-    embed_batch: EmbedBatchFn = embed_mod.embed_batch,
+    openai_client: OpenAIClient,
     logger: structlog.BoundLogger | None = None,
 ) -> DatasetsEmbedRunSummary:
     log = logger or get_logger("semantic_enrich.embedding_pass")
     started = time.monotonic()
     files = preflight(settings=settings, request=request)
-    batch_size = request.batch_size or settings.embedding_batch_size
+    batch_size = request.batch_size or settings.openai_embedding_batch_size
 
     log.info(
         "datasets_embed_start",
@@ -93,34 +89,21 @@ def run_embed(
         staged_file_count=len(files),
     )
 
-    model = _maybe_load_model(
-        load_embedding_model=load_embedding_model,
-        settings=settings,
+    stats = _embed_files(
+        files=files,
+        openai_client=openai_client,
+        batch_size=batch_size,
         dry_run=request.dry_run,
+        embedding_dim=settings.openai_embedding_dim,
+        row_type=StagedDatasetCard,
+        text_for_row=_summary_text,
+        log_bind_field="package_id",
+        log_bind_value=lambda r: r.package_id,
+        text_chars_field="summary_chars",
+        log_prefix="datasets",
+        run_id=request.run_id,
         log=log,
     )
-
-    try:
-        stats = _embed_files(
-            files=files,
-            model=model,
-            embed_batch=embed_batch,
-            batch_size=batch_size,
-            dry_run=request.dry_run,
-            embedding_dim=settings.embedding_dim,
-            row_type=StagedDatasetCard,
-            text_for_row=_summary_text,
-            log_bind_field="package_id",
-            log_bind_value=lambda r: r.package_id,
-            text_chars_field="summary_chars",
-            log_prefix="datasets",
-            run_id=request.run_id,
-            log=log,
-        )
-    finally:
-        if model is not None:
-            del model
-            _drop_cuda_cache()
 
     duration_ms = int((time.monotonic() - started) * 1000)
     summary = DatasetsEmbedRunSummary(
@@ -144,7 +127,7 @@ def run_embed(
     return summary
 
 
-# ── Columns entry point (4.5) ──
+# ── Columns entry point (4.5 surface, 4.7 backend) ──
 
 
 def preflight_columns(
@@ -164,14 +147,13 @@ def run_columns_embed(
     *,
     request: ColumnsEmbedRequest,
     settings: Settings,
-    load_embedding_model: LoadEmbeddingModelFn = embed_mod.load_embedding_model,
-    embed_batch: EmbedBatchFn = embed_mod.embed_batch,
+    openai_client: OpenAIClient,
     logger: structlog.BoundLogger | None = None,
 ) -> ColumnsEmbedRunSummary:
     log = logger or get_logger("semantic_enrich.embedding_pass")
     started = time.monotonic()
     files = preflight_columns(settings=settings, request=request)
-    batch_size = request.batch_size or settings.embedding_batch_size
+    batch_size = request.batch_size or settings.openai_embedding_batch_size
 
     log.info(
         "columns_embed_start",
@@ -181,34 +163,21 @@ def run_columns_embed(
         staged_file_count=len(files),
     )
 
-    model = _maybe_load_model(
-        load_embedding_model=load_embedding_model,
-        settings=settings,
+    stats = _embed_files(
+        files=files,
+        openai_client=openai_client,
+        batch_size=batch_size,
         dry_run=request.dry_run,
+        embedding_dim=settings.openai_embedding_dim,
+        row_type=StagedColumnRow,
+        text_for_row=_description_text,
+        log_bind_field="package_id_column",
+        log_bind_value=lambda r: f"{r.package_id}:{r.column_name}",
+        text_chars_field="description_chars",
+        log_prefix="columns",
+        run_id=request.run_id,
         log=log,
     )
-
-    try:
-        stats = _embed_files(
-            files=files,
-            model=model,
-            embed_batch=embed_batch,
-            batch_size=batch_size,
-            dry_run=request.dry_run,
-            embedding_dim=settings.embedding_dim,
-            row_type=StagedColumnRow,
-            text_for_row=_description_text,
-            log_bind_field="package_id_column",
-            log_bind_value=lambda r: f"{r.package_id}:{r.column_name}",
-            text_chars_field="description_chars",
-            log_prefix="columns",
-            run_id=request.run_id,
-            log=log,
-        )
-    finally:
-        if model is not None:
-            del model
-            _drop_cuda_cache()
 
     duration_ms = int((time.monotonic() - started) * 1000)
     summary = ColumnsEmbedRunSummary(
@@ -246,8 +215,7 @@ class _EmbedStats:
 def _embed_files[R: BaseModel](
     *,
     files: list[Path],
-    model: EmbeddingModel | None,
-    embed_batch: EmbedBatchFn,
+    openai_client: OpenAIClient,
     batch_size: int,
     dry_run: bool,
     embedding_dim: int,
@@ -274,9 +242,6 @@ def _embed_files[R: BaseModel](
         rows: list[R] = _read_jsonl_rows(path, row_type=row_type)
         stats.rows_seen += len(rows)
 
-        # Build the set of indices that need work. A None text_for_row
-        # value means "don't embed" (failure marker), counted under
-        # skipped to keep the run-invariant identity intact.
         indices_to_embed: list[int] = []
         non_embeddable = 0
         for i, r in enumerate(rows):
@@ -300,11 +265,9 @@ def _embed_files[R: BaseModel](
             batch_idx = indices_to_embed[batch_start : batch_start + batch_size]
             batch_rows = [rows[i] for i in batch_idx]
             batch_ids = [log_bind_value(r) for r in batch_rows]
-            batch_texts = [text_for_row(r) for r in batch_rows]
-            # `text_for_row` returned a string for these rows by
-            # construction (filtered above); type-narrow for mypy.
-            assert all(t is not None for t in batch_texts)
-            payload = [t for t in batch_texts if t is not None]
+            batch_texts_maybe = [text_for_row(r) for r in batch_rows]
+            assert all(t is not None for t in batch_texts_maybe)
+            payload = [t for t in batch_texts_maybe if t is not None]
 
             if dry_run:
                 for r, text in zip(batch_rows, payload, strict=True):
@@ -316,12 +279,9 @@ def _embed_files[R: BaseModel](
                     )
                 continue
 
-            assert model is not None
             t0 = time.monotonic()
             try:
-                vecs = embed_batch(
-                    payload, model=model, batch_size=batch_size
-                )
+                vecs = openai_client.embed(payload)
             except Exception as exc:
                 log.error(
                     f"{log_prefix}_embedding_batch_failed",
@@ -371,13 +331,6 @@ def _embed_files[R: BaseModel](
                     )
                     stats.failed += 1
                     continue
-                norm = math.sqrt(sum(c * c for c in vec))
-                if abs(norm - 1.0) > 0.01:
-                    log.bind(
-                        **{log_bind_field: log_bind_value(row)}
-                    ).warning(
-                        f"{log_prefix}_embedding_norm_anomaly", norm=norm
-                    )
                 stats.written += 1
                 rows[original_idx] = row.model_copy(
                     update={"embedding": vec}
@@ -447,37 +400,6 @@ def _preflight_files(
     return files
 
 
-def _maybe_load_model(
-    *,
-    load_embedding_model: LoadEmbeddingModelFn,
-    settings: Settings,
-    dry_run: bool,
-    log: structlog.BoundLogger,
-) -> EmbeddingModel | None:
-    if dry_run:
-        return None
-    try:
-        model = load_embedding_model(
-            settings.embedding_model,
-            device=settings.device,
-            cache_dir=str(settings.hf_cache_dir)
-            if settings.hf_cache_dir
-            else None,
-        )
-        log.info(
-            "embedding_model_loaded",
-            repo=settings.embedding_model,
-            device=settings.device,
-            vram_mb=_vram_allocated_mb(),
-        )
-        return model
-    except Exception as exc:
-        log.error(
-            "embedding_model_load_failed", error=str(exc), exc_info=True
-        )
-        raise
-
-
 def _validate_vector(vec: list[float], *, expected_dim: int) -> str | None:
     """Return a reason string on failure, None on success."""
     if len(vec) != expected_dim:
@@ -488,30 +410,6 @@ def _validate_vector(vec: list[float], *, expected_dim: int) -> str | None:
         if math.isinf(x):
             return "has_inf"
     return None
-
-
-def _vram_allocated_mb() -> int | None:
-    try:
-        import torch
-
-        if not torch.cuda.is_available():
-            return None
-        return int(torch.cuda.memory_allocated() / (1024 * 1024))
-    except Exception:
-        return None
-
-
-def _drop_cuda_cache() -> None:
-    import gc
-
-    gc.collect()
-    try:
-        import torch
-
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-    except Exception:
-        pass
 
 
 def _assert_datasets_invariant(

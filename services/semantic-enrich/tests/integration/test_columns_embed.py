@@ -1,4 +1,4 @@
-"""End-to-end `columns-embed` with deterministic fake embedder."""
+"""End-to-end `columns-embed` with deterministic fake OpenAI client."""
 from __future__ import annotations
 
 import json
@@ -11,13 +11,15 @@ from semantic_enrich.core.embedding_pass import (
     run_columns_embed,
 )
 
+from .openai_fakes import FakeOpenAIClient
+
 
 def _settings(tmp_path: Path) -> Settings:
     return Settings(
         gcp_project_id="proj",
         staging_dir=tmp_path,
-        embedding_batch_size=4,
-        embedding_dim=8,
+        openai_embedding_batch_size=4,
+        openai_embedding_dim=8,
     )
 
 
@@ -62,10 +64,8 @@ def _seed_columns(
     return path
 
 
-def _good_embed(dim: int):
-    def _fn(texts, *, model, batch_size=64):  # type: ignore[no-untyped-def]
-        return [[1.0 / math.sqrt(dim)] * dim for _ in texts]
-    return _fn
+def _unit_vec(dim: int) -> list[float]:
+    return [1.0 / math.sqrt(dim)] * dim
 
 
 def test_embed_three_columns(tmp_path: Path) -> None:
@@ -74,11 +74,11 @@ def test_embed_three_columns(tmp_path: Path) -> None:
         "r1",
         keys=[("pkg-a", "c1"), ("pkg-a", "c2"), ("pkg-b", "c1")],
     )
+    client = FakeOpenAIClient(vector_factory=lambda _: _unit_vec(8))
     summary = run_columns_embed(
         request=ColumnsEmbedRequest(run_id="r1", dry_run=False, batch_size=None),
         settings=_settings(tmp_path),
-        load_embedding_model=lambda *a, **k: object(),
-        embed_batch=_good_embed(8),
+        openai_client=client,
     )
     assert summary.embeddings_written == 3
     assert summary.embeddings_failed == 0
@@ -101,11 +101,11 @@ def test_embed_skips_failure_markers(tmp_path: Path) -> None:
         keys=keys,
         failure_keys={("pkg-b", "__failure_marker__")},
     )
+    client = FakeOpenAIClient(vector_factory=lambda _: _unit_vec(8))
     summary = run_columns_embed(
         request=ColumnsEmbedRequest(run_id="r1", dry_run=False, batch_size=None),
         settings=_settings(tmp_path),
-        load_embedding_model=lambda *a, **k: object(),
-        embed_batch=_good_embed(8),
+        openai_client=client,
     )
     assert summary.embeddings_written == 1
     assert summary.embeddings_skipped_already_embedded == 1
@@ -119,11 +119,11 @@ def test_embed_resume_skips_already_embedded(tmp_path: Path) -> None:
         keys=[("pkg-a", "c1"), ("pkg-a", "c2")],
         pre_embedded_keys={("pkg-a", "c1")},
     )
+    client = FakeOpenAIClient(vector_factory=lambda _: _unit_vec(8))
     summary = run_columns_embed(
         request=ColumnsEmbedRequest(run_id="r1", dry_run=False, batch_size=None),
         settings=_settings(tmp_path),
-        load_embedding_model=lambda *a, **k: object(),
-        embed_batch=_good_embed(8),
+        openai_client=client,
     )
     assert summary.embeddings_skipped_already_embedded == 1
     assert summary.embeddings_written == 1
@@ -131,15 +131,11 @@ def test_embed_resume_skips_already_embedded(tmp_path: Path) -> None:
 
 def test_embed_wrong_dim_fails(tmp_path: Path) -> None:
     _seed_columns(tmp_path, "r1", keys=[("pkg-a", "c1")])
-
-    def bad(texts, *, model, batch_size=64):  # type: ignore[no-untyped-def]
-        return [[0.1] * 4 for _ in texts]
-
+    client = FakeOpenAIClient(vector_factory=lambda _: [0.1] * 4)
     summary = run_columns_embed(
         request=ColumnsEmbedRequest(run_id="r1", dry_run=False, batch_size=None),
         settings=_settings(tmp_path),
-        load_embedding_model=lambda *a, **k: object(),
-        embed_batch=bad,
+        openai_client=client,
     )
     assert summary.embeddings_failed == 1
     assert summary.embeddings_written == 0

@@ -1,26 +1,33 @@
 """Typer CLI.
 
 Laptop (uv) ──────────────────────────────────────────────────────
-  uv run semantic-enrich datasets-extract [--run-id ID]
-                                          [--limit-packages N]
-                                          [--limit-package-ids ID...]
-                                          [--limit-orgs CODE...]
-                                          [--dry-run] [--staging-dir PATH]
-  uv run semantic-enrich datasets-load    [--run-id ID] [--dry-run]
-                                          [--staging-dir PATH]
+  uv run semantic-enrich datasets-extract  [--run-id ID]
+                                           [--limit-packages N]
+                                           [--limit-package-ids ID...]
+                                           [--limit-orgs CODE...]
+                                           [--dry-run] [--staging-dir PATH]
+  uv run semantic-enrich datasets-embed    [--run-id ID] [--batch-size N]
+                                           [--dry-run] [--staging-dir PATH]
+  uv run semantic-enrich datasets-load     [--run-id ID] [--dry-run]
+                                           [--staging-dir PATH]
+  uv run semantic-enrich datasets-reembed  [--run-id ID] [--batch-size N]
+                                           [--dry-run]
+  uv run semantic-enrich columns-reembed   [--run-id ID] [--batch-size N]
+                                           [--dry-run]
 
 GPU box (conda env active — no uv) ──────────────────────────────
-  semantic-enrich smoke-test       [--write-lock]
+  semantic-enrich smoke-test        [--write-lock]
   semantic-enrich datasets-generate [--run-id ID] [--dry-run]
                                     [--staging-dir PATH]
-  semantic-enrich datasets-embed    [--run-id ID] [--batch-size N]
-                                    [--dry-run] [--staging-dir PATH]
+
+Post-4.7, `datasets-embed` and `columns-embed` call OpenAI
+text-embedding-3-small — no GPU needed. They can run on either box.
 
 Thin shim: builds `Settings` from env, overrides with flags, builds a
 `*Request`, calls `core.run_*(...)`, prints the summary as JSON. No
 business logic.
 
-Exit codes (datasets-* subcommands):
+Exit codes (datasets-* / columns-* subcommands):
   - 0  success.
   - 2  invariant violated mid-run (a `RuntimeError` from the runner).
   - 3  precondition failed (bad config, BQ auth, missing inputs dir,
@@ -38,6 +45,7 @@ from typing import Any
 import typer
 
 from semantic_enrich.clients.bq import RealBqClient
+from semantic_enrich.clients.openai import OpenAIClient, RealOpenAIClient
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core.column_generator import (
     ColumnsGenerateRequest,
@@ -65,6 +73,12 @@ from semantic_enrich.core.embedding_pass import (
     EmbedRequest,
     run_columns_embed,
     run_embed,
+)
+from semantic_enrich.core.reembed import (
+    ColumnsReembedRequest,
+    DatasetsReembedRequest,
+    run_columns_reembed,
+    run_datasets_reembed,
 )
 from semantic_enrich.core.smoke import run_smoke_test, write_models_lock
 from semantic_enrich.providers.logging import configure_logging, get_logger
@@ -246,7 +260,7 @@ def datasets_embed(
     ),
     batch_size: int | None = typer.Option(
         None, "--batch-size",
-        help="Override WHENRICH_EMBEDDING_BATCH_SIZE.",
+        help="Override WHENRICH_OPENAI_EMBEDDING_BATCH_SIZE.",
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run/--no-dry-run",
@@ -256,15 +270,21 @@ def datasets_embed(
         None, "--staging-dir", help="Override WHENRICH_STAGING_DIR."
     ),
 ) -> None:
-    """GPU-side. Augment stage/<run_id>/datasets/*.jsonl with embeddings."""
+    """Augment stage/<run_id>/datasets/*.jsonl with OpenAI embeddings."""
     configure_logging()
     settings = _build_settings(run_id=run_id, staging_dir=staging_dir)
+    log = get_logger("semantic_enrich.entrypoint")
+    client = _build_openai_client(settings=settings, log=log, dry_run=dry_run)
     request = EmbedRequest(
         run_id=settings.run_id,
         dry_run=dry_run or settings.dry_run,
         batch_size=batch_size,
     )
-    _dispatch(lambda: run_embed(request=request, settings=settings))
+    _dispatch(
+        lambda: run_embed(
+            request=request, settings=settings, openai_client=client
+        )
+    )
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -407,7 +427,7 @@ def columns_embed(
     ),
     batch_size: int | None = typer.Option(
         None, "--batch-size",
-        help="Override WHENRICH_EMBEDDING_BATCH_SIZE.",
+        help="Override WHENRICH_OPENAI_EMBEDDING_BATCH_SIZE.",
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run/--no-dry-run",
@@ -417,15 +437,118 @@ def columns_embed(
         None, "--staging-dir", help="Override WHENRICH_STAGING_DIR."
     ),
 ) -> None:
-    """GPU-side. Augment stage/<run_id>/columns/*.jsonl with embeddings."""
+    """Augment stage/<run_id>/columns/*.jsonl with OpenAI embeddings."""
     configure_logging()
     settings = _build_settings(run_id=run_id, staging_dir=staging_dir)
+    log = get_logger("semantic_enrich.entrypoint")
+    client = _build_openai_client(settings=settings, log=log, dry_run=dry_run)
     request = ColumnsEmbedRequest(
         run_id=settings.run_id,
         dry_run=dry_run or settings.dry_run,
         batch_size=batch_size,
     )
-    _dispatch(lambda: run_columns_embed(request=request, settings=settings))
+    _dispatch(
+        lambda: run_columns_embed(
+            request=request, settings=settings, openai_client=client
+        )
+    )
+
+
+# ──────────────────────────────────────────────────────────────────
+# datasets-reembed / columns-reembed  (4.7 — laptop)
+# ──────────────────────────────────────────────────────────────────
+
+
+@app.command("datasets-reembed")
+def datasets_reembed(
+    run_id: str | None = typer.Option(
+        None, "--run-id",
+        help="REQUIRED unless WHENRICH_RUN_ID is set. Names the staging table.",
+    ),
+    batch_size: int | None = typer.Option(
+        None, "--batch-size",
+        help="Override WHENRICH_OPENAI_EMBEDDING_BATCH_SIZE.",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run/--no-dry-run",
+        help="Skips OpenAI calls and the MERGE; emits one "
+             "would_have_reembedded event per row.",
+    ),
+) -> None:
+    """Overwrite `semantic.datasets.embedding` with OpenAI vectors."""
+    configure_logging()
+    settings = _build_settings(run_id=run_id, staging_dir=None)
+    log = get_logger("semantic_enrich.entrypoint")
+    if not settings.gcp_project_id:
+        log.error("missing_project_id", subcommand="datasets-reembed")
+        raise typer.Exit(3)
+    try:
+        bq = RealBqClient.for_project(settings.gcp_project_id)
+    except Exception as exc:
+        log.error("bq_auth_failed", error=str(exc))
+        raise typer.Exit(3) from exc
+    # Reembed preflights against OpenAI even in --dry-run (§8+§9) so
+    # we always require a real key here.
+    client = _build_openai_client(settings=settings, log=log, dry_run=False)
+    request = DatasetsReembedRequest(
+        run_id=settings.run_id,
+        dry_run=dry_run or settings.dry_run,
+        batch_size=batch_size,
+    )
+    _dispatch(
+        lambda: run_datasets_reembed(
+            request=request,
+            settings=settings,
+            bq=bq,
+            openai_client=client,
+        )
+    )
+
+
+@app.command("columns-reembed")
+def columns_reembed(
+    run_id: str | None = typer.Option(
+        None, "--run-id",
+        help="REQUIRED unless WHENRICH_RUN_ID is set. Names the staging table.",
+    ),
+    batch_size: int | None = typer.Option(
+        None, "--batch-size",
+        help="Override WHENRICH_OPENAI_EMBEDDING_BATCH_SIZE.",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run/--no-dry-run",
+        help="Skips OpenAI calls and the MERGE; emits one "
+             "would_have_reembedded event per row.",
+    ),
+) -> None:
+    """Overwrite `semantic.columns.embedding` with OpenAI vectors."""
+    configure_logging()
+    settings = _build_settings(run_id=run_id, staging_dir=None)
+    log = get_logger("semantic_enrich.entrypoint")
+    if not settings.gcp_project_id:
+        log.error("missing_project_id", subcommand="columns-reembed")
+        raise typer.Exit(3)
+    try:
+        bq = RealBqClient.for_project(settings.gcp_project_id)
+    except Exception as exc:
+        log.error("bq_auth_failed", error=str(exc))
+        raise typer.Exit(3) from exc
+    # Reembed preflights against OpenAI even in --dry-run (§8+§9) so
+    # we always require a real key here.
+    client = _build_openai_client(settings=settings, log=log, dry_run=False)
+    request = ColumnsReembedRequest(
+        run_id=settings.run_id,
+        dry_run=dry_run or settings.dry_run,
+        batch_size=batch_size,
+    )
+    _dispatch(
+        lambda: run_columns_reembed(
+            request=request,
+            settings=settings,
+            bq=bq,
+            openai_client=client,
+        )
+    )
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -489,6 +612,48 @@ def _build_settings(
     if overrides:
         settings = settings.model_copy(update=overrides)
     return settings
+
+
+def _build_openai_client(
+    *, settings: Settings, log: Any, dry_run: bool
+) -> OpenAIClient:
+    """Build the shared OpenAI client from Settings.
+
+    Dry-run still requires a key for `datasets-embed` / `columns-embed`
+    only if the runner will call it; the runner short-circuits on
+    dry-run before touching the client, so we return a stub that
+    raises if called. This keeps the "no key + dry-run" path usable
+    for local previewing.
+    """
+    if settings.openai_api_key is None:
+        if dry_run:
+            return _StubOpenAIClient()
+        log.error(
+            "missing_openai_api_key",
+            hint="set WHENRICH_OPENAI_API_KEY or OPENAI_API_KEY",
+        )
+        raise typer.Exit(3)
+    return RealOpenAIClient.for_settings(
+        api_key=settings.openai_api_key.get_secret_value(),
+        embedding_model=settings.openai_embedding_model,
+        request_timeout_s=settings.openai_request_timeout_s,
+        max_retries=settings.openai_max_retries,
+    )
+
+
+class _StubOpenAIClient:
+    """Placeholder used for `--dry-run` when no OpenAI key is present.
+
+    The stage embed runners skip the client in dry-run; the reembed
+    runners preflight-ping it even in dry-run per PRD §8, so this stub
+    only survives the stage-embed dry-run path.
+    """
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        raise RuntimeError(
+            "openai client not configured; set WHENRICH_OPENAI_API_KEY. "
+            "This stub is only viable for --dry-run stage-embed previews."
+        )
 
 
 def _dispatch(runner: Callable[[], Any]) -> None:
