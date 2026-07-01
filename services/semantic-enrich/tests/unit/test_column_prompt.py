@@ -23,7 +23,6 @@ def _inputs(
     return ColumnInputs(
         package_id="pkg-snapshot-1",
         package_title="Snapshot Test Dataset",
-        package_description="Snapshot test description.",
         package_subjects=package_subjects,
         package_summary=package_summary,
         representative_document_id="doc-1",
@@ -54,7 +53,6 @@ def test_user_template_snapshot() -> None:
     tmpl = column_prompt.COLUMNS_USER_TEMPLATE
     for placeholder in (
         "{package_title}",
-        "{package_description}",
         "{package_subjects_csv}",
         "{package_summary_block}",
         "{chunk_index_plus_one}",
@@ -137,6 +135,20 @@ def test_columns_block_handles_empty_samples() -> None:
     )
     assert "- name: x" in block
     assert "  samples: []" in block
+
+
+def test_columns_block_truncates_pathologically_long_sample_values() -> None:
+    long_val = "A" * 5000
+    short_val = "B" * 50
+    block = column_prompt.render_columns_block(
+        column_names=["big", "small"],
+        sample_values={"big": [long_val], "small": [short_val]},
+    )
+    assert "…[truncated]" in block
+    # Total block size stays bounded even for multi-KB sample cells.
+    assert len(block) < 1000
+    # Short values pass through untouched.
+    assert f'"{short_val}"' in block
 
 
 @pytest.mark.parametrize("chunk_size", [1, 2, 5, 100])

@@ -29,7 +29,6 @@ outside the JSON. No markdown fences. The schema is enforced."""
 COLUMNS_USER_TEMPLATE: Final[str] = """\
 Dataset metadata:
 - Title: {package_title}
-- Description: {package_description}
 - Subjects (controlled taxonomy): {package_subjects_csv}
 {package_summary_block}
 
@@ -76,13 +75,21 @@ def render_columns_block(
     return "\n".join(lines)
 
 
+_SAMPLE_VALUE_MAX_CHARS: Final[int] = 200
+
+
 def _quote_sample(v: str) -> str:
     """Quote a sample value for the columns_block.
 
-    Keeps it simple: replace embedded double-quotes and wrap in `"`.
-    This is a prompt-side display, not a parsed payload — the model
-    is told to echo verbatim what it sees.
+    Truncates values longer than `_SAMPLE_VALUE_MAX_CHARS` — a handful
+    of open-data columns carry multi-KB blobs (embedded CSV, JSON,
+    long free text) as their sample cells, which blow the model's
+    context window when 100 columns x 10 samples land in one chunk.
+    Truncation is applied per-value; short values pass through
+    untouched.
     """
+    if len(v) > _SAMPLE_VALUE_MAX_CHARS:
+        v = v[:_SAMPLE_VALUE_MAX_CHARS] + "…[truncated]"
     return '"' + v.replace('"', '\\"') + '"'
 
 
@@ -112,7 +119,6 @@ def render_user_message(
 
     return COLUMNS_USER_TEMPLATE.format(
         package_title=inputs.package_title or "(no title)",
-        package_description=inputs.package_description or "(no description)",
         package_subjects_csv=subjects_csv,
         package_summary_block=package_summary_block,
         chunk_index_plus_one=chunk_index + 1,
