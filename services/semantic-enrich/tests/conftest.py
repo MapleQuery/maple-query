@@ -8,6 +8,7 @@ suite stays GPU-free.
 from __future__ import annotations
 
 import pytest
+
 from semantic_enrich.config.settings import Settings
 
 

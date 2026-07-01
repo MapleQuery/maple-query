@@ -32,6 +32,13 @@ dependencies = [
   # the resolved commit SHA of each model. Transitive via transformers
   # but pinned here so the lock writer doesn't break on a reshuffle.
   "huggingface-hub>=0.24,<1",
+  # GCP clients. Laptop-side at runtime; pulled in unconditionally
+  # because the package is one unit and the load-pass unit tests need
+  # the SchemaField type even when run on a box without ADC.
+  "google-cloud-bigquery>=3.23,<4",
+  # Retry primitives for BQ calls. Same choice as warehouse-load so
+  # the policies stay comparable.
+  "tenacity>=8.3,<9",
 ]
 
 [project.scripts]
@@ -43,6 +50,10 @@ dev = [
   "pytest-cov>=5.0,<6",
   "ruff>=0.5,<1",
   "mypy>=1.10,<2",
+  # Property tests on sample-selector and stage-io round-trips.
+  "hypothesis>=6.103,<7",
+  # Layering contract enforcement — see [tool.importlinter] below.
+  "import-linter>=2.0,<3",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -84,6 +95,10 @@ module = [
   "transformers.*",
   "huggingface_hub",
   "huggingface_hub.*",
+  "google.cloud",
+  "google.cloud.*",
+  "google.api_core",
+  "google.api_core.*",
 ]
 ignore_missing_imports = true
 
@@ -99,3 +114,19 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
+
+[tool.importlinter]
+root_packages = ["semantic_enrich"]
+include_external_packages = false
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture"
+type = "layers"
+layers = [
+  "semantic_enrich.entrypoint",
+  "semantic_enrich.core",
+  "semantic_enrich.clients",
+  "semantic_enrich.providers",
+  "semantic_enrich.config",
+  "semantic_enrich.types",
+]

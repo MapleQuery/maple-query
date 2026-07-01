@@ -48,7 +48,7 @@ def load_generation_model(
         tokenizer_kwargs["cache_dir"] = cache_dir
 
     tf_model = AutoModelForCausalLM.from_pretrained(repo, **model_kwargs)
-    tokenizer = AutoTokenizer.from_pretrained(repo, **tokenizer_kwargs)
+    tokenizer = AutoTokenizer.from_pretrained(repo, **tokenizer_kwargs)  # type: ignore[no-untyped-call]
 
     return outlines.from_transformers(tf_model, tokenizer)
 
@@ -87,6 +87,41 @@ def generate_json(
         ) from exc
 
     return _coerce_to_dict(result, max_tokens=max_tokens)
+
+
+def get_tokenizer(model: GenerationModel) -> Any:
+    """Return the HF tokenizer backing the outlines model.
+
+    Outlines 1.x wraps the HF tokenizer in its own `TransformerTokenizer`
+    adapter at `model.tokenizer`; the original (with the
+    `apply_chat_template` method) is one level deeper at
+    `model.tokenizer.tokenizer`. This helper probes the common paths
+    and returns the first one that actually exposes
+    `apply_chat_template`, so call sites stay free of
+    outlines-internal field names.
+    """
+    candidates: tuple[tuple[str, ...], ...] = (
+        ("tokenizer", "tokenizer"),   # outlines 1.x adapter -> underlying HF
+        ("tokenizer",),
+        ("hf_tokenizer",),
+        ("model", "tokenizer"),
+        ("transformers", "tokenizer"),
+    )
+    for attr_chain in candidates:
+        obj: Any = model
+        ok = True
+        for attr in attr_chain:
+            if not hasattr(obj, attr):
+                ok = False
+                break
+            obj = getattr(obj, attr)
+        if ok and obj is not None and hasattr(obj, "apply_chat_template"):
+            return obj
+    raise RuntimeError(
+        "could not locate HF tokenizer with apply_chat_template on "
+        "outlines GenerationModel; outlines internals may have shifted "
+        "— update get_tokenizer()."
+    )
 
 
 def _coerce_to_dict(result: Any, *, max_tokens: int) -> dict[str, Any]:
