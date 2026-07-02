@@ -12,9 +12,15 @@ variable "agent_service_image" {
 }
 
 variable "agent_service_cors_origins" {
-  description = "Comma-separated CORS allow-list. Includes the production Vercel URL, preview URLs, and localhost for dev. Ends up in MQAGENT_CORS_ORIGINS."
+  description = "Comma-separated exact-match CORS allow-list. Production Vercel URL + localhost for dev. Preview URLs are handled by the regex below because they carry a random hash per deploy. Ends up in MQAGENT_CORS_ORIGINS."
   type        = string
   default     = "https://maple-query.vercel.app,http://localhost:3000"
+}
+
+variable "agent_service_cors_origin_regex" {
+  description = "Regex allow-list for Vercel preview URLs. Scoped to the `coles-projects-4b94bd7b` team slug so a fork on a different team can't hit the API. Matches both deployment (`maple-query-<hash>-<team>.vercel.app`) and branch (`maple-query-git-<branch>-<team>.vercel.app`) URL shapes. Ends up in MQAGENT_CORS_ORIGIN_REGEX."
+  type        = string
+  default     = "^https://maple-query-[a-z0-9-]+-coles-projects-4b94bd7b\\.vercel\\.app$"
 }
 
 # ── Service account ────────────────────────────────────────────────
@@ -204,6 +210,11 @@ resource "google_cloud_run_v2_service" "agent_service" {
       env {
         name  = "MQAGENT_CORS_ORIGINS"
         value = var.agent_service_cors_origins
+      }
+
+      env {
+        name  = "MQAGENT_CORS_ORIGIN_REGEX"
+        value = var.agent_service_cors_origin_regex
       }
 
       env {

@@ -44,7 +44,7 @@ Shared bearer token, single value, `hmac.compare_digest` in `auth.py`. `MQAGENT_
 
 ## CORS
 
-Allow-list via `MQAGENT_CORS_ORIGINS` (comma-separated). Default local: `http://localhost:3000`. Production adds `https://maple-query.vercel.app`. `Access-Control-Allow-Credentials: false` — bearer token in header, no cookies.
+Allow-list via `MQAGENT_CORS_ORIGINS` (comma-separated, exact match) plus `MQAGENT_CORS_ORIGIN_REGEX` for URLs whose host varies per deploy (Vercel previews). Default local: `http://localhost:3000`. Production adds `https://maple-query.vercel.app` in the exact list and a team-scoped regex for `maple-query-*-coles-projects-4b94bd7b.vercel.app` previews. `Access-Control-Allow-Credentials: false` — bearer token in header, no cookies.
 
 ## Configuration
 
