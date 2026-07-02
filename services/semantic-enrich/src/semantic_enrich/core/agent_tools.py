@@ -31,6 +31,7 @@ from semantic_enrich.core import agent_events
 from semantic_enrich.core.retrieval import (
     embed_question,
     retrieve_columns,
+    retrieve_documents,
     retrieve_packages,
 )
 from semantic_enrich.core.sql_executor import execute as execute_sql
@@ -39,6 +40,7 @@ from semantic_enrich.core.sql_guard import guard
 TOOL_NAMES = (
     "search_datasets",
     "search_columns",
+    "list_documents",
     "sample_rows",
     "run_sql",
 )
@@ -56,6 +58,7 @@ def tool_schemas() -> list[dict[str, Any]]:
     return [
         {"type": "function", "function": _SEARCH_DATASETS},
         {"type": "function", "function": _SEARCH_COLUMNS},
+        {"type": "function", "function": _LIST_DOCUMENTS},
         {"type": "function", "function": _SAMPLE_ROWS},
         {"type": "function", "function": _RUN_SQL},
     ]
@@ -124,13 +127,41 @@ _SEARCH_COLUMNS: dict[str, Any] = {
 }
 
 
+_LIST_DOCUMENTS: dict[str, Any] = {
+    "name": "list_documents",
+    "description": (
+        "List loaded `raw.documents` rows for one or more candidate "
+        "packages, together with each doc's actual JSON key set. Every "
+        "run_sql needs a LITERAL `document_id IN (...)` filter picked "
+        "from this tool's output — raw.rows is clustered by document_id "
+        "and only a literal IN-list gets plan-time pruning. Also use "
+        "the per-doc `columns` list to check that the columns you want "
+        "actually appear in the doc you inline (different docs in the "
+        "same package can have disjoint key sets)."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["package_ids"],
+        "properties": {
+            "package_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+                "maxItems": 10,
+            },
+        },
+    },
+}
+
+
 _SAMPLE_ROWS: dict[str, Any] = {
     "name": "sample_rows",
     "description": (
-        "Fetch a small sample of rows from a single package. Use to "
-        "check real column names and value shapes before writing SQL. "
-        "Cheap; call whenever you're unsure whether a column exists "
-        "or what its values look like."
+        "Fetch a small sample of rows from a single package. Rows come "
+        "back with their `document_id` and the row body parsed as a "
+        "JSON object. Use to check real column names and value shapes "
+        "before writing SQL."
     ),
     "parameters": {
         "type": "object",
@@ -191,6 +222,7 @@ class LoopState:
     question: str
     question_vec: list[float] | None = None
     known_package_ids: set[str] = field(default_factory=set)
+    known_document_ids: set[str] = field(default_factory=set)
     tool_call_count: int = 0
     sql_execution_count: int = 0
     tokens_in_total: int = 0
@@ -302,6 +334,49 @@ def run_search_columns(
     return {"candidates": candidates}
 
 
+def run_list_documents(
+    *, ctx: ToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
+    package_ids = _require_str_list(args, "package_ids")
+    if not package_ids:
+        raise InvalidToolArgsError("package_ids must be non-empty")
+    if len(package_ids) > 10:
+        raise InvalidToolArgsError("package_ids must have at most 10 entries")
+
+    unknown = [p for p in package_ids if p not in ctx.state.known_package_ids]
+    if unknown:
+        raise InvalidToolArgsError(
+            f"invalid_package_id: {unknown!r} not returned by "
+            "search_datasets in this turn"
+        )
+
+    documents, _latency = retrieve_documents(
+        bq=ctx.bq, package_ids=list(package_ids), settings=ctx.settings
+    )
+    payload: list[dict[str, Any]] = [
+        {
+            "document_id": d.document_id,
+            "package_id": d.package_id,
+            "title": d.title,
+            "row_count": d.row_count,
+            "resource_last_modified": (
+                d.resource_last_modified.isoformat()
+                if d.resource_last_modified is not None
+                else None
+            ),
+            "columns": list(d.columns),
+        }
+        for d in documents
+    ]
+    ctx.state.known_document_ids.update(str(d["document_id"]) for d in payload)
+    ctx.emit(
+        agent_events.DocumentsListed(
+            package_ids=list(package_ids), documents=payload
+        )
+    )
+    return {"documents": payload}
+
+
 def run_sample_rows(
     *, ctx: ToolContext, args: dict[str, Any]
 ) -> dict[str, Any]:
@@ -314,6 +389,10 @@ def run_sample_rows(
             "sample_rows requires WHENRICH_GCP_PROJECT_ID to be set"
         )
 
+    # PARSE_JSON(STRING(row)) unwraps the double-encoded scalar so BQ
+    # hands back an actual JSON object (returned to Python as a dict by
+    # google-cloud-bigquery). The model can then reference keys
+    # verbatim rather than re-parsing an escaped string.
     sql = _SAMPLE_ROWS_SQL.format(
         project_id=project_id,
         dataset=ctx.settings.bq_dataset_raw,
@@ -421,6 +500,8 @@ def dispatch(
         return run_search_datasets(ctx=ctx, args=args)
     if tool_name == "search_columns":
         return run_search_columns(ctx=ctx, args=args)
+    if tool_name == "list_documents":
+        return run_list_documents(ctx=ctx, args=args)
     if tool_name == "sample_rows":
         return run_sample_rows(ctx=ctx, args=args)
     if tool_name == "run_sql":
@@ -513,7 +594,10 @@ def _coerce(value: Any) -> Any:
 # `LIMIT` is inlined as a query parameter and the tool caps `n` at 10
 # via the schema.
 _SAMPLE_ROWS_SQL = """
-SELECT r.row
+SELECT
+  r.document_id,
+  r.row_index,
+  PARSE_JSON(STRING(r.row)) AS row
 FROM `{project_id}.{dataset}.{rows_table}` AS r
 JOIN `{project_id}.{dataset}.{documents_table}` AS d USING (document_id)
 WHERE d.package_id = @pkg

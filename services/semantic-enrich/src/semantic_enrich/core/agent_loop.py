@@ -85,7 +85,10 @@ class TurnOutcome:
 def load_system_prompt(path: Path, settings: Settings) -> tuple[str, str]:
     """Render the system prompt template once. Returns `(text, sha256)`.
 
-    Hash feeds the cache key. Prompt edits invalidate on redeploy."""
+    The hash feeds the cache key. Prompt edits invalidate on redeploy.
+    `project_id` gets injected into the template so the worked example
+    and the "use this project verbatim" rule stay accurate across
+    environments without shipping the prompt itself out of tree."""
     if not path.exists():
         raise RuntimeError(f"agent system prompt missing: {path}")
     env = jinja2.Environment(
@@ -98,10 +101,19 @@ def load_system_prompt(path: Path, settings: Settings) -> tuple[str, str]:
     rendered = template.render(
         allowed_datasets=list(settings.eval_allowed_datasets),
         row_limit=settings.eval_row_limit,
+        project_id=settings.gcp_project_id,
+    )
+    # Hash on a canonical form (no project id) so prompt edits — not
+    # deploy targets — invalidate the cache. The rendered text used by
+    # the model still has the real project id embedded.
+    canonical = template.render(
+        allowed_datasets=list(settings.eval_allowed_datasets),
+        row_limit=settings.eval_row_limit,
+        project_id=None,
     )
     tool_defs = json.dumps(agent_tools.tool_schemas(), sort_keys=True)
     digest = hashlib.sha256(
-        (rendered + "\n---\n" + tool_defs).encode("utf-8")
+        (canonical + "\n---\n" + tool_defs).encode("utf-8")
     ).hexdigest()
     return rendered, digest
 

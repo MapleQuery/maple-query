@@ -117,15 +117,65 @@ def test_sample_rows_shape() -> None:
     bq = FakeBqClient()
     bq.register_query(
         "raw.rows",
-        [{"row": {"Amount": 1}}, {"row": {"Amount": 2}}],
+        [
+            {
+                "document_id": "doc-1",
+                "row_index": 0,
+                "row": {"Amount": 1},
+            },
+            {
+                "document_id": "doc-1",
+                "row_index": 1,
+                "row": {"Amount": 2},
+            },
+        ],
     )
     ctx, events = _ctx(bq=bq)
     result = agent_tools.run_sample_rows(
         ctx=ctx, args={"package_id": "pkg-1", "n": 2}
     )
     assert result["package_id"] == "pkg-1"
-    assert result["rows"] == [{"row": {"Amount": 1}}, {"row": {"Amount": 2}}]
+    assert result["rows"][0]["document_id"] == "doc-1"
+    assert result["rows"][0]["row"] == {"Amount": 1}
     assert any(e.event_type == "sample_rows" for e in events)
+
+
+def test_list_documents_rejects_unknown_package_id() -> None:
+    ctx, _ = _ctx()
+    with pytest.raises(agent_tools.InvalidToolArgsError):
+        agent_tools.run_list_documents(
+            ctx=ctx, args={"package_ids": ["nope"]}
+        )
+
+
+def test_list_documents_returns_docs_and_columns() -> None:
+    bq = FakeBqClient()
+    bq.register_query(
+        "load_status = 'loaded'",
+        [
+            {
+                "document_id": "doc-1",
+                "package_id": "pkg-1",
+                "title": "Housing 2020",
+                "row_count": 42,
+                "resource_last_modified": None,
+            }
+        ],
+    )
+    bq.register_query(
+        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        [{"document_id": "doc-1", "columns": ["Amount", "Organization"]}],
+    )
+    ctx, events = _ctx(bq=bq)
+    ctx.state.known_package_ids.add("pkg-1")
+    result = agent_tools.run_list_documents(
+        ctx=ctx, args={"package_ids": ["pkg-1"]}
+    )
+    doc = result["documents"][0]
+    assert doc["document_id"] == "doc-1"
+    assert doc["columns"] == ["Amount", "Organization"]
+    assert "doc-1" in ctx.state.known_document_ids
+    assert any(e.event_type == "documents_listed" for e in events)
 
 
 def test_run_sql_guard_rejection_becomes_tool_result() -> None:

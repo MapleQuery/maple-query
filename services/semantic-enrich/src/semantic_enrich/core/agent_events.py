@@ -22,6 +22,7 @@ EventType = Literal[
     "retrieval_started",
     "datasets_ranked",
     "columns_ranked",
+    "documents_listed",
     "sample_rows",
     "sql_generated",
     "sql_guarded",
@@ -106,6 +107,16 @@ class ColumnsRanked(_EventBase):
     @property
     def event_type(self) -> EventType:
         return "columns_ranked"
+
+
+@dataclass(frozen=True)
+class DocumentsListed(_EventBase):
+    package_ids: list[str]
+    documents: list[dict[str, Any]]
+
+    @property
+    def event_type(self) -> EventType:
+        return "documents_listed"
 
 
 @dataclass(frozen=True)
@@ -243,6 +254,7 @@ AgentEvent = (
     | RetrievalStarted
     | DatasetsRanked
     | ColumnsRanked
+    | DocumentsListed
     | SampleRows
     | SqlGenerated
     | SqlGuarded
@@ -264,6 +276,7 @@ _EVENT_CLASSES: dict[str, type[_EventBase]] = {
     "retrieval_started": RetrievalStarted,
     "datasets_ranked": DatasetsRanked,
     "columns_ranked": ColumnsRanked,
+    "documents_listed": DocumentsListed,
     "sample_rows": SampleRows,
     "sql_generated": SqlGenerated,
     "sql_guarded": SqlGuarded,
