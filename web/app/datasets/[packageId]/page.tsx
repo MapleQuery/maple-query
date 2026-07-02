@@ -121,20 +121,16 @@ export default function DatasetDetailPage() {
                           <span className="rounded-full bg-coral/15 px-2 py-0.5 font-mono text-[10px] font-semibold text-navy">
                             {c.semantic_type}
                           </span>
-                        ) : (
-                          <span className="text-muted">—</span>
-                        )}
+                        ) : null}
                       </td>
                       <td className="max-w-md px-4 py-3 text-body">
-                        {c.description || (
-                          <span className="text-muted">—</span>
-                        )}
+                        {c.description || null}
                       </td>
                       <td className="px-4 py-3 font-mono text-[11px] text-muted">
                         {(c.sample_values ?? [])
                           .slice(0, 3)
                           .map((v) => String(v))
-                          .join(", ") || "—"}
+                          .join(", ")}
                       </td>
                     </tr>
                   ))}
@@ -211,9 +207,9 @@ function MetaGrid({
     ["Columns", columnCount],
     ["Coverage", summary.date_range_start && summary.date_range_end
       ? `${summary.date_range_start} → ${summary.date_range_end}`
-      : summary.date_range_start ?? "—"],
-    ["Measures", (summary.measures ?? []).slice(0, 3).join(", ") || "—"],
-    ["Dimensions", (summary.dimensions ?? []).slice(0, 3).join(", ") || "—"],
+      : summary.date_range_start ?? ""],
+    ["Measures", (summary.measures ?? []).slice(0, 3).join(", ")],
+    ["Dimensions", (summary.dimensions ?? []).slice(0, 3).join(", ")],
   ];
   return (
     <dl className="mt-6 grid gap-px overflow-hidden rounded-xl border border-hairline bg-hairline sm:grid-cols-2 lg:grid-cols-4">
@@ -223,7 +219,7 @@ function MetaGrid({
             {k}
           </dt>
           <dd className="mt-1 truncate font-mono text-sm text-ink">
-            {v == null || v === "" ? "—" : String(v)}
+            {v == null || v === "" ? "" : String(v)}
           </dd>
         </div>
       ))}

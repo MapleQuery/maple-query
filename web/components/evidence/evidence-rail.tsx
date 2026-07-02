@@ -118,7 +118,7 @@ export function EvidenceRail({
         {cached && cards.length > 0 && (
           <div className="mt-4 flex items-center gap-1.5 rounded-lg border border-dashed border-hairline bg-white/50 px-3 py-2 text-[11px] text-muted">
             <CheckCircle2 className="h-3 w-3 text-teal" />
-            Replayed from cache — identical question, warm result.
+            Replayed from cache. Identical question, warm result.
           </div>
         )}
       </div>
@@ -134,7 +134,7 @@ function EmptyRail() {
         Ask a question to see the evidence trace
       </p>
       <p className="mt-1 text-xs text-muted">
-        MapleQuery only answers from cited datasets — every step lands here.
+        MapleQuery only answers from cited datasets. Every step lands here.
       </p>
     </div>
   );
@@ -296,7 +296,7 @@ function RailItem({ card, index }: { card: RailCard; index: number }) {
           meta={formatElapsed(card.elapsed_ms)}
         >
           <p className="mt-1 text-xs text-body">
-            Wall-clock cap {formatElapsed(card.cap_ms)} exceeded — please
+            Wall-clock cap {formatElapsed(card.cap_ms)} exceeded. Please
             re-ask.
           </p>
         </RailShell>

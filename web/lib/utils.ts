@@ -22,7 +22,7 @@ export function truncate(str: string, len: number): string {
 }
 
 export function formatBytes(n: number | null | undefined): string {
-  if (n == null) return "—";
+  if (n == null) return "";
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
@@ -36,7 +36,7 @@ export function formatDollars(n: number | null | undefined): string {
 }
 
 export function formatElapsed(ms: number | null | undefined): string {
-  if (ms == null) return "—";
+  if (ms == null) return "";
   if (ms < 1000) return `${ms} ms`;
   return `${(ms / 1000).toFixed(1)} s`;
 }

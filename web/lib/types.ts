@@ -32,7 +32,7 @@ export interface ChatRequest {
 }
 
 // ---------------------------------------------------------------------------
-// SSE event schema — matches services/semantic-enrich core/agent_events.py.
+// SSE event schema. Matches services/semantic-enrich core/agent_events.py.
 // Every payload is validated at runtime; a malformed frame is dropped, not
 // fatal.
 // ---------------------------------------------------------------------------

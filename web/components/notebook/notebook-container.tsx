@@ -457,7 +457,7 @@ function ProseBlock({
       {block.markdown.trim() ? (
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.markdown}</ReactMarkdown>
       ) : (
-        <span className="text-muted">Empty prose block — click to edit.</span>
+        <span className="text-muted">Empty prose block. Click to edit.</span>
       )}
     </button>
   );

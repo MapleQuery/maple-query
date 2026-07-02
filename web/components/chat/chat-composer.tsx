@@ -19,7 +19,7 @@ export function ChatComposer({
   disabled,
   streaming,
   suggestions = [],
-  placeholder = "Ask in plain language — MapleQuery will show its work.",
+  placeholder = "Ask in plain language. MapleQuery will show its work.",
 }: ChatComposerProps) {
   const [text, setText] = React.useState("");
   const taRef = React.useRef<HTMLTextAreaElement>(null);

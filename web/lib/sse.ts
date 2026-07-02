@@ -27,7 +27,7 @@ function isKnownEvent(name: string): name is AgentEventName {
 /**
  * Stream POST /chat with typed event dispatch.
  *
- * A malformed frame is logged and skipped — the stream keeps going.
+ * A malformed frame is logged and skipped. The stream keeps going.
  * On network failure the caller decides whether to retry; we don't
  * auto-reconnect (retries would replay tool calls the server already ran).
  */
@@ -94,7 +94,7 @@ export async function streamChat(
 
     onclose: () => {
       if (!sawDone) {
-        // Server closed without a terminal event — surface as retryable.
+        // Server closed without a terminal event. Surface as retryable.
         handlers.onError?.({
           message: "stream closed before done",
           retryable: true,

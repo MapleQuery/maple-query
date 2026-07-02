@@ -301,7 +301,7 @@ export function ExplorerContainer() {
                 }
               }}
               rows={1}
-              placeholder="Ask a question — MapleQuery will pick datasets and generate SQL."
+              placeholder="Ask a question. MapleQuery will pick datasets and generate SQL."
               className="max-h-40 min-h-[42px] flex-1 resize-none border-0 shadow-none focus-visible:ring-0"
               disabled={busy}
             />

@@ -10,7 +10,7 @@ const surfaces = [
     body: "Type a question. Watch the answer build with a live trace of retrieval, guardrails, and SQL on the right.",
     icon: MessagesSquare,
     accent: "bg-coral/15 text-navy",
-    cta: "Launch the demo",
+    cta: "Open the chat",
   },
   {
     href: "/notebook",
@@ -36,7 +36,6 @@ export default function LandingPage() {
   return (
     <>
       <Hero />
-      <Problem />
       <SurfaceGrid />
       <TrustBand />
       <CallToAction />
@@ -63,11 +62,7 @@ function Hero() {
 
       <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-4 py-20 md:px-6 md:py-24 lg:grid-cols-[1.1fr_0.9fr]">
         <div>
-          <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-hairline bg-white/70 px-3 py-1 text-xs font-medium text-muted">
-            <span className="h-1.5 w-1.5 rounded-full bg-coral" />
-            Live prototype · chat + evidence rail
-          </p>
-          <h1 className="max-w-3xl font-display text-4xl font-medium leading-[1.08] tracking-tight text-ink sm:text-5xl md:text-6xl">
+          <h1 className="max-w-3xl text-4xl font-semibold leading-[1.08] tracking-tight text-ink sm:text-5xl md:text-6xl">
             Ask hard questions of{" "}
             <span className="relative inline-block">
               <span className="relative z-10">government data</span>
@@ -75,8 +70,8 @@ function Hero() {
                 aria-hidden="true"
                 className="absolute inset-x-0 bottom-1 -z-0 h-[10px] bg-coral/40"
               />
-            </span>{" "}
-            — and get answers you can cite.
+            </span>
+            . Get answers you can cite.
           </h1>
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-body">
             MapleQuery turns fragmented Canadian open data into a plain-language
@@ -88,7 +83,7 @@ function Hero() {
               href="/chat"
               className="inline-flex items-center gap-2 rounded-md bg-coral px-5 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-coral-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
             >
-              Launch the live demo
+              Ask a question
               <ArrowRight className="h-4 w-4" />
             </Link>
             <Link
@@ -100,122 +95,96 @@ function Hero() {
           </div>
 
           <dl className="mt-12 grid max-w-lg grid-cols-3 gap-6">
-            <Stat n="~3,700" label="Datasets indexed" />
-            <Stat n="120K+" label="Columns semantically tagged" />
+            <Stat n="3,700+" label="Documents" />
+            <Stat n="Millions" label="Rows of data" />
             <Stat n="100%" label="Answers cited or refused" />
           </dl>
         </div>
 
-        <div>
-          <div className="overflow-hidden rounded-2xl border border-hairline bg-white shadow-xl">
-            <div className="flex items-center gap-1.5 border-b border-hairline bg-surface-soft px-4 py-2.5">
-              <span className="h-2.5 w-2.5 rounded-full bg-coral/40" />
-              <span className="h-2.5 w-2.5 rounded-full bg-amber/40" />
-              <span className="h-2.5 w-2.5 rounded-full bg-teal/40" />
-              <span className="ml-2 font-mono text-[11px] text-muted">
-                maplequery — ask
-              </span>
-            </div>
-            <div className="space-y-3 p-4">
-              <div className="flex justify-end">
-                <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-surface-card px-3 py-2 text-sm text-ink">
-                  How has federal IT contract spending changed since 2018?
-                </div>
-              </div>
-              <div className="rounded-2xl rounded-tl-sm bg-canvas px-3 py-2.5 text-sm leading-relaxed text-body ring-1 ring-hairline">
-                Spending rose from{" "}
-                <span className="font-medium text-ink">$3.1B</span> to{" "}
-                <span className="font-medium text-ink">$5.4B</span>
-                <span className="ml-0.5 rounded bg-coral/25 px-1 align-super text-[10px] font-semibold text-navy">
-                  [1]
-                </span>{" "}
-                — about <span className="font-medium text-ink">74%</span>.
-              </div>
-              <div className="rounded-lg border border-hairline bg-surface-soft p-3">
-                <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
-                  <span className="grid h-4 w-4 place-items-center rounded-full bg-navy text-[8px] text-white">
-                    1
-                  </span>{" "}
-                  Evidence
-                </p>
-                <p className="text-xs font-medium text-ink">
-                  Public Accounts of Canada — Vol. III, Contracts
-                </p>
-                <p className="font-mono text-[11px] text-muted">
-                  2018–2024 · 14,228 rows · guarded SELECT
-                </p>
-              </div>
-            </div>
+        <HeroSchematic />
+      </div>
+    </section>
+  );
+}
+
+/**
+ * An abstract schematic of the app's shape: ask → retrieve → answer.
+ * Deliberately non-representational. No fabricated numbers, dataset names,
+ * or facts. It's a visual anchor for the hero, not a screenshot.
+ */
+function HeroSchematic() {
+  return (
+    <div className="relative mx-auto w-full max-w-md">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -inset-8 rounded-[2rem] bg-gradient-to-br from-coral/10 via-transparent to-navy/10 blur-2xl"
+      />
+      <div className="relative flex flex-col gap-3 rounded-2xl border border-hairline bg-white p-5 shadow-xl">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">
+            Question
+          </span>
+          <span className="h-1.5 w-1.5 rounded-full bg-coral" />
+        </div>
+        <div className="h-2 w-4/5 rounded-full bg-surface-card" />
+        <div className="h-2 w-2/3 rounded-full bg-surface-card" />
+
+        <div className="mt-4 grid gap-2">
+          <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">
+            Retrieval
+          </span>
+          <div className="grid gap-2">
+            <RetrievalBar accent="from-navy/70 to-navy/40" width="w-11/12" />
+            <RetrievalBar accent="from-teal/70 to-teal/30" width="w-9/12" />
+            <RetrievalBar accent="from-amber/80 to-amber/40" width="w-7/12" />
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-2 rounded-xl bg-surface-soft/70 p-4">
+          <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">
+            Answer
+          </span>
+          <div className="h-2 w-full rounded-full bg-white" />
+          <div className="h-2 w-5/6 rounded-full bg-white" />
+          <div className="flex items-center gap-2 pt-1">
+            <div className="h-2 flex-1 rounded-full bg-white" />
+            <span className="rounded bg-coral/25 px-1.5 py-0.5 text-[9px] font-semibold text-navy">
+              cite
+            </span>
           </div>
         </div>
       </div>
-    </section>
+    </div>
+  );
+}
+
+function RetrievalBar({
+  accent,
+  width,
+}: {
+  accent: string;
+  width: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-6 w-6 shrink-0 rounded-md border border-hairline bg-surface-soft" />
+      <div
+        className={cn(
+          "h-2 rounded-full bg-gradient-to-r",
+          accent,
+          width,
+        )}
+      />
+    </div>
   );
 }
 
 function Stat({ n, label }: { n: string; label: string }) {
   return (
     <div>
-      <dd className="font-display text-3xl font-medium text-ink">{n}</dd>
+      <dd className="text-3xl font-semibold tracking-tight text-ink">{n}</dd>
       <dt className="mt-1 text-xs text-muted">{label}</dt>
     </div>
-  );
-}
-
-function Problem() {
-  const cards = [
-    {
-      title: "Fragmented",
-      body: "One topic is scattered across departments, portals, and formats.",
-      accent: "bg-coral/15 text-navy",
-    },
-    {
-      title: "Inconsistent",
-      body: "Different structures, standards, gaps, and stale records.",
-      accent: "bg-amber/25 text-[#b7791f]",
-    },
-    {
-      title: "Technical",
-      body: "Joining and cleaning needs SQL, warehousing, and time.",
-      accent: "bg-teal/15 text-teal",
-    },
-    {
-      title: "Slow",
-      body: "Prep eats the hours meant for analysis and writing.",
-      accent: "bg-success/15 text-success",
-    },
-  ];
-  return (
-    <section className="border-y border-hairline bg-surface-soft">
-      <div className="mx-auto max-w-6xl px-4 py-16 md:px-6">
-        <h2 className="font-display text-3xl font-medium tracking-tight text-ink">
-          The data is public. Using it isn&rsquo;t.
-        </h2>
-        <p className="mt-3 max-w-2xl text-body">
-          Access to government data has improved; usability hasn&rsquo;t kept
-          pace. MapleQuery closes the last mile.
-        </p>
-        <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
-          {cards.map((c) => (
-            <div
-              key={c.title}
-              className="rounded-xl border border-hairline bg-white p-5"
-            >
-              <span
-                className={cn(
-                  "mb-3 inline-grid h-9 w-9 place-items-center rounded-lg",
-                  c.accent,
-                )}
-              >
-                <span className="text-sm font-semibold">·</span>
-              </span>
-              <h3 className="text-sm font-semibold text-ink">{c.title}</h3>
-              <p className="mt-1 text-sm text-body">{c.body}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
   );
 }
 
@@ -225,8 +194,8 @@ function SurfaceGrid() {
       <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-navy">
         Three ways in
       </p>
-      <h2 className="max-w-3xl font-display text-3xl font-medium leading-tight tracking-tight text-ink md:text-4xl">
-        Ask, remix, or drop to raw SQL — same guarded corpus behind every
+      <h2 className="max-w-3xl text-3xl font-semibold leading-tight tracking-tight text-ink md:text-4xl">
+        Ask, remix, or drop to raw SQL. Same guarded corpus behind every
         surface.
       </h2>
       <div className="mt-10 grid gap-5 md:grid-cols-3">
@@ -246,10 +215,10 @@ function SurfaceGrid() {
               >
                 <Icon className="h-5 w-5" />
               </span>
-              <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
                 {s.label}
               </p>
-              <h3 className="mt-1 font-display text-xl font-medium text-ink">
+              <h3 className="mt-1 text-xl font-semibold tracking-tight text-ink">
                 {s.title}
               </h3>
               <p className="mt-2 flex-1 text-sm leading-relaxed text-body">
@@ -286,12 +255,12 @@ function TrustBand() {
     <section className="border-y border-hairline bg-surface-soft/60">
       <div className="mx-auto grid max-w-6xl gap-10 px-4 py-16 md:grid-cols-2 md:px-6">
         <div>
-          <h2 className="font-display text-3xl font-medium tracking-tight text-ink">
+          <h2 className="text-3xl font-semibold tracking-tight text-ink">
             Trust is a feature, not a footnote.
           </h2>
           <p className="mt-3 max-w-md text-body">
-            The corpus is Canadian federal open data. The stack is BigQuery,
-            OpenAI, and a semantic index. The guardrails are non-negotiable.
+            The corpus is Canadian federal open data. Every answer traces back
+            to a published record, and the guardrails are non-negotiable.
           </p>
         </div>
         <ul className="grid gap-4">
@@ -313,33 +282,28 @@ function TrustBand() {
 function CallToAction() {
   return (
     <section className="mx-auto max-w-6xl px-4 py-16 md:px-6">
-      <div className="relative overflow-hidden rounded-2xl bg-navy p-8 text-white md:p-12">
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full"
-          style={{
-            background:
-              "radial-gradient(circle, rgba(253,137,115,.85), rgba(255,191,101,.45) 55%, transparent 72%)",
-          }}
-        />
-        <div className="relative">
-          <h2 className="font-display text-2xl font-medium md:text-3xl">
-            Try the chat + evidence rail
-          </h2>
-          <p className="mt-3 max-w-2xl text-white/85">
-            Ask a question, watch the answer build with live citations, and
-            click any card to trace it. It&rsquo;s a working prototype.
-          </p>
-          <div className="mt-6 flex flex-wrap gap-3">
+      <div className="rounded-2xl border border-hairline bg-white p-8 md:p-12">
+        <div className="flex flex-col items-start gap-6 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight text-ink md:text-3xl">
+              Start with a question.
+            </h2>
+            <p className="mt-2 max-w-xl text-body">
+              Ask in plain language, watch the answer build with live citations,
+              and click any card to trace it.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
             <Link
               href="/chat"
-              className="rounded-md bg-white px-5 py-2.5 text-sm font-medium text-navy transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              className="inline-flex items-center gap-2 rounded-md bg-coral px-5 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-coral-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
             >
-              Launch the demo
+              Open the chat
+              <ArrowRight className="h-4 w-4" />
             </Link>
             <Link
               href="/datasets"
-              className="rounded-md border border-white/40 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              className="rounded-md border border-hairline bg-white px-5 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-surface-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
             >
               Browse the corpus
             </Link>
@@ -354,7 +318,7 @@ function SiteFooter() {
   return (
     <footer className="border-t border-hairline bg-canvas">
       <div className="mx-auto max-w-6xl px-4 py-6 text-xs text-muted md:px-6">
-        MapleQuery · Milestone-4 prototype · answers only from cited datasets.
+        MapleQuery · answers only from cited datasets.
       </div>
     </footer>
   );

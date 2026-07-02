@@ -28,9 +28,12 @@ const config: Config = {
         error: "#C2503B",
       },
       fontFamily: {
-        display: ["var(--font-display)", "Georgia", "serif"],
+        // One typeface across the whole app. `display` and `mono` are kept as
+        // aliases so we don't have to rewrite every className, but they all
+        // resolve to Inter.
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
-        mono: ["var(--font-mono)", "ui-monospace", "monospace"],
+        display: ["var(--font-sans)", "system-ui", "sans-serif"],
+        mono: ["var(--font-sans)", "system-ui", "sans-serif"],
       },
       keyframes: {
         rise: {

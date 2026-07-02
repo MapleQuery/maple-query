@@ -14,7 +14,6 @@ const nav = [
 
 export function SiteHeader() {
   const pathname = usePathname() ?? "/";
-  const isLanding = pathname === "/";
 
   return (
     <header className="sticky top-0 z-30 border-b border-hairline bg-canvas/85 backdrop-blur">
@@ -31,7 +30,7 @@ export function SiteHeader() {
         </Link>
 
         <nav
-          className="hidden items-center gap-1 md:flex"
+          className="ml-auto hidden items-center gap-1 md:flex"
           aria-label="Primary"
         >
           {nav.map((item) => {
@@ -54,24 +53,6 @@ export function SiteHeader() {
             );
           })}
         </nav>
-
-        <div className="ml-auto flex items-center gap-2">
-          {isLanding ? (
-            <Link
-              href="/chat"
-              className="rounded-md bg-coral px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-coral-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-            >
-              Launch the demo
-            </Link>
-          ) : (
-            <Link
-              href="/"
-              className="hidden rounded-md px-3 py-1.5 text-sm text-muted transition-colors hover:text-ink md:inline-flex"
-            >
-              About
-            </Link>
-          )}
-        </div>
       </div>
     </header>
   );
