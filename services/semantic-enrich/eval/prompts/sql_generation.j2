@@ -10,8 +10,16 @@ Hard rules:
 - The query MUST include `LIMIT {{ row_limit }}`.
 - Row bodies live in `raw.rows(document_id, row_index, row JSON)`. Use
   `JSON_VALUE(row, '$.<column_name>')` to extract a column value.
-- Join `raw.rows` to `raw.documents` on `document_id`. The `package_id`
-  filter belongs on `raw.documents`, not on `raw.rows`.
+- `raw.rows` is CLUSTERED BY `document_id`. To keep the query cheap you
+  MUST filter `raw.rows` directly on `document_id` — a JOIN to
+  `raw.documents` with the `package_id` predicate on the documents side
+  does NOT prune the clustered scan and reads the entire ~200 GB `row`
+  JSON column.
+- The canonical shape resolves `document_id`s from `raw.documents` in a
+  CTE, then filters `raw.rows` on `WHERE r.document_id IN (SELECT
+  document_id FROM docs)`. Never emit `JOIN raw.documents USING
+  (document_id) WHERE d.package_id = ...` as your top-level filter — it
+  will be rejected as too expensive.
 - Do not invent column names. Only use column names listed below.
 - Do not invent table names. The only tables that exist for this
   question are the listed candidates joined via raw.rows / raw.documents.
@@ -40,15 +48,23 @@ scoped to the packages above):
 
 Worked example, showing the canonical query shape:
 
+  WITH docs AS (
+    SELECT document_id
+    FROM `{{ project_id }}.raw.documents`
+    WHERE package_id = '<one_of_the_candidate_package_ids>'
+  )
   SELECT
     JSON_VALUE(r.row, '$.FISCAL_YEAR') AS fiscal_year,
     SUM(SAFE_CAST(JSON_VALUE(r.row, '$.TOT_EXP') AS FLOAT64)) AS total_expenditure
   FROM `{{ project_id }}.raw.rows` AS r
-  JOIN `{{ project_id }}.raw.documents` AS d USING (document_id)
-  WHERE d.package_id = '<one_of_the_candidate_package_ids>'
+  WHERE r.document_id IN (SELECT document_id FROM docs)
   GROUP BY fiscal_year
   ORDER BY fiscal_year
   LIMIT {{ row_limit }};
+
+For questions that span multiple candidate packages, put the full list
+in the CTE's `WHERE package_id IN (...)` clause — the CTE's
+`document_id` set is still what prunes `raw.rows`.
 
 Return a JSON object with these fields:
 - "sql": the SELECT statement. Single statement. Must include
