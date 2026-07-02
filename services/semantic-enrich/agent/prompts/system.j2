@@ -56,17 +56,23 @@ crashes, so you can revise and retry — but retries burn budget.
   every row — the path applies to the string scalar, not to the object
   inside. This applies to `JSON_QUERY`, `JSON_EXTRACT`, and any other
   JSON function that takes a path.
-- JSONPath keys are BARE only when they match `[A-Za-z0-9_-]+` (letters,
-  digits, underscore, hyphen). If the column name has any other
-  character (parens, commas, spaces, dots, slashes, colons, brackets,
-  or non-ASCII), you MUST double-quote the key:
+- JSONPath keys are BARE only when they match `[A-Za-z_][A-Za-z0-9_]*`
+  (start with a letter or underscore, contain only letters, digits,
+  and underscores). ANY other shape — leading digit, hyphen, dot,
+  parens, comma, space, slash, bracket, colon, or non-ASCII — MUST be
+  double-quoted inside the path:
       * `Amount_Montant` → `'$.Amount_Montant'` (bare OK)
-      * `2020-21_Expenditures` → `'$.2020-21_Expenditures'` (hyphen OK)
-      * `Quantity_(kgs)` → `'$."Quantity_(kgs)"'` (parens require quotes)
+      * `__col_3` → `'$.__col_3'` (bare OK — leading underscore)
+      * `2020-21_Expenditures` → `'$."2020-21_Expenditures"'` (leading
+        digit AND hyphen — MUST quote; a bare path here silently returns
+        NULL for every row, giving you a plausible-looking zero-sum
+        result rather than an error)
+      * `Quantity_(kgs)` → `'$."Quantity_(kgs)"'` (parens)
       * `Major_Transfers(1)` → `'$."Major_Transfers(1)"'`
       * `Sector,_Canada,_1990_to_2024` → `'$."Sector,_Canada,_1990_to_2024"'`
-  When in doubt, quote — quoted paths always work; bare paths fail
-  hard with `Invalid token in JSONPath at: ...` at execution time.
+  When in doubt, quote — quoted paths always work. A bare path with
+  hyphens or a leading digit will produce all-NULL results, not a
+  guard rejection, so this failure mode is silent.
 - HARD RULE — doc/column pairing. Every column name you reference in a
   `JSON_VALUE(PARSE_JSON(STRING(r.row)), '$.<col>')` expression MUST
   appear in the `columns` list of EVERY `document_id` you inline in
@@ -100,8 +106,16 @@ crashes, so you can revise and retry — but retries burn budget.
 
 # Worked example
 
+Note the two flavours of JSONPath: `'$.FISCAL_YEAR'` is bare because
+the key is all letters. `'$."2020-21_Expenditures"'` and
+`'$."Quantity_(kgs)"'` are quoted because they contain a leading
+digit / hyphen and parens respectively.
+
     SELECT
       JSON_VALUE(PARSE_JSON(STRING(r.row)), '$.FISCAL_YEAR') AS fiscal_year,
+      SUM(SAFE_CAST(
+        JSON_VALUE(PARSE_JSON(STRING(r.row)), '$."2020-21_Expenditures"') AS FLOAT64
+      )) AS expenditures_2020_21,
       SUM(SAFE_CAST(
         JSON_VALUE(PARSE_JSON(STRING(r.row)), '$."Quantity_(kgs)"') AS FLOAT64
       )) AS total_quantity
