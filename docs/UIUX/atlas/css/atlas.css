@@ -1,0 +1,198 @@
+/* ============================================================================
+   MapleQuery ATLAS — atlas.css
+   A ground-up visual system. NOTHING is shared with the previous UI.
+
+   Identity:  graphite neutrals + a single confident maple-red signal.
+   Type:      Space Grotesk (display / Orbit) · Inter (prose) · JetBrains Mono (data)
+   Motion:    Orbit "lift", Lens "slide", citation "peek".
+
+   Tokens are space-separated RGB channels so Tailwind can inject alpha
+   (text-accent/60) and the palette flips wholesale by [data-theme].
+   Tailwind maps each to: rgb(var(--token) / <alpha-value>)
+   ========================================================================== */
+
+:root {
+  --canvas: 250 250 249;      /* app backdrop */
+  --paper: 255 255 255;       /* the writing stage */
+  --raised: 255 255 255;      /* orbit / lens / modal */
+  --ink: 18 18 20;            /* primary text */
+  --ink-soft: 58 58 64;
+  --muted: 116 116 124;
+  --faint: 158 158 166;
+  --line: 234 233 230;
+  --line-strong: 214 213 209;
+
+  --accent: 210 54 40;        /* MAPLE — actions, active, citation markers */
+  --accent-press: 178 42 30;
+  --accent-wash: 210 54 40;   /* used at low alpha for tints */
+
+  --ok: 22 150 74;            /* synced / verified */
+  --warn: 194 102 8;          /* freshness / honest gaps */
+
+  --graph-1: 176 176 184;     /* chart ramp, low */
+  --graph-2: 96 98 110;       /* chart ramp, high */
+
+  --shadow-orbit: 0 12px 40px -8px rgb(18 18 20 / 0.24), 0 2px 8px rgb(18 18 20 / 0.08);
+  --shadow-lens: -24px 0 60px -20px rgb(18 18 20 / 0.28);
+  --shadow-card: 0 1px 2px rgb(18 18 20 / 0.05);
+  --shadow-pop: 0 20px 48px -12px rgb(18 18 20 / 0.30);
+
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --canvas: 11 11 12;
+  --paper: 22 22 25;
+  --raised: 27 27 31;
+  --ink: 244 244 242;
+  --ink-soft: 202 202 198;
+  --muted: 138 138 146;
+  --faint: 96 96 104;
+  --line: 40 40 45;
+  --line-strong: 56 56 63;
+
+  --accent: 240 84 68;
+  --accent-press: 255 108 92;
+  --accent-wash: 240 84 68;
+
+  --ok: 52 190 100;
+  --warn: 226 140 44;
+
+  --graph-1: 84 84 94;
+  --graph-2: 190 190 200;
+
+  --shadow-orbit: 0 12px 44px -8px rgb(0 0 0 / 0.6), 0 2px 8px rgb(0 0 0 / 0.4);
+  --shadow-lens: -24px 0 70px -20px rgb(0 0 0 / 0.65);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-pop: 0 20px 52px -12px rgb(0 0 0 / 0.7);
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: rgb(var(--canvas));
+  color: rgb(var(--ink-soft));
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background-color .3s ease, color .3s ease;
+}
+
+/* ---- Selection uses the signal ------------------------------------------- */
+::selection { background: rgb(var(--accent) / 0.18); color: rgb(var(--ink)); }
+
+/* ---- Scrollbars — nearly invisible until needed -------------------------- */
+.scroll { scrollbar-width: thin; scrollbar-color: rgb(var(--line-strong)) transparent; }
+.scroll::-webkit-scrollbar { width: 9px; height: 9px; }
+.scroll::-webkit-scrollbar-thumb { background: rgb(var(--line-strong)); border: 3px solid transparent; background-clip: content-box; border-radius: 999px; }
+.scroll::-webkit-scrollbar-thumb:hover { background: rgb(var(--muted)); background-clip: content-box; }
+
+/* ---- Keycap -------------------------------------------------------------- */
+.cap {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10px; line-height: 1; letter-spacing: .02em;
+  padding: 3px 5px; border-radius: 6px;
+  border: 1px solid rgb(var(--line-strong));
+  background: rgb(var(--canvas));
+  color: rgb(var(--muted));
+}
+
+/* ---- contenteditable placeholder ----------------------------------------- */
+[data-ph]:empty::before { content: attr(data-ph); color: rgb(var(--faint)); pointer-events: none; }
+
+/* ---- Focus ring ---------------------------------------------------------- */
+.ring:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 2px; border-radius: 8px; }
+
+/* =========================================================================
+   MOTION
+   ========================================================================= */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition-duration: .01ms !important; }
+}
+
+/* Block / answer settle */
+.settle { animation: settle .5s cubic-bezier(.16,1,.3,1) both; }
+@keyframes settle { from { opacity: 0; transform: translateY(14px); filter: blur(3px); } to { opacity: 1; transform: none; filter: none; } }
+
+/* ORBIT lift — the command bar springs up when summoned */
+#orbitPanel { transform-origin: bottom center; }
+.orbit-open #orbitPanel { animation: lift .34s cubic-bezier(.2,1.3,.35,1) both; }
+@keyframes lift { from { opacity: 0; transform: translateY(18px) scale(.96); } to { opacity: 1; transform: none; } }
+.orbit-open #orbitPill { opacity: 0; pointer-events: none; }
+
+/* LENS slide — data inspector enters from the right edge */
+#lensSheet { transform: translateX(100%); transition: transform .42s cubic-bezier(.16,1,.3,1); will-change: transform; }
+.lens-open #lensSheet { transform: none; }
+#lensScrim { opacity: 0; transition: opacity .42s ease; }
+.lens-open #lensScrim { opacity: 1; }
+
+/* Citation peek — provenance card blooms on hover */
+.peek { opacity: 0; transform: translateY(4px) scale(.98); transition: opacity .16s ease, transform .16s cubic-bezier(.16,1,.3,1); pointer-events: none; }
+.cite:hover .peek, .cite:focus-visible .peek { opacity: 1; transform: none; }
+
+/* Living citation marker */
+.cite-mark {
+  font-family: "JetBrains Mono", monospace; font-size: .72em; font-weight: 600;
+  color: rgb(var(--accent)); background: rgb(var(--accent-wash) / 0.10);
+  padding: 1px 5px; border-radius: 5px; cursor: pointer; white-space: nowrap;
+  vertical-align: baseline; transition: background-color .15s ease, color .15s ease;
+}
+.cite-mark:hover { background: rgb(var(--accent) / 0.9); color: white; }
+
+/* Skeleton shimmer */
+.sk { background: linear-gradient(90deg, rgb(var(--canvas)) 25%, rgb(var(--line) / .8) 50%, rgb(var(--canvas)) 75%); background-size: 200% 100%; animation: sh 1.3s infinite; }
+@keyframes sh { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* Typing dots */
+.dots i { display:inline-block; width:5px; height:5px; border-radius:999px; background: rgb(var(--accent)); animation: bl 1.1s infinite; }
+.dots i:nth-child(2){ animation-delay:.18s; } .dots i:nth-child(3){ animation-delay:.36s; }
+@keyframes bl { 0%,70%,100%{ opacity:.25; transform:translateY(0);} 35%{ opacity:1; transform:translateY(-3px);} }
+
+/* Column grow (charts) */
+.col { transition: height .8s cubic-bezier(.16,1,.3,1); }
+
+/* Row cascade (lens table) */
+.rin { opacity: 0; transform: translateX(-6px); animation: rin .38s ease forwards; }
+@keyframes rin { to { opacity: 1; transform: none; } }
+
+/* Orbit result flash — a query "settling" into the stage */
+.flash { animation: fl 1.1s ease; }
+@keyframes fl { 0%{ box-shadow: inset 0 0 0 9999px rgb(var(--accent) / 0.10);} 100%{ box-shadow: inset 0 0 0 9999px transparent; } }
+
+/* Block drag affordances */
+.blk .grip { opacity: 0; transition: opacity .15s ease; }
+.blk:hover .grip, .blk:focus-within .grip { opacity: 1; }
+[draggable="true"].blk { cursor: default; }
+.blk .grip { cursor: grab; }
+.blk.drag { opacity: .35; }
+.blk.over-top { box-shadow: inset 0 2px 0 rgb(var(--accent)); }
+.blk.over-bot { box-shadow: inset 0 -2px 0 rgb(var(--accent)); }
+
+/* While dragging a Lens row, let the scrim pass drops through to the Stage. */
+.row-dragging #lensScrim { pointer-events: none; }
+.row-dragging #lensSheet { opacity: .82; }
+
+/* =========================================================================
+   FOCUS — kill the browser's default (blue) outline everywhere; keep a
+   maple keyboard-only ring. Mouse clicks never show a ring; text surfaces
+   never show one (the caret is enough).
+   ========================================================================= */
+* { -webkit-tap-highlight-color: transparent; }
+:focus { outline: none; }
+:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 2px; border-radius: 8px; }
+input:focus, input:focus-visible,
+textarea:focus, textarea:focus-visible,
+[contenteditable]:focus, [contenteditable]:focus-visible,
+select:focus, select:focus-visible { outline: none; box-shadow: none; }
+.cite:focus-visible .cite-mark { outline: 2px solid rgb(var(--accent)); outline-offset: 1px; }
+
+/* =========================================================================
+   LIBRARY — left slide-over document navigator (mirrors the Lens).
+   ========================================================================= */
+#libSheet { transform: translateX(-100%); transition: transform .42s cubic-bezier(.16,1,.3,1); will-change: transform; box-shadow: 24px 0 60px -20px rgb(18 18 20 / 0.28); }
+.lib-open #libSheet { transform: none; }
+#libScrim { opacity: 0; transition: opacity .42s ease; }
+.lib-open #libScrim { opacity: 1; }
+[data-theme="dark"] #libSheet { box-shadow: 24px 0 70px -20px rgb(0 0 0 / 0.65); }
