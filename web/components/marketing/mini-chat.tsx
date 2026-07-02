@@ -214,7 +214,11 @@ export function MiniChat() {
       : turn.question;
 
   const answerShownChars =
-    phase.kind === "typing-answer" ? phase.charIdx : 0;
+    phase.kind === "typing-answer"
+      ? phase.charIdx
+      : phase.kind === "hold"
+        ? turn.answerPlain.length
+        : 0;
   const answerFullyShown =
     phase.kind === "typing-answer"
       ? phase.charIdx >= turn.answerPlain.length
