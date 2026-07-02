@@ -61,6 +61,14 @@ If a card can't hold 14B-bf16, swap to `Qwen/Qwen2.5-7B-Instruct` via `WHENRICH_
 | `WHENRICH_COLUMN_NAME_ALLOWLIST_RE` | (see settings.py)            | Column-name allowlist regex (4.5)                        |
 | `WHENRICH_COLUMN_CHUNK_RETRY_TEMPERATURE` | `0.2`                  | Temperature for the single retry on chunk invariant violation (4.5) |
 | `WHENRICH_BQ_COLUMNS_TABLE`        | `columns`                     | Target table name in `semantic.*`                        |
+| `WHENRICH_OPENAI_GENERATION_MODEL` | `gpt-4o`                      | OpenAI model for SQL generation (4.6 harness)            |
+| `WHENRICH_OPENAI_GENERATION_TEMPERATURE` | `0.0`                   | Determinism for the prompt-iteration loop                |
+| `WHENRICH_OPENAI_GENERATION_MAX_TOKENS` | `1024`                   | Per-call max-tokens for SQL generation                   |
+| `WHENRICH_EVAL_K_PACKAGES`         | `5`                           | Top-k for package `VECTOR_SEARCH`                        |
+| `WHENRICH_EVAL_K_COLUMNS`          | `15`                          | Top-k for column `VECTOR_SEARCH` (scoped)                |
+| `WHENRICH_EVAL_MAX_BYTES_BILLED`   | `53687091200` (50 GB)         | Dry-run cost cap for the SQL guard                       |
+| `WHENRICH_EVAL_QUERY_TIMEOUT_MS`   | `30000`                       | Execution timeout                                        |
+| `WHENRICH_EVAL_ROW_LIMIT`          | `100`                         | Hard `LIMIT` enforced by the guard                       |
 
 `WHENRICH_DEV=1` swaps the structlog JSON renderer for the console renderer so local runs are readable.
 
@@ -348,6 +356,63 @@ Both queries should return `n_wrong = 0`.
 - Idempotent: the runners can be run twice — the second run rewrites the same rows to the same vectors (OpenAI embeddings are deterministic).
 - A crash before the MERGE leaves the target table untouched. The staging table auto-expires in 24 h.
 - To roll back to Qwen vectors, rerun the pre-4.7 datasets-embed + columns-embed pipeline on the GPU box. Same operation, opposite direction.
+
+## Retrieval-validation harness — operator runbook
+
+The `semantic-enrich eval` subcommand grades the semantic layer end-to-end against a committed 20-question fixture: embed the NL question, run `VECTOR_SEARCH` over `semantic.datasets` and `semantic.columns`, ask `gpt-4o` to emit one SQL statement via Structured Outputs, dry-run-validate the SQL under hard guardrails, execute it, and score the result. Laptop-side; no GPU box dependency.
+
+### Prereqs
+
+- `semantic.datasets` and `semantic.columns` populated end-to-end.
+- Both tables re-embedded via `datasets-reembed` / `columns-reembed` so `ARRAY_LENGTH(embedding) = 1536`. The runner refuses to proceed against a stale 1024-dim warehouse.
+- `WHENRICH_GCP_PROJECT_ID` (or `GCP_PROJECT_ID`) exported.
+- `WHENRICH_OPENAI_API_KEY` (or `OPENAI_API_KEY`) exported.
+
+### Loop
+
+```sh
+# Prompt-iteration loop (no BQ execution, just retrieval + SQL gen + dry-run).
+uv run semantic-enrich eval --no-execute
+
+# One question end-to-end.
+uv run semantic-enrich eval --question-ids q01
+
+# Full run with a relaxed cost cap for a deep-dive.
+uv run semantic-enrich eval --max-bytes-billed 214748364800   # 200 GB
+
+# Harness self-test — zero OpenAI / BQ calls; verifies the fixture parses,
+# the prompt template renders under StrictUndefined, and the report writer
+# lands its output files.
+uv run semantic-enrich eval --dry-run
+```
+
+Full 20-question runs complete in under 90 s on the laptop against warm BQ slots; expect ~\$0.15 in gpt-4o + embedding cost per full run.
+
+### Fixture
+
+Committed at `services/semantic-enrich/eval/questions.yaml`. 20 hand-curated questions across `housing`, `taxes`, `fisheries`, `immigration`, `census`, `environment`, `methodology`, `multi_domain`. `expected_packages` UUIDs are populated by the operator against CKAN search + `raw.documents` — the first pass leaves them empty (contributes 1.0 to per-question recall, documented in the report header). Grow the fixture in `+10` increments as a `v2 fixture` file after M3 ships, not by mutating this one.
+
+### Prompt template
+
+`services/semantic-enrich/eval/prompts/sql_generation.j2`. The load-bearing artefact of the harness. Rendered under `StrictUndefined` (a missing variable raises rather than emitting literal `None`). Edit and re-run; the `prompt_template_hash` in the summary confirms two runs used the same prompt.
+
+### Reports
+
+Written to `services/semantic-enrich/eval/reports/<run_id>.{json,md}`. JSON is machine-diffable; Markdown is the operator's reading surface. The directory is `.gitignore`d by default; commit a specific acceptance report via `git add -f`.
+
+Each question grades into exactly one terminal state:
+- `answered` — SQL executed, returned rows (for `must_return_rows=true`).
+- `no_rows` — SQL executed, empty result.
+- `sql_invalid` — guard rejected (parse, SELECT-only, identifier whitelist, multi-statement).
+- `sql_too_expensive` — guard rejected on cost cap.
+- `sql_timed_out` — execution exceeded 30 s.
+- `retrieval_miss` — zero `VECTOR_SEARCH` hits.
+- `sql_not_generated` — Structured Outputs violation despite strict mode (vendor regression).
+- `execution_error` — BQ runtime error.
+
+### Recovery
+
+Every question grade is appended to `<run_id>.partial.jsonl` before the next question starts. A mid-run crash leaves the partial file for review; the final JSON + MD are written only on clean completion. Re-run against the same warehouse; determinism (temperature 0.0, BQ query cache on, sequential order) yields byte-identical per-question grades modulo `run_id` and timestamps.
 
 ## How the library API is used
 

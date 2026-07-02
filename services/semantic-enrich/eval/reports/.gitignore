@@ -1,0 +1,6 @@
+# Reports are gitignored by default; the fixture + prompt template are
+# what carry forward across runs. A deliberate acceptance run is
+# committed with `git add -f services/semantic-enrich/eval/reports/<name>`
+# or via a negation pattern here.
+*
+!.gitignore

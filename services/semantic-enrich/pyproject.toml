@@ -43,6 +43,12 @@ dependencies = [
   # 4.7 swap plus the datasets-reembed / columns-reembed one-off
   # backfill. text-embedding-3-small returns 1536-dim vectors.
   "openai>=1.50,<2",
+  # 4.6 retrieval-validation harness deps. YAML for the committed
+  # question fixture; jinja2 for the operator-edited prompt template;
+  # sqlglot for the BigQuery-dialect parser the SQL guard walks.
+  "pyyaml>=6.0,<7",
+  "jinja2>=3.1,<4",
+  "sqlglot>=25.0,<27",
 ]
 
 [project.scripts]
@@ -110,6 +116,9 @@ module = [
   "google.api_core.*",
   "openai",
   "openai.*",
+  "sqlglot",
+  "sqlglot.*",
+  "yaml",
 ]
 ignore_missing_imports = true
 

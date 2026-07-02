@@ -24,19 +24,24 @@ def _find_schemas_dir() -> Path:
     return Path("infra/terraform/schemas")
 
 
-def _find_staging_dir() -> Path:
-    """Default to `services/semantic-enrich/stage/` relative to repo root.
+def _find_service_dir() -> Path:
+    """Return `services/semantic-enrich/` relative to the repo root.
 
-    Walks up looking for the service dir so `uv run semantic-enrich ...`
-    invoked from anywhere inside the repo lands its JSONL in the same
-    place that the rsync runbook expects.
+    Walks up from cwd looking for the service dir so any file default
+    keyed off it resolves to the same absolute path whether the CLI is
+    invoked from the repo root or from a subdir.
     """
     cwd = Path.cwd().resolve()
     for parent in [cwd, *cwd.parents]:
         candidate = parent / "services" / "semantic-enrich"
         if candidate.is_dir():
-            return candidate / "stage"
-    return Path("stage")
+            return candidate
+    return Path("services") / "semantic-enrich"
+
+
+def _find_staging_dir() -> Path:
+    """Default to `services/semantic-enrich/stage/` relative to repo root."""
+    return _find_service_dir() / "stage"
 
 
 class Settings(BaseSettings):
@@ -148,3 +153,44 @@ class Settings(BaseSettings):
     openai_embedding_batch_size: int = 128
     openai_request_timeout_s: float = 30.0
     openai_max_retries: int = 3
+
+    # ── 4.6 retrieval-validation harness ──
+    # OpenAI generation config. The embedding config above is reused as-is.
+    openai_generation_model: str = "gpt-4o"
+    openai_generation_temperature: float = 0.0
+    openai_generation_max_tokens: int = 1024
+
+    # Retrieval knobs. See PRD §6.4 for the k rationale.
+    eval_k_packages: int = 5
+    eval_k_columns: int = 15
+
+    # SQL guard knobs. Cost cap default catches hallucinated full-scan
+    # queries against `raw.rows` (~50 GB unfiltered) cheaply; operators
+    # raise it deliberately via --max-bytes-billed.
+    eval_max_bytes_billed: int = 50 * 1024 * 1024 * 1024
+    eval_query_timeout_ms: int = 30_000
+    eval_dry_run_timeout_ms: int = 10_000
+    eval_row_limit: int = 100
+    eval_allowed_datasets: tuple[str, ...] = ("raw", "semantic")
+    eval_forbidden_keywords: tuple[str, ...] = (
+        "INSERT", "UPDATE", "DELETE", "MERGE", "CREATE", "DROP",
+        "ALTER", "GRANT", "REVOKE", "TRUNCATE", "CALL",
+    )
+
+    # Paths. Defaults land at the committed fixture + template locations
+    # relative to the repo root; walked up from cwd like staging_dir.
+    eval_questions_path: Path = Field(
+        default_factory=lambda: _find_service_dir() / "eval" / "questions.yaml"
+    )
+    eval_prompt_template: Path = Field(
+        default_factory=lambda: (
+            _find_service_dir() / "eval" / "prompts" / "sql_generation.j2"
+        )
+    )
+    eval_reports_dir: Path = Field(
+        default_factory=lambda: _find_service_dir() / "eval" / "reports"
+    )
+
+    # Run identity. A new UUID per process by default; separate from
+    # `run_id` so an eval run inside a larger session gets its own id.
+    eval_run_id: str = Field(default_factory=lambda: str(uuid.uuid4()))

@@ -4,10 +4,17 @@ Mirrors warehouse-load/clients/bq.py — same retry policy, same
 load-job patterns — but trimmed to the surface 4.4 actually uses:
 ad-hoc query, parameter-bound query, append-from-file, staging-table
 lifecycle. Tests implement `BqClient` directly instead of monkeypatching.
+
+The 4.6 harness adds two surfaces the enrichment pipeline does not
+need: `dry_run_bytes` (cost cap) and `run_bounded_query` (bounded
+execution with per-job stats). Both bypass the retry policy — the
+harness's contract is that every guard-passing SQL either succeeds or
+grades as a terminal state; a silent retry would mask the report signal.
 """
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -17,6 +24,24 @@ from google.cloud import bigquery
 from tenacity import Retrying
 
 from semantic_enrich.providers.retry import bq_retry_policy
+
+
+@dataclass(frozen=True)
+class BoundedQueryResult:
+    """Return shape of `BqClient.run_bounded_query`.
+
+    Bytes-billed and slot-ms are captured for the aggregate report;
+    `timed_out` distinguishes an execution-timeout grade from an
+    execution-error grade. `error` carries the BQ exception message
+    verbatim when execution fails; `rows` is empty in that case.
+    """
+
+    rows: list[dict[str, Any]]
+    total_bytes_billed: int
+    slot_ms: int
+    elapsed_ms: int
+    timed_out: bool
+    error: str | None
 
 
 @runtime_checkable
@@ -63,6 +88,41 @@ class BqClient(Protocol):
         """Create a table that BQ auto-deletes after `expires_in`."""
 
     def delete_table(self, table_id: str, *, not_found_ok: bool = True) -> None: ...
+
+    def dry_run_bytes(
+        self,
+        sql: str,
+        *,
+        params: Iterable[
+            bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter
+        ] = (),
+        timeout_ms: int,
+    ) -> int:
+        """Dry-run the SQL; return total_bytes_processed.
+
+        Raises on parse error, auth failure, or dataset-not-found. NO
+        retry — the harness treats every failure as terminal for the
+        question so the operator sees the raw signal in the report.
+        """
+
+    def run_bounded_query(
+        self,
+        sql: str,
+        *,
+        params: Iterable[
+            bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter
+        ] = (),
+        timeout_ms: int,
+        max_bytes_billed: int,
+        row_limit: int,
+    ) -> BoundedQueryResult:
+        """Execute with the harness's guardrails. NO retry.
+
+        `row_limit` is a client-side truncation ceiling; the guard has
+        already enforced a SQL-level LIMIT, so this is defence in depth.
+        Timeouts return `timed_out=True` with an empty `rows` list;
+        other BQ errors return `error` populated with the raw message.
+        """
 
 
 class RealBqClient:
@@ -171,3 +231,83 @@ class RealBqClient:
         except gax.NotFound:
             if not not_found_ok:
                 raise
+
+    def dry_run_bytes(
+        self,
+        sql: str,
+        *,
+        params: Iterable[
+            bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter
+        ] = (),
+        timeout_ms: int,
+    ) -> int:
+        # No retry — the harness surfaces every failure verbatim in the
+        # per-question grade rather than silently retrying.
+        job_config = bigquery.QueryJobConfig(
+            dry_run=True,
+            use_query_cache=False,
+            query_parameters=list(params),
+        )
+        job = self._client.query(
+            sql,
+            job_config=job_config,
+            timeout=timeout_ms / 1000.0,
+        )
+        return int(job.total_bytes_processed or 0)
+
+    def run_bounded_query(
+        self,
+        sql: str,
+        *,
+        params: Iterable[
+            bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter
+        ] = (),
+        timeout_ms: int,
+        max_bytes_billed: int,
+        row_limit: int,
+    ) -> BoundedQueryResult:
+        import time as _time
+
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=list(params),
+            maximum_bytes_billed=max_bytes_billed,
+        )
+        started = _time.monotonic()
+        timeout_s = timeout_ms / 1000.0
+        try:
+            job = self._client.query(sql, job_config=job_config)
+            iterator = job.result(timeout=timeout_s)
+            rows: list[dict[str, Any]] = []
+            for row in iterator:
+                rows.append(dict(row))
+                if len(rows) >= row_limit:
+                    break
+            elapsed_ms = int((_time.monotonic() - started) * 1000)
+            return BoundedQueryResult(
+                rows=rows,
+                total_bytes_billed=int(job.total_bytes_billed or 0),
+                slot_ms=int(job.slot_millis or 0),
+                elapsed_ms=elapsed_ms,
+                timed_out=False,
+                error=None,
+            )
+        except TimeoutError as exc:
+            elapsed_ms = int((_time.monotonic() - started) * 1000)
+            return BoundedQueryResult(
+                rows=[],
+                total_bytes_billed=0,
+                slot_ms=0,
+                elapsed_ms=elapsed_ms,
+                timed_out=True,
+                error=str(exc),
+            )
+        except gax.GoogleAPICallError as exc:
+            elapsed_ms = int((_time.monotonic() - started) * 1000)
+            return BoundedQueryResult(
+                rows=[],
+                total_bytes_billed=0,
+                slot_ms=0,
+                elapsed_ms=elapsed_ms,
+                timed_out=False,
+                error=str(exc),
+            )

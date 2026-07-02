@@ -16,6 +16,8 @@ from typing import Any
 
 from google.cloud import bigquery
 
+from semantic_enrich.clients.bq import BoundedQueryResult
+
 
 class FakeBqClient:
     """In-memory BqClient. Tests register canned responses keyed by a
@@ -28,6 +30,20 @@ class FakeBqClient:
         self.staging_tables: dict[str, dict[str, Any]] = {}
         self.deleted_tables: list[str] = []
         self.loaded_files: list[dict[str, Any]] = []
+        # 4.6 harness surfaces. `dry_run_bytes_value` is returned by
+        # every `dry_run_bytes` call unless `dry_run_bytes_exc` is set.
+        # `bounded_query_result` is returned by `run_bounded_query`
+        # unless the test wires a per-SQL-fragment lookup via
+        # `register_bounded_query`.
+        self.dry_run_bytes_value: int = 100_000_000
+        self.dry_run_bytes_exc: Exception | None = None
+        self.dry_run_calls: list[str] = []
+        self._bounded_by_fragment: dict[str, BoundedQueryResult] = {}
+        self.bounded_default: BoundedQueryResult = BoundedQueryResult(
+            rows=[], total_bytes_billed=0, slot_ms=0,
+            elapsed_ms=0, timed_out=False, error=None,
+        )
+        self.bounded_calls: list[str] = []
 
     # ── Test-side setup ──
 
@@ -106,6 +122,44 @@ class FakeBqClient:
 
     def delete_table(self, table_id: str, *, not_found_ok: bool = True) -> None:
         self.deleted_tables.append(table_id)
+
+    # ── 4.6 harness surfaces ──
+
+    def register_bounded_query(
+        self, sql_fragment: str, result: BoundedQueryResult
+    ) -> None:
+        self._bounded_by_fragment[sql_fragment] = result
+
+    def dry_run_bytes(
+        self,
+        sql: str,
+        *,
+        params: Iterable[
+            bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter
+        ] = (),
+        timeout_ms: int,
+    ) -> int:
+        self.dry_run_calls.append(sql)
+        if self.dry_run_bytes_exc is not None:
+            raise self.dry_run_bytes_exc
+        return self.dry_run_bytes_value
+
+    def run_bounded_query(
+        self,
+        sql: str,
+        *,
+        params: Iterable[
+            bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter
+        ] = (),
+        timeout_ms: int,
+        max_bytes_billed: int,
+        row_limit: int,
+    ) -> BoundedQueryResult:
+        self.bounded_calls.append(sql)
+        for fragment, result in self._bounded_by_fragment.items():
+            if fragment in sql:
+                return result
+        return self.bounded_default
 
 
 def fake_generate_json_factory(
