@@ -21,20 +21,7 @@ export default function LandingPage() {
 
 function Hero() {
   return (
-    <section className="hero-grad relative overflow-hidden">
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute left-[8%] top-24 h-24 w-24 rounded-2xl bg-coral/10"
-      />
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute right-[10%] top-40 h-16 w-16 rounded-full bg-teal/15"
-      />
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute bottom-10 right-[22%] h-10 w-10 rounded-lg bg-amber/20"
-      />
-
+    <section className="relative overflow-hidden">
       <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-4 py-20 md:px-6 md:py-24 lg:grid-cols-[1.1fr_0.9fr]">
         <div>
           <h1 className="max-w-3xl text-4xl font-semibold leading-[1.08] tracking-tight text-ink sm:text-5xl md:text-6xl">
@@ -82,7 +69,7 @@ function Hero() {
 
 function FeatureShowcase() {
   return (
-    <div className="border-t border-hairline bg-canvas">
+    <div className="border-t border-hairline">
       <Feature
         kicker="Chat"
         eyebrowIcon={<Sparkles className="h-3.5 w-3.5" />}
@@ -176,7 +163,7 @@ function TrustBand() {
     },
   ];
   return (
-    <section className="border-b border-hairline bg-surface-soft/60">
+    <section className="border-b border-hairline bg-surface-soft/40 backdrop-blur-[2px]">
       <div className="mx-auto grid max-w-6xl gap-10 px-4 py-16 md:grid-cols-2 md:px-6">
         <Reveal>
           <h2 className="text-3xl font-semibold tracking-tight text-ink">

@@ -1,11 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { getCorpusStats, type CorpusStats } from "@/lib/api";
+import { getCorpusStats, type CorpusStats as CorpusStatsT } from "@/lib/api";
 
 interface StatDef {
   label: string;
-  render: (s: CorpusStats | null) => string;
+  render: (s: CorpusStatsT | null) => string;
 }
 
 const STATS: StatDef[] = [
@@ -24,7 +24,7 @@ const STATS: StatDef[] = [
 ];
 
 export function CorpusStats() {
-  const [stats, setStats] = React.useState<CorpusStats | null>(null);
+  const [stats, setStats] = React.useState<CorpusStatsT | null>(null);
   const [failed, setFailed] = React.useState(false);
 
   React.useEffect(() => {
@@ -33,8 +33,6 @@ export function CorpusStats() {
       .then((s) => setStats(s))
       .catch((err) => {
         if ((err as Error).name === "AbortError") return;
-        // Fall back to a soft display rather than surfacing an error in
-        // the hero; the numbers are marketing, not load-bearing.
         setFailed(true);
       });
     return () => controller.abort();
@@ -43,9 +41,10 @@ export function CorpusStats() {
   return (
     <dl className="mt-12 grid max-w-lg grid-cols-3 gap-6">
       {STATS.map((s) => {
-        const value = failed && s.label !== "Answers cited or refused"
-          ? "—"
-          : s.render(stats);
+        const value =
+          failed && s.label !== "Answers cited or refused"
+            ? "—"
+            : s.render(stats);
         return (
           <div key={s.label}>
             <dd className="text-3xl font-semibold tracking-tight text-ink tabular-nums">

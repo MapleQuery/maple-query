@@ -39,9 +39,10 @@ export default function RootLayout({
   return (
     <html lang="en" className={inter.variable}>
       <body className="min-h-screen bg-canvas font-sans text-body antialiased">
+        <div aria-hidden="true" className="site-backdrop" />
         <PostHogProvider>
           <ToastProvider>
-            <div className="flex min-h-screen flex-col">
+            <div className="relative flex min-h-screen flex-col">
               <SiteHeader />
               <div className="flex-1">{children}</div>
             </div>

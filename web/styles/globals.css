@@ -14,7 +14,7 @@
   }
 
   body {
-    background-color: #f0eeeb;
+    background-color: transparent;
     color: #2d3942;
   }
 
@@ -33,9 +33,25 @@
 
   .hero-grad {
     background:
-      radial-gradient(120% 90% at 88% -5%, rgba(253, 137, 115, 0.2), transparent 55%),
-      radial-gradient(90% 80% at 0% 15%, rgba(0, 58, 108, 0.12), transparent 55%),
-      radial-gradient(80% 70% at 55% 105%, rgba(255, 191, 101, 0.16), transparent 60%);
+      radial-gradient(120% 90% at 88% -5%, rgba(253, 137, 115, 0.22), transparent 55%),
+      radial-gradient(90% 80% at 0% 15%, rgba(0, 58, 108, 0.14), transparent 55%),
+      radial-gradient(80% 70% at 55% 105%, rgba(255, 191, 101, 0.18), transparent 60%);
+  }
+
+  /* Page-wide, fixed backdrop. Sits behind every section, so the tinted
+     wash carries all the way down the scroll instead of getting cropped
+     to the hero. */
+  .site-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(60% 45% at 92% 0%, rgba(253, 137, 115, 0.18), transparent 60%),
+      radial-gradient(50% 40% at 4% 12%, rgba(0, 58, 108, 0.10), transparent 60%),
+      radial-gradient(55% 45% at 60% 95%, rgba(255, 191, 101, 0.14), transparent 65%),
+      radial-gradient(45% 45% at 10% 85%, rgba(78, 129, 151, 0.10), transparent 65%);
+    background-color: #f0eeeb;
   }
 
   .src-flash {
