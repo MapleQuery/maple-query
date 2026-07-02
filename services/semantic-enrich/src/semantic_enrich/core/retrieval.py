@@ -65,6 +65,13 @@ class DocumentCandidate:
     the only one BigQuery can plan-time-prune against `raw.rows`'
     `document_id` cluster; a subquery IN — even against `raw.documents` —
     forces a full clustered scan.
+
+    `columns` is the doc's actual JSON key set, drawn from
+    `raw.column_index`. Different docs in the same CKAN package can have
+    entirely disjoint column sets (bilingual pairs, header-parse
+    failures collapsing to `__col_N`, resource variants). Exposing the
+    per-doc set lets the model pair the right column with the right
+    doc instead of picking columns from the package-wide union.
     """
 
     document_id: str
@@ -72,6 +79,7 @@ class DocumentCandidate:
     title: str | None
     row_count: int | None
     resource_last_modified: datetime | None
+    columns: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -187,12 +195,12 @@ def retrieve_documents(
     Returns `(candidates, latency_ms)`.
     """
     project_id = _require_project(settings)
-    sql = _DOCUMENT_SEARCH_SQL.format(
+    docs_sql = _DOCUMENT_SEARCH_SQL.format(
         project_id=project_id,
         dataset=settings.bq_dataset_raw,
         table=settings.bq_documents_table,
     )
-    params: list[
+    docs_params: list[
         bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter
     ] = [
         bigquery.ArrayQueryParameter("package_ids", "STRING", package_ids),
@@ -203,9 +211,54 @@ def retrieve_documents(
         ),
     ]
     started = time.monotonic()
-    rows = list(bq.query_rows(sql, params=params))
+    doc_rows = list(bq.query_rows(docs_sql, params=docs_params))
+    doc_ids = [str(r["document_id"]) for r in doc_rows]
+    keys_by_doc = _fetch_doc_columns(
+        bq=bq, project_id=project_id, doc_ids=doc_ids, settings=settings
+    )
     latency_ms = int((time.monotonic() - started) * 1000)
-    return [_document_from_row(r) for r in rows], latency_ms
+    return [
+        _document_from_row(r, keys_by_doc.get(str(r["document_id"]), []))
+        for r in doc_rows
+    ], latency_ms
+
+
+def _fetch_doc_columns(
+    *,
+    bq: BqClient,
+    project_id: str,
+    doc_ids: list[str],
+    settings: Settings,
+) -> dict[str, list[str]]:
+    """Fetch the JSON key set of each doc's first row from `raw.rows`.
+
+    `raw.rows.row` is stored as a JSON-string scalar (loader
+    double-encodes via `json.dumps`), so a bare `JSON_KEYS(row)` returns
+    null; every consumer has to `PARSE_JSON(STRING(row))` first. That's
+    also why `raw.column_index` is currently empty — its rebuild uses
+    the broken bare form. Until 3.3.1 lands and the rows table is
+    reloaded, the harness pulls the keys directly per-doc.
+
+    Row bodies are typically identical in shape across a single doc, so
+    reading just the `row_index=0` row per doc via a literal `IN`-list
+    is both cheap (cluster-pruned) and accurate for the model's purpose.
+    """
+    if not doc_ids:
+        return {}
+    sql = _DOC_KEYS_SQL.format(
+        project_id=project_id,
+        dataset=settings.bq_dataset_raw,
+        rows_table=settings.bq_rows_table,
+    )
+    params: list[
+        bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter
+    ] = [
+        bigquery.ArrayQueryParameter("document_ids", "STRING", doc_ids),
+    ]
+    return {
+        str(r["document_id"]): _str_list(r.get("columns"))
+        for r in bq.query_rows(sql, params=params)
+    }
 
 
 def _require_project(settings: Settings) -> str:
@@ -241,7 +294,9 @@ def _column_from_row(row: dict[str, Any]) -> ColumnCandidate:
     )
 
 
-def _document_from_row(row: dict[str, Any]) -> DocumentCandidate:
+def _document_from_row(
+    row: dict[str, Any], columns: list[str]
+) -> DocumentCandidate:
     row_count = row.get("row_count")
     return DocumentCandidate(
         document_id=str(row["document_id"]),
@@ -251,6 +306,7 @@ def _document_from_row(row: dict[str, Any]) -> DocumentCandidate:
         resource_last_modified=_optional_datetime(
             row.get("resource_last_modified")
         ),
+        columns=tuple(columns),
     )
 
 
@@ -319,6 +375,20 @@ SELECT document_id, package_id, title, row_count, resource_last_modified
 FROM ranked
 WHERE rn <= @max_per_package
 ORDER BY package_id, rn
+""".strip()
+
+
+# Two-query approach because `WHERE document_id IN (SELECT ...)` would
+# not plan-time-prune the `raw.rows` cluster (same failure mode 3.3.1
+# documents). The literal IN-list from the docs query is small and
+# cluster-pruned in the second query.
+_DOC_KEYS_SQL = """
+SELECT
+  document_id,
+  JSON_KEYS(PARSE_JSON(STRING(row))) AS columns
+FROM `{project_id}.{dataset}.{rows_table}`
+WHERE document_id IN UNNEST(@document_ids)
+QUALIFY ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY row_index) = 1
 """.strip()
 
 

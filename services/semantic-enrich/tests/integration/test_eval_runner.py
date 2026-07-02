@@ -91,6 +91,9 @@ def test_mixed_outcome_run(tmp_path: Path) -> None:
          "title": "Housing 2023", "row_count": 42,
          "resource_last_modified": None},
     ])
+    bq.register_query("JSON_KEYS(PARSE_JSON(STRING(row)))", [
+        {"document_id": "doc-1", "columns": ["Amount", "Organization"]},
+    ])
     # q02: same retrieval shape as q01.
     bq.register_query("VECTOR_SEARCH", [
         {"package_id": "pkg-2", "summary": "taxes", "grain": None,
@@ -105,6 +108,9 @@ def test_mixed_outcome_run(tmp_path: Path) -> None:
         {"document_id": "doc-2", "package_id": "pkg-2",
          "title": None, "row_count": None,
          "resource_last_modified": None},
+    ])
+    bq.register_query("JSON_KEYS(PARSE_JSON(STRING(row)))", [
+        {"document_id": "doc-2", "columns": []},
     ])
     # q03: retrieval miss — both VECTOR_SEARCH calls return [].
     bq.register_query("VECTOR_SEARCH", [])

@@ -85,6 +85,7 @@ def test_render_contains_documents() -> None:
                 title="Housing expenditure 2023",
                 row_count=1234,
                 resource_last_modified=None,
+                columns=("Amount", "Organization"),
             ),
             DocumentCandidate(
                 document_id="doc-def",
@@ -92,6 +93,7 @@ def test_render_contains_documents() -> None:
                 title=None,
                 row_count=None,
                 resource_last_modified=None,
+                columns=(),
             ),
         ],
         settings=_settings(),
@@ -104,6 +106,13 @@ def test_render_contains_documents() -> None:
     # Missing row_count / title fall back to the "unspecified" sentinel
     # rather than rendering Python `None`.
     assert "unspecified" in prompt
+    # Per-doc columns rendered so the model can pair the right doc
+    # with the right column.
+    assert '"Amount"' in prompt
+    assert '"Organization"' in prompt
+    # The row-body unwrap guidance must be present verbatim — without
+    # PARSE_JSON(STRING(row)), every JSON_VALUE returns null.
+    assert "PARSE_JSON(STRING(r.row))" in prompt
 
 
 def test_render_missing_var_raises(tmp_path: Path) -> None:

@@ -65,7 +65,10 @@ def test_column_search_scoped() -> None:
 def test_retrieve_documents_scoped_and_filtered() -> None:
     """Documents retrieval feeds the literal-IN filter in the SQL-gen
     prompt: only `load_status='loaded'` docs get inlined, scoped to
-    the candidate packages, capped per-package."""
+    the candidate packages, capped per-package. A second query pulls
+    the per-doc column set from `raw.rows` (JSON-keys of the first row
+    per doc, PARSE_JSON-unwrapped) so the model can pair the right
+    column with the right doc."""
     bq = FakeBqClient()
     bq.register_query(
         "load_status = 'loaded'",
@@ -86,6 +89,13 @@ def test_retrieve_documents_scoped_and_filtered() -> None:
             },
         ],
     )
+    bq.register_query(
+        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        [
+            {"document_id": "doc-1", "columns": ["Amount", "Organization"]},
+            {"document_id": "doc-2", "columns": []},
+        ],
+    )
     docs, _ = retrieve_documents(
         bq=bq,
         package_ids=["pkg-1", "pkg-2"],
@@ -93,10 +103,35 @@ def test_retrieve_documents_scoped_and_filtered() -> None:
     )
     assert [d.document_id for d in docs] == ["doc-1", "doc-2"]
     assert docs[0].title == "Housing 2023"
+    assert docs[0].columns == ("Amount", "Organization")
     assert docs[1].title is None
+    assert docs[1].columns == ()
 
-    call = bq.calls[-1]
-    assert "load_status = 'loaded'" in call["sql"]
-    assert "package_id IN UNNEST(@package_ids)" in call["sql"]
-    names = {p.name for p in call["params"]}
-    assert names == {"package_ids", "max_per_package"}
+    docs_call = bq.calls[-2]
+    assert "load_status = 'loaded'" in docs_call["sql"]
+    assert "package_id IN UNNEST(@package_ids)" in docs_call["sql"]
+    assert {p.name for p in docs_call["params"]} == {
+        "package_ids", "max_per_package"
+    }
+
+    keys_call = bq.calls[-1]
+    # Per-doc keys are cluster-pruned by a literal IN-list on document_id
+    # and PARSE_JSON-unwrapped because raw.rows.row is a JSON-string scalar.
+    assert "IN UNNEST(@document_ids)" in keys_call["sql"]
+    assert "JSON_KEYS(PARSE_JSON(STRING(row)))" in keys_call["sql"]
+    assert {p.name for p in keys_call["params"]} == {"document_ids"}
+
+
+def test_retrieve_documents_empty_docs_skips_keys_query() -> None:
+    """If the docs query returns nothing, don't send an empty-array
+    IN-list to the keys query — return an empty list."""
+    bq = FakeBqClient()
+    bq.register_query("load_status = 'loaded'", [])
+    docs, _ = retrieve_documents(
+        bq=bq,
+        package_ids=["pkg-missing"],
+        settings=_settings(),
+    )
+    assert docs == []
+    # Only the docs query fired — no keys query.
+    assert len(bq.calls) == 1

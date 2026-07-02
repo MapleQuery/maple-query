@@ -10,8 +10,14 @@ Hard rules:
 - The query MUST be a single SELECT statement. No INSERT, UPDATE,
   DELETE, MERGE, CREATE, DROP, or other DDL/DML.
 - The query MUST include `LIMIT {{ row_limit }}`.
-- Row bodies live in `raw.rows(document_id, row_index, row JSON)`. Use
-  `JSON_VALUE(row, '$.<column_name>')` to extract a column value.
+- Row bodies live in `raw.rows(document_id, row_index, row JSON)`. The
+  `row` column is stored as a JSON-string scalar (double-encoded by the
+  loader), so you MUST unwrap it before extracting a field:
+  `JSON_VALUE(PARSE_JSON(STRING(r.row)), '$.<column_name>')`. Calling
+  `JSON_VALUE(r.row, '$.<column_name>')` directly returns NULL for
+  every row — the path is applied to the string scalar, not to the
+  object inside. This applies to `JSON_QUERY`, `JSON_EXTRACT`, and any
+  other JSON function that takes a path.
 - `raw.rows` is CLUSTERED BY `document_id`. Every query MUST filter
   `raw.rows` with a LITERAL `document_id` IN-list picked from the
   candidate documents below —
@@ -48,20 +54,30 @@ scoped to the packages above):
 
 Candidate documents (loaded `raw.documents` rows for the candidate
 packages; every `document_id` in your WHERE clause MUST come from this
-list):
+list). The `columns` field lists the ACTUAL JSON keys present in that
+doc's `raw.rows.row` bodies — different docs in the same package
+often have disjoint column sets, so a `document_id` you pick must
+contain every column you reference in that query. If no single doc
+contains all the columns you need, either narrow the query to columns
+that co-occur in one doc, or pick multiple docs where each contributes
+its columns to a different SELECT expression:
 {% for d in documents %}
 - document_id: {{ d.document_id }}
   package_id: {{ d.package_id }}
   title: {{ d.title or "unspecified" }}
   row_count: {{ d.row_count if d.row_count is not none else "unspecified" }}
   last_modified: {{ d.resource_last_modified or "unspecified" }}
+  columns: {{ d.columns | tojson }}
 {% endfor %}
 
-Worked example, showing the canonical query shape:
+Worked example, showing the canonical query shape (note the
+`PARSE_JSON(STRING(r.row))` unwrap around every field access):
 
   SELECT
-    JSON_VALUE(r.row, '$.FISCAL_YEAR') AS fiscal_year,
-    SUM(SAFE_CAST(JSON_VALUE(r.row, '$.TOT_EXP') AS FLOAT64)) AS total_expenditure
+    JSON_VALUE(PARSE_JSON(STRING(r.row)), '$.FISCAL_YEAR') AS fiscal_year,
+    SUM(SAFE_CAST(
+      JSON_VALUE(PARSE_JSON(STRING(r.row)), '$.TOT_EXP') AS FLOAT64
+    )) AS total_expenditure
   FROM `{{ project_id }}.raw.rows` AS r
   WHERE r.document_id IN (
     '<one_of_the_candidate_document_ids_above>',
