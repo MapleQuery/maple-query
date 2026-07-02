@@ -157,7 +157,7 @@ Next.js. Build command: `pnpm build`. Install: `pnpm install --frozen-lockfile`.
 - **Preview** on every PR touching `web/**`. URL pattern
   `https://maplequery-web-<hash>-<team>.vercel.app`.
 - **Production** on merge to `main` touching `web/**`, at
-  `https://maplequery.vercel.app`.
+  `https://maple-query.vercel.app`.
 - **Rollback** via Deployments → prior deploy → Promote to Production.
 
 The backend's `MQAGENT_CORS_ORIGINS` allow-list must include every FE origin

@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   title: "MapleQuery · Ask hard questions of Canadian government data",
   description:
     "MapleQuery turns fragmented Canadian open data into a plain-language conversation. Every figure carries a footnote that traces to the original record.",
-  metadataBase: new URL("https://maplequery.vercel.app"),
+  metadataBase: new URL("https://maple-query.vercel.app"),
   openGraph: {
     title: "MapleQuery",
     description:
