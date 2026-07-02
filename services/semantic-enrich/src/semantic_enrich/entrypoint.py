@@ -47,6 +47,15 @@ import typer
 from semantic_enrich.clients.bq import RealBqClient
 from semantic_enrich.clients.openai import OpenAIClient, RealOpenAIClient
 from semantic_enrich.config.settings import Settings
+from semantic_enrich.core.agent_cache import ResponseCache
+from semantic_enrich.core.agent_events import AgentEvent, Done, ErrorEvent
+from semantic_enrich.core.agent_loop import (
+    ChatRequest,
+    LoopDeps,
+    load_system_prompt,
+    make_snapshot_hash_provider,
+    run_turn,
+)
 from semantic_enrich.core.column_generator import (
     ColumnsGenerateRequest,
 )
@@ -735,6 +744,216 @@ def eval_run(
 
 
 # ──────────────────────────────────────────────────────────────────
+# chat  (laptop, 5.1 agent loop demo)
+# ──────────────────────────────────────────────────────────────────
+
+
+@app.command("chat")
+def chat(
+    conversation_id: str | None = typer.Option(
+        None,
+        "--conversation-id",
+        help="Continue a prior conversation. Default: new UUID.",
+    ),
+    history_file: Path | None = typer.Option(
+        None,
+        "--history-file",
+        help="Load prior transcript from this JSONL path. History is "
+        "persisted here on each turn.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run/--no-dry-run",
+        help="Skip openai/bq; smoke the loop with a fixed canned response.",
+    ),
+) -> None:
+    """REPL wrapper around the 5.1 agent loop. Terminal demo surface.
+
+    Reads a line, streams events as pretty-printed structured logs,
+    prints the final answer, prompts again. Not a shipping product
+    surface — 5.2 wraps the loop in an HTTP handler for the web app.
+    """
+    configure_logging()
+    log = get_logger("semantic_enrich.entrypoint")
+    settings = Settings()
+
+    if dry_run:
+        bq_client: Any = _StubBqClient()
+        openai_client: Any = _CannedChatClient()
+    else:
+        if not settings.gcp_project_id:
+            log.error("missing_project_id", subcommand="chat")
+            raise typer.Exit(3)
+        try:
+            bq_client = RealBqClient.for_project(settings.gcp_project_id)
+        except Exception as exc:
+            log.error("bq_auth_failed", error=str(exc))
+            raise typer.Exit(3) from exc
+        openai_client = _build_openai_client(
+            settings=settings, log=log, dry_run=False
+        )
+
+    try:
+        prompt, prompt_hash = load_system_prompt(
+            settings.agent_system_prompt_path, settings
+        )
+    except RuntimeError as exc:
+        log.error("prompt_load_failed", error=str(exc))
+        raise typer.Exit(3) from exc
+
+    deps = LoopDeps(
+        bq=bq_client,
+        openai_client=openai_client,
+        settings=settings,
+        system_prompt=prompt,
+        prompt_hash=prompt_hash,
+        cache=ResponseCache(
+            max_entries=settings.agent_cache_max_entries,
+            max_value_bytes=settings.agent_cache_max_value_bytes,
+            ttl_seconds=settings.agent_cache_ttl_seconds,
+        ),
+        snapshot_hash_provider=(
+            (lambda: "dry-run") if dry_run
+            else make_snapshot_hash_provider(bq_client, settings)
+        ),
+    )
+
+    cid = conversation_id or str(_uuid4())
+    history: list[dict[str, Any]] = []
+    if history_file is not None and history_file.exists():
+        history = _read_history(history_file)
+
+    typer.echo(f"# MapleQuery chat (conversation_id={cid}, dry_run={dry_run})")
+    typer.echo("# Type an empty line to exit.")
+    while True:
+        try:
+            question = typer.prompt("you", default="", show_default=False)
+        except (EOFError, KeyboardInterrupt):
+            typer.echo("")
+            break
+        if not question.strip():
+            break
+        request = ChatRequest(
+            conversation_id=cid,
+            history=history,
+            question=question,
+        )
+        assistant_message = ""
+        try:
+            for event in run_turn(request=request, deps=deps):
+                _print_event(event)
+                assistant_message = _consume_delta(event, assistant_message)
+                if isinstance(event, ErrorEvent):
+                    break
+                if isinstance(event, Done):
+                    break
+        except Exception as exc:
+            log.error("chat_turn_failed", error=str(exc), exc_info=True)
+            typer.echo(json.dumps({"error": str(exc)}), err=True)
+            continue
+        history.append({"role": "user", "content": question})
+        history.append({"role": "assistant", "content": assistant_message})
+        if history_file is not None:
+            _write_history(history_file, history)
+
+
+def _print_event(event: AgentEvent) -> None:
+    typer.echo(json.dumps(event.to_dict(), default=str))
+
+
+def _consume_delta(event: AgentEvent, buffer: str) -> str:
+    from semantic_enrich.core.agent_events import MessageDelta
+
+    if isinstance(event, MessageDelta):
+        return buffer + event.delta
+    return buffer
+
+
+def _read_history(path: Path) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        out.append(json.loads(line))
+    return out
+
+
+def _write_history(path: Path, history: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for msg in history:
+            f.write(json.dumps(msg) + "\n")
+
+
+def _uuid4() -> Any:
+    import uuid as _uuid
+
+    return _uuid.uuid4()
+
+
+class _CannedChatClient:
+    """`--dry-run` stand-in for the OpenAI client.
+
+    Returns a canned two-step exchange: one `search_datasets` tool
+    call, then a fixed assistant message. Exercises the loop end-to-
+    end without touching the vendor."""
+
+    _stage: int = 0
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[0.0] * 1536 for _ in texts]
+
+    def generate_structured(
+        self,
+        *,
+        prompt: str,
+        schema: dict[str, Any],
+        schema_name: str,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+    ) -> Any:
+        from semantic_enrich.clients.openai import (
+            StructuredGenerationResult,
+        )
+
+        return StructuredGenerationResult(
+            parsed={"summary": "canned dry-run summary"},
+            tokens_in=1,
+            tokens_out=1,
+        )
+
+    def chat_with_tools(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        parallel_tool_calls: bool = True,
+    ) -> Any:
+        from semantic_enrich.clients.openai import ChatCompletionResult
+
+        self._stage += 1
+        if self._stage == 1:
+            return ChatCompletionResult(
+                content="",
+                tool_calls=[],
+                tokens_in=10,
+                tokens_out=5,
+                finish_reason="stop",
+            )
+        return ChatCompletionResult(
+            content="[dry-run] no live data reached. This is a canned reply.",
+            tool_calls=[],
+            tokens_in=10,
+            tokens_out=5,
+            finish_reason="stop",
+        )
+
+
+# ──────────────────────────────────────────────────────────────────
 # helpers
 # ──────────────────────────────────────────────────────────────────
 
@@ -809,6 +1028,21 @@ class _StubOpenAIClient:
         model: str,
         temperature: float,
         max_tokens: int,
+    ) -> Any:
+        raise RuntimeError(
+            "openai client not configured; set WHENRICH_OPENAI_API_KEY. "
+            "This stub is only viable for --dry-run previews."
+        )
+
+    def chat_with_tools(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        parallel_tool_calls: bool = True,
     ) -> Any:
         raise RuntimeError(
             "openai client not configured; set WHENRICH_OPENAI_API_KEY. "

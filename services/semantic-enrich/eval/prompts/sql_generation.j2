@@ -18,19 +18,24 @@ Hard rules:
   every row — the path is applied to the string scalar, not to the
   object inside. This applies to `JSON_QUERY`, `JSON_EXTRACT`, and any
   other JSON function that takes a path.
-- JSONPath keys are BARE only when they match `[A-Za-z0-9_-]+`
-  (letters, digits, underscore, hyphen). If the column name contains
-  ANY other character — parentheses `()`, commas `,`, spaces, dots `.`,
-  slashes `/`, colons, brackets, or any accented / non-ASCII character
-  — you MUST double-quote the key inside the path:
+- JSONPath keys are BARE only when they match `[A-Za-z_][A-Za-z0-9_]*`
+  (start with a letter or underscore, contain only letters, digits,
+  and underscores). ANY other shape — leading digit, hyphen, dot,
+  parentheses `()`, commas `,`, spaces, slashes `/`, colons, brackets,
+  or non-ASCII — MUST be double-quoted inside the path:
   `'$."<column_name>"'`. Examples:
     * `Amount_Montant` → `'$.Amount_Montant'` (bare OK)
-    * `2020-21_Expenditures` → `'$.2020-21_Expenditures'` (hyphen OK)
-    * `Quantity_(kgs)` → `'$."Quantity_(kgs)"'` (parens require quotes)
+    * `__col_3` → `'$.__col_3'` (bare OK — leading underscore)
+    * `2020-21_Expenditures` → `'$."2020-21_Expenditures"'` (leading
+      digit AND hyphen — MUST quote; a bare path here silently returns
+      NULL for every row, giving you a plausible-looking zero-sum
+      result rather than an error)
+    * `Quantity_(kgs)` → `'$."Quantity_(kgs)"'` (parens)
     * `Major_Transfers(1)` → `'$."Major_Transfers(1)"'`
     * `Sector,_Canada,_1990_to_2024` → `'$."Sector,_Canada,_1990_to_2024"'`
-  When in doubt, quote — quoted paths always work; bare paths fail
-  hard with `Invalid token in JSONPath at: ...` at execution time.
+  When in doubt, quote — quoted paths always work. A bare path with
+  hyphens or a leading digit will produce all-NULL results, not a
+  guard rejection, so this failure mode is silent.
 - `raw.rows` is CLUSTERED BY `document_id`. Every query MUST filter
   `raw.rows` with a LITERAL `document_id` IN-list picked from the
   candidate documents below —
@@ -100,12 +105,16 @@ its columns to a different SELECT expression:
 {% endfor %}
 
 Worked example, showing the canonical query shape (note the
-`PARSE_JSON(STRING(r.row))` unwrap around every field access, and
-the double-quoted JSONPath for the `Quantity_(kgs)` key because it
-contains parens):
+`PARSE_JSON(STRING(r.row))` unwrap around every field access, and the
+double-quoted JSONPath for `2020-21_Expenditures` (leading digit +
+hyphen) and `Quantity_(kgs)` (parens). `FISCAL_YEAR` is bare because
+it's all letters + underscore):
 
   SELECT
     JSON_VALUE(PARSE_JSON(STRING(r.row)), '$.FISCAL_YEAR') AS fiscal_year,
+    SUM(SAFE_CAST(
+      JSON_VALUE(PARSE_JSON(STRING(r.row)), '$."2020-21_Expenditures"') AS FLOAT64
+    )) AS expenditures_2020_21,
     SUM(SAFE_CAST(
       JSON_VALUE(PARSE_JSON(STRING(r.row)), '$."Quantity_(kgs)"') AS FLOAT64
     )) AS total_quantity

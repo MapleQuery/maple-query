@@ -40,6 +40,37 @@ class StructuredGenerationResult:
     tokens_out: int
 
 
+@dataclass(frozen=True)
+class ChatToolCall:
+    """One tool call in an assistant response.
+
+    `arguments` is the parsed JSON object; the OpenAI SDK returns it
+    as a string but the client parses it once at the boundary so
+    downstream code doesn't repeat the work.
+    """
+
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ChatCompletionResult:
+    """Return shape of `chat_with_tools`.
+
+    Either `tool_calls` is non-empty (model wants another loop
+    iteration) or `content` is non-empty (final assistant message).
+    Exactly one is populated by construction of an OpenAI chat
+    completion, but the caller checks both anyway.
+    """
+
+    content: str
+    tool_calls: list[ChatToolCall]
+    tokens_in: int
+    tokens_out: int
+    finish_reason: str
+
+
 @runtime_checkable
 class OpenAIClient(Protocol):
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -66,6 +97,24 @@ class OpenAIClient(Protocol):
         regression, not a caller bug; the caller surfaces it as an
         `structured_output_violation` event and grades the question
         `sql_not_generated`.
+        """
+
+    def chat_with_tools(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        parallel_tool_calls: bool = True,
+    ) -> ChatCompletionResult:
+        """One chat.completions call with tool calling enabled.
+
+        Non-streaming for now — the loop wraps the eventual assistant
+        text in a synthetic `message_delta` event so the FE UX is the
+        same either way. Streaming is a follow-up when the CLI /
+        HTTP surfaces prove they want per-token deltas.
         """
 
 
@@ -166,4 +215,67 @@ class RealOpenAIClient:
                 tokens_out = int(usage.completion_tokens) if usage else 0
         return StructuredGenerationResult(
             parsed=parsed, tokens_in=tokens_in, tokens_out=tokens_out
+        )
+
+    def chat_with_tools(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        parallel_tool_calls: bool = True,
+    ) -> ChatCompletionResult:
+        content = ""
+        tool_calls: list[ChatToolCall] = []
+        tokens_in = 0
+        tokens_out = 0
+        finish_reason = ""
+        for attempt in self._retry:
+            with attempt:
+                # OpenAI SDK types messages/tools with strict TypedDicts;
+                # the loop constructs them dynamically from tool-call
+                # round-trips, which is broader than those TypedDicts by
+                # necessity. The runtime shape matches — we round-trip
+                # OpenAI's own output back to it.
+                response = self._client.chat.completions.create(  # type: ignore[call-overload]
+                    model=model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto",
+                    parallel_tool_calls=parallel_tool_calls,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                choice = response.choices[0]
+                message = choice.message
+                content = message.content or ""
+                tool_calls = []
+                for call in message.tool_calls or []:
+                    fn = getattr(call, "function", None)
+                    if fn is None:
+                        continue
+                    raw_args = getattr(fn, "arguments", "") or "{}"
+                    try:
+                        parsed_args = json.loads(raw_args)
+                    except json.JSONDecodeError:
+                        parsed_args = {}
+                    tool_calls.append(
+                        ChatToolCall(
+                            id=str(call.id),
+                            name=str(fn.name),
+                            arguments=parsed_args,
+                        )
+                    )
+                usage = response.usage
+                tokens_in = int(usage.prompt_tokens) if usage else 0
+                tokens_out = int(usage.completion_tokens) if usage else 0
+                finish_reason = str(choice.finish_reason or "")
+        return ChatCompletionResult(
+            content=content,
+            tool_calls=tool_calls,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            finish_reason=finish_reason,
         )

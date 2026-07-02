@@ -200,3 +200,46 @@ class Settings(BaseSettings):
     # Run identity. A new UUID per process by default; separate from
     # `run_id` so an eval run inside a larger session gets its own id.
     eval_run_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+
+    # ── 5.1 agent loop ──
+    # Per-turn budgets. Tool-call and SQL-execution caps are the runtime
+    # tripwires. There is intentionally no per-turn dollar cap — cost
+    # enforcement lives at OpenAI's daily-usage dashboard.
+    agent_max_tool_calls: int = 6
+    agent_max_sql_executions: int = 2
+    agent_turn_timeout_seconds: int = 60
+    # Parallel tool-call fan-out ceiling per assistant response.
+    agent_parallel_tool_calls: int = 3
+
+    # History compaction. `keep_turns` counts (user, assistant, tool*)
+    # groups kept verbatim; anything older collapses into one rolling
+    # summary system message. Hard message cap is a sanity check, not
+    # a UX ceiling.
+    agent_history_keep_turns: int = 4
+    agent_history_max_messages: int = 200
+
+    # In-memory response cache. TTL matches the snapshot-hash refresh
+    # cadence; the replay delay makes cached hits feel progressive.
+    agent_cache_max_entries: int = 1000
+    agent_cache_max_value_bytes: int = 1_000_000
+    agent_cache_ttl_seconds: int = 3600
+    agent_cache_replay_delay_ms: int = 50
+    agent_snapshot_refresh_seconds: int = 3600
+
+    # Prompt template. Rendered once at process start; the rendered
+    # bytes feed the cache key so prompt edits invalidate on redeploy.
+    agent_system_prompt_path: Path = Field(
+        default_factory=lambda: (
+            _find_service_dir() / "agent" / "prompts" / "system.j2"
+        )
+    )
+
+    # Model cost accounting (observability only; not enforced).
+    # $/1K tokens; defaults match gpt-4o's published rates.
+    agent_model_input_rate: float = 0.0025
+    agent_model_output_rate: float = 0.010
+
+    # sample_rows tool budgets. Kept generous — the query is
+    # cluster-pruned to one package.
+    agent_sample_rows_timeout_ms: int = 5_000
+    agent_sample_rows_max_bytes_billed: int = 1024 * 1024 * 1024
