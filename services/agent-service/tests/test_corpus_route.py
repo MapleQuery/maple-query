@@ -8,9 +8,9 @@ Covers:
 """
 from __future__ import annotations
 
-import agent_service.routes.corpus as corpus_mod
 from fastapi.testclient import TestClient
 
+import agent_service.routes.corpus as corpus_mod
 from tests.conftest import FIXED_TOKEN, FakeBqClient
 
 
