@@ -19,7 +19,11 @@ import math
 from collections.abc import Callable
 from typing import Any
 
-from semantic_enrich.clients.openai import StructuredGenerationResult
+from semantic_enrich.clients.openai import (
+    ChatCompletionResult,
+    ChatToolCall,
+    StructuredGenerationResult,
+)
 
 
 def _default_1536(text: str) -> list[float]:
@@ -36,6 +40,8 @@ class FakeOpenAIClient:
         vector_factory: Callable[[str], list[float]] = _default_1536,
         structured_responses: list[dict[str, Any]] | None = None,
         structured_tokens: tuple[int, int] = (100, 50),
+        chat_script: list[dict[str, Any]] | None = None,
+        chat_tokens: tuple[int, int] = (100, 50),
     ) -> None:
         self._vector_factory = vector_factory
         self.calls: list[list[str]] = []
@@ -44,6 +50,13 @@ class FakeOpenAIClient:
         )
         self.structured_tokens = structured_tokens
         self.structured_calls: list[dict[str, Any]] = []
+        # 5.1 agent-loop hook. Each entry is one scripted assistant
+        # response — either `{"content": "..."}` for a terminal message
+        # or `{"tool_calls": [{"id", "name", "arguments"}]}` for tool
+        # calls. `chat_calls` records every request the loop made.
+        self.chat_script: list[dict[str, Any]] = list(chat_script or [])
+        self.chat_tokens = chat_tokens
+        self.chat_calls: list[dict[str, Any]] = []
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         self.calls.append(list(texts))
@@ -84,4 +97,51 @@ class FakeOpenAIClient:
             parsed=parsed,
             tokens_in=self.structured_tokens[0],
             tokens_out=self.structured_tokens[1],
+        )
+
+    def chat_with_tools(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        parallel_tool_calls: bool = True,
+    ) -> ChatCompletionResult:
+        self.chat_calls.append(
+            {
+                "messages": list(messages),
+                "tools": list(tools),
+                "model": model,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "parallel_tool_calls": parallel_tool_calls,
+            }
+        )
+        if not self.chat_script:
+            return ChatCompletionResult(
+                content="[fake] no scripted response.",
+                tool_calls=[],
+                tokens_in=self.chat_tokens[0],
+                tokens_out=self.chat_tokens[1],
+                finish_reason="stop",
+            )
+        step = self.chat_script.pop(0)
+        content = str(step.get("content", ""))
+        tool_calls_payload = step.get("tool_calls") or []
+        tool_calls = [
+            ChatToolCall(
+                id=str(tc.get("id", f"call_{i}")),
+                name=str(tc["name"]),
+                arguments=dict(tc.get("arguments", {})),
+            )
+            for i, tc in enumerate(tool_calls_payload)
+        ]
+        return ChatCompletionResult(
+            content=content,
+            tool_calls=tool_calls,
+            tokens_in=int(step.get("tokens_in", self.chat_tokens[0])),
+            tokens_out=int(step.get("tokens_out", self.chat_tokens[1])),
+            finish_reason="tool_calls" if tool_calls else "stop",
         )
