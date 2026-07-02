@@ -1,9 +1,14 @@
 """OpenAI client surface: `OpenAIClient` Protocol + `RealOpenAIClient` impl.
 
-Ships the embedding surface only. Query-time generation
-(`generate_structured`) lands here in 4.6 — one client, one vendor,
-one key, one timeout.
+Two production surfaces:
 
+- `embed(texts)` — text-embedding-3-small vectors. Owned by 4.7; used by
+  the embed / reembed pipelines and by the 4.6 harness at question time.
+- `generate_structured(prompt, schema, ...)` — Structured Outputs
+  (strict JSON Schema) via chat.completions. Added by 4.6 for
+  single-shot SQL generation.
+
+One vendor, one key, one timeout, one retry policy for both surfaces.
 Vectors returned by `embed()` carry the model's native dimensionality;
 callers assert against `Settings.openai_embedding_dim` so a
 model/config mismatch fails loudly at the batch boundary rather than
@@ -11,12 +16,28 @@ silently corrupting the warehouse.
 """
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+import json
+from dataclasses import dataclass
+from typing import Any, Protocol, runtime_checkable
 
 from openai import OpenAI
 from tenacity import Retrying
 
 from semantic_enrich.providers.openai_retry import openai_retry_policy
+
+
+@dataclass(frozen=True)
+class StructuredGenerationResult:
+    """Return shape of `generate_structured`.
+
+    `parsed` is the schema-conforming dict; `tokens_in` / `tokens_out`
+    come straight off the OpenAI usage block and feed the eval report's
+    aggregate cost accounting.
+    """
+
+    parsed: dict[str, Any]
+    tokens_in: int
+    tokens_out: int
 
 
 @runtime_checkable
@@ -26,6 +47,25 @@ class OpenAIClient(Protocol):
 
         All vectors are the model's native dimensionality; the caller
         asserts against `Settings.openai_embedding_dim`.
+        """
+
+    def generate_structured(
+        self,
+        *,
+        prompt: str,
+        schema: dict[str, Any],
+        schema_name: str,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+    ) -> StructuredGenerationResult:
+        """Single-shot Structured Outputs call.
+
+        `strict: true` at the vendor makes the response schema-conforming
+        by construction. A schema violation despite that is a vendor
+        regression, not a caller bug; the caller surfaces it as an
+        `structured_output_violation` event and grades the question
+        `sql_not_generated`.
         """
 
 
@@ -86,3 +126,44 @@ class RealOpenAIClient:
                 )
                 vectors = [list(datum.embedding) for datum in response.data]
         return vectors
+
+    def generate_structured(
+        self,
+        *,
+        prompt: str,
+        schema: dict[str, Any],
+        schema_name: str,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+    ) -> StructuredGenerationResult:
+        parsed: dict[str, Any] = {}
+        tokens_in = 0
+        tokens_out = 0
+        for attempt in self._retry:
+            with attempt:
+                response = self._client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    response_format={
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": schema_name,
+                            "strict": True,
+                            "schema": schema,
+                        },
+                    },
+                )
+                content = response.choices[0].message.content or ""
+                # `strict: true` means the response is schema-conforming;
+                # a parse error here is a vendor regression, surfaced up
+                # so the runner can log `structured_output_violation`.
+                parsed = json.loads(content)
+                usage = response.usage
+                tokens_in = int(usage.prompt_tokens) if usage else 0
+                tokens_out = int(usage.completion_tokens) if usage else 0
+        return StructuredGenerationResult(
+            parsed=parsed, tokens_in=tokens_in, tokens_out=tokens_out
+        )

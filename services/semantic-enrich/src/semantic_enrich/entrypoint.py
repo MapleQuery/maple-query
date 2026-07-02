@@ -74,6 +74,11 @@ from semantic_enrich.core.embedding_pass import (
     run_columns_embed,
     run_embed,
 )
+from semantic_enrich.core.eval_runner import (
+    EvalRequest,
+    PreconditionError,
+    run_eval,
+)
 from semantic_enrich.core.reembed import (
     ColumnsReembedRequest,
     DatasetsReembedRequest,
@@ -591,6 +596,145 @@ def columns_load(
 
 
 # ──────────────────────────────────────────────────────────────────
+# eval  (laptop, 4.6 retrieval-validation harness)
+# ──────────────────────────────────────────────────────────────────
+
+
+@app.command("eval")
+def eval_run(
+    questions: Path | None = typer.Option(
+        None,
+        "--questions",
+        help="Path to questions YAML. Default services/semantic-enrich/eval/questions.yaml.",
+    ),
+    limit: int | None = typer.Option(
+        None, "--limit", help="Run only the first N questions."
+    ),
+    question_ids: list[str] | None = typer.Option(
+        None,
+        "--question-ids",
+        help="Repeatable. Combined with --limit, --limit wins.",
+    ),
+    k_packages: int | None = typer.Option(
+        None,
+        "--k-packages",
+        help="Override top-k for packages. Env WHENRICH_EVAL_K_PACKAGES.",
+    ),
+    k_columns: int | None = typer.Option(
+        None,
+        "--k-columns",
+        help="Override top-k for columns. Env WHENRICH_EVAL_K_COLUMNS.",
+    ),
+    max_bytes_billed: int | None = typer.Option(
+        None,
+        "--max-bytes-billed",
+        help=(
+            "Cost cap. Default 50 GB. Env WHENRICH_EVAL_MAX_BYTES_BILLED."
+        ),
+    ),
+    no_execute: bool = typer.Option(
+        False,
+        "--no-execute/--execute",
+        help="Stop after SQL gen + dry-run.",
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        help="Report path override. Default eval_reports_dir/<run_id>.json.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run/--no-dry-run",
+        help="Harness self-test — skips OpenAI + BQ, exercises fixture / template / report writers.",
+    ),
+) -> None:
+    """Run the 4.6 retrieval-validation harness against the fixture."""
+    configure_logging()
+    log = get_logger("semantic_enrich.entrypoint")
+
+    overrides: dict[str, Any] = {}
+    if questions is not None:
+        overrides["eval_questions_path"] = questions
+    if k_packages is not None:
+        overrides["eval_k_packages"] = k_packages
+    if k_columns is not None:
+        overrides["eval_k_columns"] = k_columns
+    settings = Settings()
+    if overrides:
+        settings = settings.model_copy(update=overrides)
+
+    if not dry_run:
+        if not settings.gcp_project_id:
+            log.error("missing_project_id", subcommand="eval")
+            raise typer.Exit(3)
+        try:
+            bq: Any = RealBqClient.for_project(settings.gcp_project_id)
+        except Exception as exc:
+            log.error("bq_auth_failed", error=str(exc))
+            raise typer.Exit(3) from exc
+        openai_client = _build_openai_client(
+            settings=settings, log=log, dry_run=False
+        )
+    else:
+        # Dry-run touches neither client; the runner short-circuits
+        # before either is dereferenced. Pass stubs at the Protocol
+        # boundary so the type stays honest.
+        bq = _StubBqClient()
+        openai_client = _StubOpenAIClient()
+
+    request = EvalRequest(
+        run_id=settings.eval_run_id,
+        dry_run=dry_run,
+        no_execute=no_execute,
+        limit=limit,
+        question_ids=tuple(question_ids) if question_ids else None,
+        max_bytes_billed_override=max_bytes_billed,
+        output_override=output,
+    )
+
+    try:
+        summary = run_eval(
+            request=request,
+            settings=settings,
+            bq=bq,
+            openai_client=openai_client,
+        )
+    except PreconditionError as exc:
+        log.error(
+            "preconditions_failed",
+            run_id=request.run_id,
+            reason=str(exc),
+        )
+        typer.echo(
+            json.dumps(
+                {
+                    "ok": False,
+                    "preconditions_failed": str(exc),
+                    "run_id": request.run_id,
+                },
+                indent=2,
+            ),
+            err=True,
+        )
+        raise typer.Exit(3) from exc
+    except RuntimeError as exc:
+        log.error("eval_run_failed", error=str(exc))
+        typer.echo(
+            json.dumps({"ok": False, "error": str(exc)}, indent=2), err=True
+        )
+        raise typer.Exit(2) from exc
+    except Exception as exc:
+        log.error("eval_internal_error", error=str(exc), exc_info=True)
+        typer.echo(
+            json.dumps({"ok": False, "internal_error": str(exc)}, indent=2),
+            err=True,
+        )
+        raise typer.Exit(1) from exc
+
+    typer.echo(json.dumps(asdict(summary), indent=2, default=str))
+
+
+# ──────────────────────────────────────────────────────────────────
 # helpers
 # ──────────────────────────────────────────────────────────────────
 
@@ -645,15 +789,52 @@ class _StubOpenAIClient:
     """Placeholder used for `--dry-run` when no OpenAI key is present.
 
     The stage embed runners skip the client in dry-run; the reembed
-    runners preflight-ping it even in dry-run per PRD §8, so this stub
-    only survives the stage-embed dry-run path.
+    runners preflight-ping it even in dry-run per the reembed PRD, so
+    this stub only survives the stage-embed dry-run path and the 4.6
+    `eval --dry-run` harness self-test.
     """
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         raise RuntimeError(
             "openai client not configured; set WHENRICH_OPENAI_API_KEY. "
-            "This stub is only viable for --dry-run stage-embed previews."
+            "This stub is only viable for --dry-run previews."
         )
+
+    def generate_structured(
+        self,
+        *,
+        prompt: str,
+        schema: dict[str, Any],
+        schema_name: str,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+    ) -> Any:
+        raise RuntimeError(
+            "openai client not configured; set WHENRICH_OPENAI_API_KEY. "
+            "This stub is only viable for --dry-run previews."
+        )
+
+
+class _StubBqClient:
+    """Placeholder used for `eval --dry-run`. The eval runner short-
+    circuits before touching BQ in dry-run; any dereference here is a
+    logic bug in the runner and blows up loudly."""
+
+    def _refuse(self, *_a: Any, **_kw: Any) -> Any:
+        raise RuntimeError(
+            "bq client not configured; this stub only survives the eval "
+            "--dry-run harness self-test."
+        )
+
+    execute = _refuse
+    execute_with_params = _refuse
+    query_rows = _refuse
+    append_jsonl_file = _refuse
+    create_staging_table = _refuse
+    delete_table = _refuse
+    dry_run_bytes = _refuse
+    run_bounded_query = _refuse
 
 
 def _dispatch(runner: Callable[[], Any]) -> None:

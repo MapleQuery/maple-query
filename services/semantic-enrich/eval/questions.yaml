@@ -1,0 +1,199 @@
+# 20-question retrieval-validation fixture (4.6).
+#
+# Committed regression-test surface for the semantic layer. Two runs
+# against the same warehouse must be diffable; a sampled fixture would
+# dilute the signal.
+#
+# `expected_packages` / `expected_columns` are the operator's stated
+# expectation. Empty lists contribute 1.0 to per-question recall
+# (vacuous case, documented in the report header). Populate over
+# iterations against CKAN search + `raw.documents` sanity checks.
+#
+# UUIDs below are placeholders — replace with real CKAN package_ids
+# after the first `--no-execute` pass surfaces which packages the
+# retriever actually finds for each domain.
+
+- id: q01
+  question: "How much did the federal government spend on housing in 2020?"
+  domain: housing
+  expected_packages: []
+  expected_columns:
+    - "TOT_EXP"
+    - "FISCAL_YEAR"
+  must_return_rows: true
+  notes: |
+    Authoritative answer is in CFR housing tables; agent should not
+    retrieve provincial datasets.
+
+- id: q02
+  question: "What are the CMHC-tracked housing starts by province for the most recent year available?"
+  domain: housing
+  expected_packages: []
+  expected_columns:
+    - "PROVINCE"
+    - "HOUSING_STARTS"
+  must_return_rows: true
+  notes: ""
+
+- id: q03
+  question: "How much personal income tax did Canadians pay in fiscal year 2019-2020?"
+  domain: taxes
+  expected_packages: []
+  expected_columns: []
+  must_return_rows: true
+  notes: ""
+
+- id: q04
+  question: "What is the effective corporate tax rate over the last five years?"
+  domain: taxes
+  expected_packages: []
+  expected_columns: []
+  must_return_rows: true
+  notes: ""
+
+- id: q05
+  question: "How many fishing licenses were issued by DFO in Atlantic Canada in 2022?"
+  domain: fisheries
+  expected_packages: []
+  expected_columns: []
+  must_return_rows: true
+  notes: ""
+
+- id: q06
+  question: "What is the total commercial catch by species reported to DFO?"
+  domain: fisheries
+  expected_packages: []
+  expected_columns: []
+  must_return_rows: true
+  notes: ""
+
+- id: q07
+  question: "How many permanent residents did Canada admit in 2021 by category?"
+  domain: immigration
+  expected_packages: []
+  expected_columns: []
+  must_return_rows: true
+  notes: ""
+
+- id: q08
+  question: "What are the top ten source countries for temporary work permits?"
+  domain: immigration
+  expected_packages: []
+  expected_columns: []
+  must_return_rows: true
+  notes: ""
+
+- id: q09
+  question: "What was Canada's population by age group in the 2021 census?"
+  domain: census
+  expected_packages: []
+  expected_columns: []
+  must_return_rows: true
+  notes: ""
+
+- id: q10
+  question: "What is the median household income by census metropolitan area?"
+  domain: census
+  expected_packages: []
+  expected_columns: []
+  must_return_rows: true
+  notes: ""
+
+- id: q11
+  question: "What are Canada's greenhouse gas emissions by sector for the most recent year?"
+  domain: environment
+  expected_packages: []
+  expected_columns: []
+  must_return_rows: true
+  notes: ""
+
+- id: q12
+  question: "How many species at risk are listed by SARA classification?"
+  domain: environment
+  expected_packages: []
+  expected_columns: []
+  must_return_rows: true
+  notes: ""
+
+- id: q13
+  question: "Quelles sont les recettes fiscales fédérales pour l'exercice 2021-2022?"
+  domain: taxes
+  expected_packages: []
+  expected_columns: []
+  must_return_rows: true
+  notes: |
+    Bilingual case; French question against an English-embedded warehouse.
+    Signal for retrieval-side language robustness.
+
+- id: q14
+  question: "How many social housing units were funded under the National Housing Strategy?"
+  domain: housing
+  expected_packages: []
+  expected_columns: []
+  must_return_rows: true
+  notes: |
+    Multi-package: pulls from both funding and program-tracking datasets.
+
+- id: q15
+  question: "How much was spent per Indigenous services program area in 2022-2023?"
+  domain: multi_domain
+  expected_packages: []
+  expected_columns:
+    - "PROGRAM_AREA"
+    - "AMT_SPENT"
+  must_return_rows: true
+  notes: |
+    Abbreviated column names (AMT_SPENT). Tests whether the model
+    picks the right AMT_* column given the description in
+    semantic.columns.
+
+- id: q16
+  question: "What is the geographic distribution of newcomers to Canada in 2023?"
+  domain: multi_domain
+  expected_packages: []
+  expected_columns: []
+  must_return_rows: true
+  notes: |
+    Cross-domain (immigration + census). Retrieval should surface both.
+
+- id: q17
+  question: "What datasets describe federal transfer payments to provinces?"
+  domain: methodology
+  expected_packages: []
+  expected_columns: []
+  must_return_rows: false
+  notes: |
+    Package-level (not row-level) question — a good `answered` is
+    `no_rows` here since the semantic layer surfaces the answer via
+    package summaries, not row aggregation.
+
+- id: q18
+  question: "Which dataset is the single authoritative source for federal budget line items?"
+  domain: methodology
+  expected_packages: []
+  expected_columns: []
+  must_return_rows: false
+  notes: |
+    Package-level, single-authoritative-document. Should retrieve
+    exactly one high-signal package.
+
+- id: q19
+  question: "What is the average per-capita healthcare transfer by province over the past decade?"
+  domain: taxes
+  expected_packages: []
+  expected_columns: []
+  must_return_rows: true
+  notes: |
+    Cross-package aggregate; harder retrieval case.
+
+- id: q20
+  question: "How has federal environmental spending changed year over year since 2015?"
+  domain: environment
+  expected_packages: []
+  expected_columns:
+    - "FISCAL_YEAR"
+    - "TOT_EXP"
+  must_return_rows: true
+  notes: |
+    Time-series shape; a good check on whether the model uses the
+    FISCAL_YEAR dimension retrieved.
