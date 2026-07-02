@@ -96,6 +96,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Free runner disk space
+        # `ubuntu-24.04` ships with ~14 GB free. The semantic-enrich
+        # workspace pulls torch/transformers/sentence-transformers/outlines
+        # (~2 GB installed) which, combined with docker's build cache and
+        # the multi-stage layer copies, blows the disk. Strip preinstalled
+        # tooling we don't use to add ~30 GB of headroom.
+        run: |
+          echo "Before:"
+          df -h /
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/local/graalvm
+          sudo rm -rf /usr/local/.ghcup
+          sudo docker image prune --all --force
+          echo "After:"
+          df -h /
+
       - name: Guard required variables
         # Fail fast with a specific message if the repo hasn't wired
         # WIF yet — otherwise `auth@v2` errors are opaque.
