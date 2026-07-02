@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: #f0eeeb;
+    color: #2d3942;
+  }
+
+  ::selection {
+    background-color: rgba(253, 137, 115, 0.35);
+    color: #13181b;
+  }
+}
+
+@layer components {
+  .skeleton {
+    background: linear-gradient(90deg, #e2e6e8 25%, #edefef 50%, #e2e6e8 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s infinite;
+  }
+
+  .hero-grad {
+    background:
+      radial-gradient(120% 90% at 88% -5%, rgba(253, 137, 115, 0.2), transparent 55%),
+      radial-gradient(90% 80% at 0% 15%, rgba(0, 58, 108, 0.12), transparent 55%),
+      radial-gradient(80% 70% at 55% 105%, rgba(255, 191, 101, 0.16), transparent 60%);
+  }
+
+  .src-flash {
+    box-shadow: 0 0 0 2px #fd8973, 0 8px 24px rgba(253, 137, 115, 0.22);
+    transition: box-shadow 0.6s ease;
+  }
+
+  .prose-body {
+    color: #2d3942;
+    line-height: 1.65;
+  }
+  .prose-body p + p {
+    margin-top: 0.75em;
+  }
+  .prose-body strong {
+    color: #13181b;
+    font-weight: 600;
+  }
+  .prose-body a {
+    color: #003a6c;
+    text-underline-offset: 2px;
+  }
+  .prose-body a:hover {
+    text-decoration: underline;
+  }
+  .prose-body code {
+    font-family: var(--font-mono), ui-monospace, monospace;
+    background: #e7ebec;
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    font-size: 0.92em;
+  }
+
+  .shiki-block {
+    background: #13181b;
+    color: #f0eeeb;
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+  }
+  .shiki-block pre {
+    margin: 0;
+    background: transparent !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
