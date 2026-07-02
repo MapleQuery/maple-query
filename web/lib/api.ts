@@ -71,4 +71,22 @@ export function runSql(
   });
 }
 
+export interface CorpusStats {
+  datasets: number;
+  documents: number;
+  rows: number;
+}
+
+/**
+ * Live counts for the hero. Served by the dedicated `/corpus/stats`
+ * endpoint (bypasses the SQL guard so `COUNT(*) FROM raw.rows` — a
+ * metadata read — can actually return; the guard's `document_id IN`
+ * rule rejects it otherwise). Cached server-side for five minutes.
+ */
+export function getCorpusStats(
+  signal?: AbortSignal,
+): Promise<CorpusStats> {
+  return jsonFetch<CorpusStats>("/corpus/stats", { signal });
+}
+
 export type { DatasetSummary };

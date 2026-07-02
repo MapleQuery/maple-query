@@ -5,6 +5,7 @@ import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { LogoMark } from "@/components/ui/logo";
+import { MapleLoader } from "@/components/ui/maple-loader";
 import { cn } from "@/lib/utils";
 
 export interface MessageProps {
@@ -69,7 +70,9 @@ export function Message({ role, content, streaming, meta }: MessageProps) {
               {content}
             </ReactMarkdown>
           ) : streaming ? (
-            <MapleLoader />
+            <span className="inline-flex items-center gap-2.5 rounded-2xl rounded-tl-md border border-hairline bg-white px-4 py-3">
+              <MapleLoader size={20} layout="row" />
+            </span>
           ) : (
             <span className="text-muted">…</span>
           )}
@@ -87,55 +90,5 @@ function StreamingCursor() {
       aria-hidden="true"
       className="ml-0.5 inline-block h-4 w-[2px] animate-dot-blink bg-coral align-middle"
     />
-  );
-}
-
-const CANADIAN_VERBS = [
-  "Portaging",
-  "Zambonieing",
-  "Pondering",
-  "Snowshoeing",
-  "Tobogganing",
-  "Percolating",
-  "Deliberating",
-  "Ruminating",
-  "Sledding",
-  "Musing",
-  "Chinwagging",
-  "Sugarshacking",
-];
-
-function MapleLoader() {
-  const [verbIdx, setVerbIdx] = React.useState(() =>
-    Math.floor(Math.random() * CANADIAN_VERBS.length),
-  );
-
-  React.useEffect(() => {
-    const id = window.setInterval(() => {
-      setVerbIdx((i) => (i + 1) % CANADIAN_VERBS.length);
-    }, 1600);
-    return () => window.clearInterval(id);
-  }, []);
-
-  return (
-    <span className="inline-flex items-center gap-2.5 rounded-2xl rounded-tl-md border border-hairline bg-white px-4 py-3">
-      <MapleLeafSpinner />
-      <span className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-navy">
-        {CANADIAN_VERBS[verbIdx]}
-      </span>
-    </span>
-  );
-}
-
-function MapleLeafSpinner() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 100 100"
-      className="h-4 w-4 origin-center animate-leaf-pulse text-coral"
-      fill="currentColor"
-    >
-      <path d="M50 6 L54 26 L58 22 L64 30 L74 24 L70 38 L86 36 L78 46 L94 52 L74 60 L78 68 L64 66 L66 78 L58 74 L54 82 L50 74 L46 82 L42 74 L34 78 L36 66 L22 68 L26 60 L6 52 L22 46 L14 36 L30 38 L26 24 L36 30 L42 22 L46 26 Z" />
-    </svg>
   );
 }

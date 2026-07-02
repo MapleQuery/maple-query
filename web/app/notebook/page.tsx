@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { notebooks } from "@/lib/storage";
 import { uuid } from "@/lib/utils";
+import { PageLoader } from "@/components/ui/maple-loader";
 
 export default function NotebookIndexPage() {
   const router = useRouter();
@@ -13,9 +14,5 @@ export default function NotebookIndexPage() {
     router.replace(`/notebook/${target}`);
   }, [router]);
 
-  return (
-    <div className="grid h-[calc(100vh-4rem)] place-items-center text-sm text-muted">
-      Loading notebook…
-    </div>
-  );
+  return <PageLoader />;
 }

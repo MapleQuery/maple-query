@@ -27,6 +27,8 @@ const SUGGESTIONS = [
 
 export interface ChatContainerProps {
   conversationId: string;
+  /** Question forwarded from a `?q=` link on the landing page. */
+  initialQuestion?: string;
 }
 
 interface Turn {
@@ -39,7 +41,10 @@ interface Turn {
   errorMessage?: string;
 }
 
-export function ChatContainer({ conversationId }: ChatContainerProps) {
+export function ChatContainer({
+  conversationId,
+  initialQuestion,
+}: ChatContainerProps) {
   const router = useRouter();
   const toast = useToast();
 
@@ -300,6 +305,7 @@ export function ChatContainer({ conversationId }: ChatContainerProps) {
             onAbort={abort}
             streaming={state.status === "streaming"}
             suggestions={turns.length === 0 ? SUGGESTIONS : []}
+            initialText={turns.length === 0 ? initialQuestion : undefined}
           />
         </div>
       </div>
