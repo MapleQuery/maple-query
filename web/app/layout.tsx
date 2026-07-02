@@ -17,11 +17,17 @@ export const metadata: Metadata = {
   description:
     "MapleQuery turns fragmented Canadian open data into a plain-language conversation. Every figure carries a footnote that traces to the original record.",
   metadataBase: new URL("https://maple-query.vercel.app"),
+  icons: {
+    icon: [{ url: "/brand/maple-leaf.webp", type: "image/webp" }],
+    shortcut: "/brand/maple-leaf.webp",
+    apple: "/brand/maple-leaf.webp",
+  },
   openGraph: {
     title: "MapleQuery",
     description:
       "Ask hard questions of Canadian government data. Get answers you can cite.",
     type: "website",
+    images: ["/brand/maple-leaf.webp"],
   },
 };
 

@@ -71,4 +71,39 @@ export function runSql(
   });
 }
 
+export interface CorpusStats {
+  documents: number;
+  rows: number;
+}
+
+/**
+ * Live counts for the hero. `raw.documents.row_count` is the per-doc row
+ * count populated by the warehouse loader — summing it is the honest
+ * substitute for `COUNT(*) FROM raw.rows`, which the SQL guard rejects
+ * (raw.rows requires a document_id IN-list to keep cost bounded).
+ */
+export async function getCorpusStats(
+  signal?: AbortSignal,
+): Promise<CorpusStats> {
+  const res = await runSql(
+    "SELECT COUNT(*) AS documents, IFNULL(SUM(row_count), 0) AS rows FROM raw.documents",
+    "landing page hero stats",
+    signal,
+  );
+  const first = res.rows[0] ?? {};
+  return {
+    documents: toNumber(first["documents"]),
+    rows: toNumber(first["rows"]),
+  };
+}
+
+function toNumber(v: unknown): number {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
 export type { DatasetSummary };
