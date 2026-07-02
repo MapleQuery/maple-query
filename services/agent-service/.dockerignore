@@ -1,0 +1,13 @@
+# Keep the build context lean; the Dockerfile only needs the two
+# service trees.
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/htmlcov
+**/coverage.xml
+**/.coverage
+**/stage
+**/uv.lock.new

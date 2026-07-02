@@ -1,0 +1,179 @@
+# CD for services/agent-service.
+#
+# Trigger: push to main touching agent-service, semantic-enrich, or this
+# workflow. The two service trees share behaviour (agent-service imports
+# semantic-enrich as a path dep) so a semantic-enrich change ships a new
+# image too.
+#
+# Auth: Workload Identity Federation, no long-lived JSON keys. The pool,
+# provider, and CD service account are provisioned by
+# `infra/terraform/cicd.tf`.
+#
+# Deploy strategy: `gcloud run services update --image` on the existing
+# Cloud Run revision. Terraform owns the service *shape* (concurrency,
+# scaling, probes, env vars) and has `lifecycle.ignore_changes` on the
+# image field, so the workflow and terraform don't fight over
+# revisions.
+
+name: Deploy agent-service
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/agent-service/**"
+      - "services/semantic-enrich/**"
+      - ".github/workflows/deploy-agent-service.yml"
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Deploy to production Cloud Run?"
+        required: true
+        default: "no"
+
+# One deploy at a time. Concurrent revisions confuse the health-check
+# flow and burn budget for no reason.
+concurrency:
+  group: deploy-agent-service
+  cancel-in-progress: false
+
+permissions:
+  # `id-token: write` is required for WIF to mint the OIDC token that
+  # google-github-actions/auth exchanges for a GCP access token.
+  id-token: write
+  contents: read
+
+env:
+  # Repo-level variables (set via Settings → Secrets and variables →
+  # Actions → Variables):
+  #   MQAGENT_GCP_PROJECT_ID       — target GCP project id
+  #   MQAGENT_WIF_PROVIDER         — output `cd_workload_identity_provider` from terraform
+  #   MQAGENT_CD_SERVICE_ACCOUNT   — output `cd_service_account_email` from terraform
+  #   MQAGENT_REGION               — us-central1 (matches Cloud Run region)
+  #   MQAGENT_SERVICE_NAME         — agent-service
+  #   MQAGENT_IMAGE_REPO           — output `agent_service_image_base` from terraform
+  GCP_PROJECT_ID: ${{ vars.MQAGENT_GCP_PROJECT_ID }}
+  REGION: ${{ vars.MQAGENT_REGION || 'us-central1' }}
+  SERVICE_NAME: ${{ vars.MQAGENT_SERVICE_NAME || 'agent-service' }}
+  IMAGE_REPO: ${{ vars.MQAGENT_IMAGE_REPO }}
+
+jobs:
+  test:
+    name: Test agent-service
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.5.14"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync deps
+        working-directory: services/agent-service
+        run: uv sync --frozen --extra dev
+
+      - name: Ruff
+        working-directory: services/agent-service
+        run: uv run ruff check src tests
+
+      - name: Mypy
+        working-directory: services/agent-service
+        run: uv run mypy src
+
+      - name: Pytest
+        working-directory: services/agent-service
+        run: uv run pytest
+
+  deploy:
+    name: Build + deploy
+    needs: test
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.confirm == 'yes')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard required variables
+        # Fail fast with a specific message if the repo hasn't wired
+        # WIF yet — otherwise `auth@v2` errors are opaque.
+        run: |
+          missing=""
+          for v in GCP_PROJECT_ID IMAGE_REPO; do
+            eval val="\$$v"
+            if [ -z "$val" ]; then missing="$missing $v"; fi
+          done
+          if [ -z "${{ vars.MQAGENT_WIF_PROVIDER }}" ]; then missing="$missing MQAGENT_WIF_PROVIDER"; fi
+          if [ -z "${{ vars.MQAGENT_CD_SERVICE_ACCOUNT }}" ]; then missing="$missing MQAGENT_CD_SERVICE_ACCOUNT"; fi
+          if [ -n "$missing" ]; then
+            echo "Missing required repo variables:$missing" >&2
+            echo "See docs/services/agent-service.md — CD bootstrap." >&2
+            exit 1
+          fi
+
+      - name: Authenticate to GCP
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.MQAGENT_WIF_PROVIDER }}
+          service_account: ${{ vars.MQAGENT_CD_SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Compute image tag
+        id: image
+        run: echo "tag=${{ env.IMAGE_REPO }}:${{ github.sha }}" >> $GITHUB_OUTPUT
+
+      - name: Build image
+        # Repo root context, Dockerfile inside the service tree. The
+        # multi-stage build copies both service trees; the sibling path
+        # dep resolves offline via `uv sync --frozen`.
+        run: |
+          docker build \
+            -f services/agent-service/Dockerfile \
+            -t "${{ steps.image.outputs.tag }}" \
+            .
+
+      - name: Push image
+        run: docker push "${{ steps.image.outputs.tag }}"
+
+      - name: Update Cloud Run revision
+        # `--no-traffic` would let us tag-and-canary; we default to
+        # rolling 100% to the new revision. Cloud Run's own startup
+        # probe (against /readyz) refuses to receive traffic until the
+        # canaries pass, so a broken image can't take the demo down.
+        run: |
+          gcloud run services update ${{ env.SERVICE_NAME }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --region=${{ env.REGION }} \
+            --image=${{ steps.image.outputs.tag }} \
+            --quiet
+
+      - name: Verify readyz
+        # Poll /readyz on the new revision URL. Cloud Run only shifts
+        # traffic to a healthy revision, so this is a belt-and-braces
+        # signal for the deploy log.
+        run: |
+          url=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --region=${{ env.REGION }} \
+            --format='value(status.url)')
+          echo "Service URL: $url"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$url/readyz" || true)
+            if [ "$code" = "200" ]; then
+              echo "readyz OK on attempt $i"
+              exit 0
+            fi
+            echo "readyz returned $code, attempt $i/10"
+            sleep 10
+          done
+          echo "readyz never returned 200; rollback?" >&2
+          exit 1
