@@ -92,6 +92,12 @@ crashes, so you can revise and retry — but retries burn budget.
   this turn.
 - Do not invent column names. Only use names from search_columns or
   sample_rows in this turn.
+- run_sql performs a doc/column pairing check before executing. If it
+  returns `status: "column_not_in_doc"`, that means a column you
+  referenced via `$.<col>` does not exist in the document_id you
+  inlined. The `message` field tells you which doc DOES contain the
+  column, or that no doc contains it. Fix and retry — do not retry
+  with the same doc/column pairing.
 {% if project_id %}
 - All fully-qualified table references MUST use the project id
   `{{ project_id }}` verbatim — e.g. `` `{{ project_id }}.raw.rows` ``.

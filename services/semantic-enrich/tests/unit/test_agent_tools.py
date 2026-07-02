@@ -239,6 +239,164 @@ def test_run_sql_budget_exceeded_short_circuits() -> None:
     assert not any(e.event_type == "sql_guarded" for e in events)
 
 
+def test_list_documents_populates_doc_columns_for_pairing_check() -> None:
+    """`doc_columns` is the surface `run_sql` uses to validate every
+    JSON_VALUE reference. list_documents must fill it so downstream
+    pairing errors are catchable."""
+    bq = FakeBqClient()
+    bq.register_query(
+        "load_status = 'loaded'",
+        [
+            {
+                "document_id": "doc-A",
+                "package_id": "pkg-1",
+                "title": "A",
+                "row_count": 10,
+                "resource_last_modified": None,
+            },
+            {
+                "document_id": "doc-B",
+                "package_id": "pkg-1",
+                "title": "B",
+                "row_count": 20,
+                "resource_last_modified": None,
+            },
+        ],
+    )
+    bq.register_query(
+        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        [
+            {"document_id": "doc-A", "columns": ["Amount", "Organization"]},
+            {"document_id": "doc-B", "columns": ["Amount", "Description"]},
+        ],
+    )
+    ctx, _ = _ctx(bq=bq)
+    ctx.state.known_package_ids.add("pkg-1")
+    agent_tools.run_list_documents(ctx=ctx, args={"package_ids": ["pkg-1"]})
+    assert ctx.state.doc_columns["doc-A"] == ["Amount", "Organization"]
+    assert ctx.state.doc_columns["doc-B"] == ["Amount", "Description"]
+
+
+def test_extract_json_path_columns_covers_bare_and_quoted() -> None:
+    sql = (
+        "SELECT JSON_VALUE(PARSE_JSON(STRING(r.row)), '$.Organization') AS o, "
+        "JSON_VALUE(PARSE_JSON(STRING(r.row)), '$.\"2020-21_Expenditures\"') AS e "
+        "FROM raw.rows AS r WHERE r.document_id IN ('doc-1') LIMIT 10"
+    )
+    keys = agent_tools._extract_json_path_columns(sql)
+    assert "Organization" in keys
+    assert "2020-21_Expenditures" in keys
+
+
+def test_extract_inlined_document_ids_finds_literals() -> None:
+    sql = (
+        "SELECT 1 FROM raw.rows WHERE document_id IN "
+        "('doc-1', 'doc-2', 'doc-3') LIMIT 10"
+    )
+    assert agent_tools._extract_inlined_document_ids(sql) == {
+        "doc-1",
+        "doc-2",
+        "doc-3",
+    }
+
+
+def test_check_doc_column_pairing_clean_when_columns_match() -> None:
+    state = agent_tools.LoopState(
+        conversation_id="c", turn_id="t", question="q"
+    )
+    state.doc_columns["doc-1"] = ["Organization", "2020-21_Expenditures"]
+    sql = (
+        "SELECT JSON_VALUE(PARSE_JSON(STRING(r.row)), '$.Organization') AS o "
+        "FROM raw.rows AS r WHERE r.document_id IN ('doc-1') LIMIT 10"
+    )
+    violations, msg = agent_tools.check_doc_column_pairing(
+        sql=sql, state=state
+    )
+    assert violations == []
+    assert msg is None
+
+
+def test_check_doc_column_pairing_flags_missing_column() -> None:
+    """The exact turn-4 failure: model refs Canada_Mortgage_and_Housing_Corporation
+    as a column while inlining a doc that doesn't have it."""
+    state = agent_tools.LoopState(
+        conversation_id="c", turn_id="t", question="q"
+    )
+    state.doc_columns["doc-inlined"] = [
+        "2020-21_Expenditures",
+        "Organization",
+        "Vote",
+    ]
+    state.doc_columns["doc-other"] = ["Canada_Mortgage_and_Housing_Corporation"]
+    sql = (
+        "SELECT JSON_VALUE(PARSE_JSON(STRING(r.row)), "
+        "'$.Canada_Mortgage_and_Housing_Corporation') AS org "
+        "FROM raw.rows AS r WHERE r.document_id IN ('doc-inlined') LIMIT 10"
+    )
+    violations, msg = agent_tools.check_doc_column_pairing(
+        sql=sql, state=state
+    )
+    assert len(violations) == 1
+    assert violations[0]["column"] == "Canada_Mortgage_and_Housing_Corporation"
+    assert violations[0]["doc_id"] == "doc-inlined"
+    assert violations[0]["other_docs_with_column"] == ["doc-other"]
+    assert msg is not None
+    assert "doc_column_pairing_violation" in msg
+    assert "doc-other" in msg
+
+
+def test_check_doc_column_pairing_skips_when_no_docs_known() -> None:
+    """Empty doc_columns → nothing to check. Guards against the tool
+    running before list_documents surfaces docs."""
+    state = agent_tools.LoopState(
+        conversation_id="c", turn_id="t", question="q"
+    )
+    sql = (
+        "SELECT JSON_VALUE(PARSE_JSON(STRING(r.row)), '$.Something') AS x "
+        "FROM raw.rows AS r WHERE r.document_id IN ('doc-1') LIMIT 10"
+    )
+    violations, msg = agent_tools.check_doc_column_pairing(
+        sql=sql, state=state
+    )
+    assert violations == []
+    assert msg is None
+
+
+def test_run_sql_returns_column_not_in_doc_when_pairing_fails() -> None:
+    """Integration-shaped test: run_sql short-circuits BEFORE guard when
+    the pairing check fails, so the model sees a targeted error rather
+    than a silent zero-row result post-execution."""
+    bq = FakeBqClient()
+    ctx, events = _ctx(bq=bq)
+    ctx.state.doc_columns["doc-A"] = ["Organization", "2020-21_Expenditures"]
+    result = agent_tools.run_run_sql(
+        ctx=ctx,
+        args={
+            "sql": (
+                "SELECT JSON_VALUE(PARSE_JSON(STRING(r.row)), "
+                "'$.Canada_Mortgage_and_Housing_Corporation') AS o "
+                "FROM raw.rows AS r WHERE r.document_id IN ('doc-A') "
+                "LIMIT 10"
+            ),
+            "rationale": "reproducing the turn-4 pairing failure",
+        },
+    )
+    assert result["status"] == "column_not_in_doc"
+    assert "Canada_Mortgage_and_Housing_Corporation" in result["message"]
+    # sql_guarded event should carry the short reason for the FE.
+    guarded = [
+        e for e in events if e.event_type == "sql_guarded"
+    ]
+    assert len(guarded) == 1
+    assert guarded[0].accepted is False  # type: ignore[attr-defined]
+    assert (
+        "doc_column_pairing_violation"
+        in (guarded[0].reason or "")  # type: ignore[attr-defined]
+    )
+    # Failed pairing check does NOT consume a SQL execution slot.
+    assert ctx.state.sql_execution_count == 0
+
+
 def test_dispatch_unknown_tool_raises() -> None:
     ctx, _ = _ctx()
     with pytest.raises(agent_tools.InvalidToolArgsError):

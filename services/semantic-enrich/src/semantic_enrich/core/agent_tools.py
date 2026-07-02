@@ -16,6 +16,7 @@ per-turn mutable state.
 """
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from collections.abc import Callable
@@ -223,6 +224,12 @@ class LoopState:
     question_vec: list[float] | None = None
     known_package_ids: set[str] = field(default_factory=set)
     known_document_ids: set[str] = field(default_factory=set)
+    # doc_id → the actual JSON key set for that doc, as surfaced by
+    # list_documents. Consumed by the run_sql doc/column pairing check
+    # so a `JSON_VALUE(..., '$.<col>')` reference against a doc whose
+    # `columns` list doesn't include `<col>` is caught as a tool error
+    # rather than silently returning all-NULL.
+    doc_columns: dict[str, list[str]] = field(default_factory=dict)
     tool_call_count: int = 0
     sql_execution_count: int = 0
     tokens_in_total: int = 0
@@ -368,7 +375,11 @@ def run_list_documents(
         }
         for d in documents
     ]
-    ctx.state.known_document_ids.update(str(d["document_id"]) for d in payload)
+    for d in payload:
+        doc_id = str(d["document_id"])
+        ctx.state.known_document_ids.add(doc_id)
+        cols = d.get("columns") or []
+        ctx.state.doc_columns[doc_id] = [str(c) for c in cols]
     ctx.emit(
         agent_events.DocumentsListed(
             package_ids=list(package_ids), documents=payload
@@ -428,6 +439,34 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
                 "Per-turn SQL execution budget exhausted. Reconsider "
                 "your approach before requesting another run_sql."
             ),
+        }
+
+    # Doc/column pairing check. If every JSON_VALUE(..., '$.<col>')
+    # reference doesn't line up with the `columns` list of every doc in
+    # the WHERE IN, refuse before hitting the SQL guard so the model
+    # gets a targeted error telling it which column is missing from
+    # which doc — rather than a silent all-NULL result post-execution.
+    violations, pairing_msg = check_doc_column_pairing(
+        sql=sql, state=ctx.state
+    )
+    if violations:
+        short_reason = (
+            f"doc_column_pairing_violation: {len(violations)} column(s) "
+            f"referenced not in the inlined document(s)"
+        )
+        ctx.emit(
+            agent_events.SqlGuarded(
+                accepted=False,
+                reason=short_reason,
+                sql_final=sql,
+                dry_run_bytes=None,
+            )
+        )
+        return {
+            "status": "column_not_in_doc",
+            "reason": short_reason,
+            "message": pairing_msg,
+            "violations": violations,
         }
 
     guard_result = guard(sql=sql, bq=ctx.bq, settings=ctx.settings)
@@ -507,6 +546,124 @@ def dispatch(
     if tool_name == "run_sql":
         return run_run_sql(ctx=ctx, args=args)
     raise InvalidToolArgsError(f"unknown_tool: {tool_name!r}")
+
+
+# ── Doc/column pairing check ──
+
+
+# `$.<key>` — the top-level JSONPath key, either bare or double-quoted.
+# Bare keys allow leading digits and hyphens here because we want to
+# CATCH those references (the prompt tells the model to quote them,
+# but this regex is the safety net for when the model doesn't). If a
+# bare `$.2020-21_Foo` sneaks through we still want to know the model
+# intended the key `2020-21_Foo` so we can pairing-check it.
+_JSONPATH_TOP_KEY_RE = re.compile(
+    r"""\$\.(?:"([^"]+)"|([A-Za-z0-9_][A-Za-z0-9_\-]*))"""
+)
+
+# Extract literal `document_id IN ('a', 'b', ...)` predicates. Only the
+# literal shape counts — a subquery IN or a JOIN is already rejected
+# by the sql_guard, so we don't need to defend against them here.
+_DOC_IDS_IN_RE = re.compile(
+    r"""document_id\s+IN\s*\(([^)]+)\)""", re.IGNORECASE
+)
+_ID_LITERAL_RE = re.compile(r"""['"]([^'"]+)['"]""")
+
+
+def _extract_json_path_columns(sql: str) -> set[str]:
+    keys: set[str] = set()
+    for m in _JSONPATH_TOP_KEY_RE.finditer(sql):
+        key = m.group(1) or m.group(2)
+        if key:
+            keys.add(key)
+    return keys
+
+
+def _extract_inlined_document_ids(sql: str) -> set[str]:
+    ids: set[str] = set()
+    for m in _DOC_IDS_IN_RE.finditer(sql):
+        inner = m.group(1)
+        for id_m in _ID_LITERAL_RE.finditer(inner):
+            ids.add(id_m.group(1))
+    return ids
+
+
+def check_doc_column_pairing(
+    *, sql: str, state: LoopState
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Verify every JSONPath column reference exists in every inlined doc.
+
+    Returns `(violations, formatted_message)`. Empty violations = clean.
+
+    Skips the check when the model hasn't populated `doc_columns` this
+    turn (e.g. an inline retry that reuses a prior turn's known doc_id
+    that we can't validate). The sql_guard's document_id filter check
+    still rejects unknown-doc-shape queries; this check adds the
+    column-level layer on top.
+    """
+    if not state.doc_columns:
+        return [], None
+
+    columns_referenced = _extract_json_path_columns(sql)
+    doc_ids_referenced = _extract_inlined_document_ids(sql)
+
+    if not columns_referenced or not doc_ids_referenced:
+        return [], None
+
+    violations: list[dict[str, Any]] = []
+    for doc_id in sorted(doc_ids_referenced):
+        available = state.doc_columns.get(doc_id)
+        if available is None:
+            continue
+        available_set = set(available)
+        for col in sorted(columns_referenced):
+            if col in available_set:
+                continue
+            other_docs = sorted(
+                d for d, cols in state.doc_columns.items() if col in cols
+            )
+            violations.append(
+                {
+                    "column": col,
+                    "doc_id": doc_id,
+                    "available_columns": list(available),
+                    "other_docs_with_column": other_docs,
+                }
+            )
+    if not violations:
+        return [], None
+
+    lines = [
+        "doc_column_pairing_violation: the SQL references columns that "
+        "do not exist in the document(s) it inlined. This is the most "
+        "common cause of an all-NULL result."
+    ]
+    for v in violations:
+        lines.append(
+            f"  - Column '{v['column']}' is NOT in document '{v['doc_id']}'. "
+            f"That doc's columns are: {v['available_columns']}."
+        )
+        if v["other_docs_with_column"]:
+            lines.append(
+                "    The column DOES exist in these documents: "
+                f"{v['other_docs_with_column']}."
+            )
+        else:
+            lines.append(
+                "    The column does not exist in any document from "
+                "list_documents this turn. If you meant this string as "
+                "a VALUE (e.g. an organization name), it is likely a "
+                "value in one of the doc's own text columns "
+                "(Organization / Description / Name-like). Use "
+                "`JSON_VALUE(..., '$.Organization') = '<the string>'` "
+                "instead of referencing it as a column."
+            )
+    lines.append(
+        "Fix: either inline a different document_id from list_documents "
+        "that contains the columns you need, or drop the missing column "
+        "reference. Do not retry with the same doc/column pairing."
+    )
+    return violations, "\n".join(lines)
 
 
 # ── Helpers ──
