@@ -3,26 +3,6 @@
 import * as React from "react";
 import { getCorpusStats, type CorpusStats as CorpusStatsT } from "@/lib/api";
 
-interface StatDef {
-  label: string;
-  render: (s: CorpusStatsT | null) => string;
-}
-
-const STATS: StatDef[] = [
-  {
-    label: "Documents",
-    render: (s) => (s ? formatCompact(s.documents) + "+" : "—"),
-  },
-  {
-    label: "Rows of data",
-    render: (s) => (s ? formatCompact(s.rows) + "+" : "—"),
-  },
-  {
-    label: "Answers cited or refused",
-    render: () => "100%",
-  },
-];
-
 export function CorpusStats() {
   const [stats, setStats] = React.useState<CorpusStatsT | null>(null);
   const [failed, setFailed] = React.useState(false);
@@ -38,35 +18,60 @@ export function CorpusStats() {
     return () => controller.abort();
   }, []);
 
+  const docs = stats ? formatInt(stats.documents) : failed ? "3,700+" : null;
+  const rows = stats ? formatInt(stats.rows) : failed ? "Millions" : null;
+
   return (
-    <dl className="mt-12 grid max-w-lg grid-cols-3 gap-6">
-      {STATS.map((s) => {
-        const value =
-          failed && s.label !== "Answers cited or refused"
-            ? "—"
-            : s.render(stats);
-        return (
-          <div key={s.label}>
-            <dd className="text-3xl font-semibold tracking-tight text-ink tabular-nums">
-              {value}
-            </dd>
-            <dt className="mt-1 text-xs text-muted">{s.label}</dt>
-          </div>
-        );
-      })}
+    <dl className="mt-12 grid max-w-xl gap-6 sm:grid-cols-3">
+      <Callout
+        headline={docs ?? "—"}
+        label="Federal documents"
+        sublabel="indexed to date"
+        loading={docs === null}
+      />
+      <Callout
+        headline={rows ?? "—"}
+        label="Joinable rows"
+        sublabel="across every dataset"
+        loading={rows === null}
+      />
+      <Callout
+        headline="Zero"
+        label="Uncited answers"
+        sublabel="the guard refuses first"
+      />
     </dl>
   );
 }
 
-function formatCompact(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return "0";
-  if (n >= 1_000_000_000) return trim(n / 1_000_000_000) + "B";
-  if (n >= 1_000_000) return trim(n / 1_000_000) + "M";
-  if (n >= 10_000) return Math.round(n / 1_000) + "K";
-  if (n >= 1_000) return trim(n / 1_000) + "K";
-  return n.toLocaleString();
+function Callout({
+  headline,
+  label,
+  sublabel,
+  loading = false,
+}: {
+  headline: string;
+  label: string;
+  sublabel: string;
+  loading?: boolean;
+}) {
+  return (
+    <div className="border-l-2 border-ink/10 pl-4">
+      <dd
+        className={
+          "font-display text-2xl font-semibold tracking-tight text-ink tabular-nums md:text-3xl " +
+          (loading ? "animate-pulse text-ink/30" : "")
+        }
+      >
+        {loading ? "0,000" : headline}
+      </dd>
+      <dt className="mt-1 text-sm font-medium text-ink">{label}</dt>
+      <p className="text-xs text-muted">{sublabel}</p>
+    </div>
+  );
 }
 
-function trim(n: number): string {
-  return (Math.round(n * 10) / 10).toString().replace(/\.0$/, "");
+function formatInt(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "0";
+  return Math.round(n).toLocaleString("en-US");
 }

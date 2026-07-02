@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight, ShieldCheck, Sparkles, Zap } from "lucide-react";
 import { CorpusStats } from "@/components/marketing/corpus-stats";
 import { EvidenceDemo } from "@/components/marketing/evidence-demo";
+import { ExampleQuestions } from "@/components/marketing/example-questions";
 import { ExplorerDemo } from "@/components/marketing/explorer-demo";
 import { MiniChat } from "@/components/marketing/mini-chat";
 import { NotebookDemo } from "@/components/marketing/notebook-demo";
@@ -13,7 +14,7 @@ export default function LandingPage() {
       <Hero />
       <FeatureShowcase />
       <TrustBand />
-      <CallToAction />
+      <ExampleQuestions />
       <SiteFooter />
     </>
   );
@@ -24,16 +25,9 @@ function Hero() {
     <section className="relative overflow-hidden">
       <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-4 py-20 md:px-6 md:py-24 lg:grid-cols-[1.1fr_0.9fr]">
         <div>
-          <h1 className="max-w-3xl text-4xl font-semibold leading-[1.08] tracking-tight text-ink sm:text-5xl md:text-6xl">
-            Ask hard questions of{" "}
-            <span className="relative inline-block">
-              <span className="relative z-10">government data</span>
-              <span
-                aria-hidden="true"
-                className="absolute inset-x-0 bottom-1 -z-0 h-[10px] bg-coral/40"
-              />
-            </span>
-            . Get answers you can cite.
+          <h1 className="max-w-3xl text-4xl font-semibold leading-[1.04] tracking-tight text-ink sm:text-5xl md:text-6xl">
+            Ask hard questions of government data. Get answers you can
+            cite.
           </h1>
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-body">
             MapleQuery turns fragmented Canadian open data into a
@@ -189,43 +183,6 @@ function TrustBand() {
           </ul>
         </Reveal>
       </div>
-    </section>
-  );
-}
-
-function CallToAction() {
-  return (
-    <section className="mx-auto max-w-6xl px-4 py-20 md:px-6">
-      <Reveal>
-        <div className="rounded-2xl border border-hairline bg-white p-8 md:p-12">
-          <div className="flex flex-col items-start gap-6 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold tracking-tight text-ink md:text-3xl">
-                Start with a question.
-              </h2>
-              <p className="mt-2 max-w-xl text-body">
-                Ask in plain language, watch the answer build with live
-                citations, and click any card to trace it.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href="/chat"
-                className="inline-flex items-center gap-2 rounded-md bg-coral px-5 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-coral-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-              >
-                Open the chat
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link
-                href="/datasets"
-                className="rounded-md border border-hairline bg-white px-5 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-surface-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
-              >
-                Browse the corpus
-              </Link>
-            </div>
-          </div>
-        </div>
-      </Reveal>
     </section>
   );
 }

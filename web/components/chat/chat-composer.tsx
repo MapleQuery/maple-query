@@ -11,6 +11,8 @@ export interface ChatComposerProps {
   streaming?: boolean;
   suggestions?: string[];
   placeholder?: string;
+  /** Pre-fill the composer, e.g. from a `?q=` link on the landing page. */
+  initialText?: string;
 }
 
 export function ChatComposer({
@@ -20,8 +22,9 @@ export function ChatComposer({
   streaming,
   suggestions = [],
   placeholder = "Ask in plain language. MapleQuery will show its work.",
+  initialText,
 }: ChatComposerProps) {
-  const [text, setText] = React.useState("");
+  const [text, setText] = React.useState(initialText ?? "");
   const taRef = React.useRef<HTMLTextAreaElement>(null);
 
   const autosize = React.useCallback(() => {
