@@ -57,7 +57,11 @@ def test_prompt_template_renders_and_hashes() -> None:
     settings = _settings()
     prompt, digest = _prompt_bits(settings)
     assert "MapleQuery" in prompt
-    assert "raw, semantic" in prompt
+    assert "raw.rows" in prompt
+    # The doc/column pairing HARD RULE is the load-bearing prompt rule
+    # ported from 4.6 — regressing it re-opens the all-NULL failure mode.
+    assert "HARD RULE" in prompt
+    assert "document_id" in prompt
     assert len(digest) == 64
 
 
