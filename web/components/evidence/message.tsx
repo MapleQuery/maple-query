@@ -1,5 +1,7 @@
 "use client";
 
+import * as React from "react";
+import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { LogoMark } from "@/components/ui/logo";
@@ -11,6 +13,9 @@ export interface MessageProps {
   streaming?: boolean;
   meta?: React.ReactNode;
 }
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function Message({ role, content, streaming, meta }: MessageProps) {
   if (role === "user") {
@@ -34,23 +39,41 @@ export function Message({ role, content, streaming, meta }: MessageProps) {
       <div className="min-w-0 flex-1">
         <div className="mb-1.5 flex items-center gap-2">
           <span className="text-sm font-semibold text-ink">MapleQuery</span>
-          <span className="rounded bg-coral/10 px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider text-navy">
-            AI
-          </span>
         </div>
-        <div
-          className={cn(
-            "prose-body max-w-none text-[15px] leading-relaxed text-body",
-            streaming && "after:ml-0.5 after:inline-block after:h-4 after:w-[2px] after:animate-dot-blink after:bg-coral after:align-middle",
-          )}
-        >
+        <div className="prose-body max-w-none text-[15px] leading-relaxed text-body">
           {content ? (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                code({ className, children, ...props }) {
+                  const text = String(children ?? "");
+                  const isBlock = className?.startsWith("language-");
+                  if (!isBlock && UUID_RE.test(text.trim())) {
+                    return (
+                      <Link
+                        href={`/datasets/${text.trim()}`}
+                        className="rounded bg-coral/10 px-1.5 py-0.5 font-mono text-[0.92em] text-navy hover:bg-coral/20 hover:underline"
+                      >
+                        {text}
+                      </Link>
+                    );
+                  }
+                  return (
+                    <code className={className} {...props}>
+                      {children}
+                    </code>
+                  );
+                },
+              }}
+            >
+              {content}
+            </ReactMarkdown>
           ) : streaming ? (
-            <TypingDots />
+            <MapleLoader />
           ) : (
             <span className="text-muted">…</span>
           )}
+          {content && streaming && <StreamingCursor />}
         </div>
         {meta && <div className="mt-2">{meta}</div>}
       </div>
@@ -58,23 +81,61 @@ export function Message({ role, content, streaming, meta }: MessageProps) {
   );
 }
 
-function TypingDots() {
+function StreamingCursor() {
+  return (
+    <span
+      aria-hidden="true"
+      className="ml-0.5 inline-block h-4 w-[2px] animate-dot-blink bg-coral align-middle"
+    />
+  );
+}
+
+const CANADIAN_VERBS = [
+  "Portaging",
+  "Zambonieing",
+  "Pondering",
+  "Snowshoeing",
+  "Tobogganing",
+  "Percolating",
+  "Deliberating",
+  "Ruminating",
+  "Sledding",
+  "Musing",
+  "Chinwagging",
+  "Sugarshacking",
+];
+
+function MapleLoader() {
+  const [verbIdx, setVerbIdx] = React.useState(() =>
+    Math.floor(Math.random() * CANADIAN_VERBS.length),
+  );
+
+  React.useEffect(() => {
+    const id = window.setInterval(() => {
+      setVerbIdx((i) => (i + 1) % CANADIAN_VERBS.length);
+    }, 1600);
+    return () => window.clearInterval(id);
+  }, []);
+
   return (
     <span className="inline-flex items-center gap-2.5 rounded-2xl rounded-tl-md border border-hairline bg-white px-4 py-3">
+      <MapleLeafSpinner />
       <span className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-navy">
-        Thinking
-      </span>
-      <span className="flex gap-1">
-        <span className="h-1.5 w-1.5 animate-dot-blink rounded-full bg-coral" />
-        <span
-          className="h-1.5 w-1.5 animate-dot-blink rounded-full bg-coral"
-          style={{ animationDelay: "0.2s" }}
-        />
-        <span
-          className="h-1.5 w-1.5 animate-dot-blink rounded-full bg-coral"
-          style={{ animationDelay: "0.4s" }}
-        />
+        {CANADIAN_VERBS[verbIdx]}
       </span>
     </span>
+  );
+}
+
+function MapleLeafSpinner() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 100 100"
+      className="h-4 w-4 origin-center animate-leaf-pulse text-coral"
+      fill="currentColor"
+    >
+      <path d="M50 6 L54 26 L58 22 L64 30 L74 24 L70 38 L86 36 L78 46 L94 52 L74 60 L78 68 L64 66 L66 78 L58 74 L54 82 L50 74 L46 82 L42 74 L34 78 L36 66 L22 68 L26 60 L6 52 L22 46 L14 36 L30 38 L26 24 L36 30 L42 22 L46 26 Z" />
+    </svg>
   );
 }

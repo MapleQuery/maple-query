@@ -48,11 +48,16 @@ const config: Config = {
           "0%, 60%, 100%": { opacity: "0.25" },
           "30%": { opacity: "1" },
         },
+        "leaf-pulse": {
+          "0%, 100%": { transform: "scale(0.78)", opacity: "0.75" },
+          "50%": { transform: "scale(1.08)", opacity: "1" },
+        },
       },
       animation: {
         rise: "rise 0.3s ease both",
         shimmer: "shimmer 1.4s infinite",
         "dot-blink": "dot-blink 1.2s infinite",
+        "leaf-pulse": "leaf-pulse 1.4s ease-in-out infinite",
       },
     },
   },
