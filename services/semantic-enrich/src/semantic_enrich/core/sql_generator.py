@@ -86,6 +86,12 @@ def load_prompt_template(path: Path) -> jinja2.Template:
     return env.get_template(path.name)
 
 
+# Stable canonical project id for hashing so the template hash is
+# independent of `settings.gcp_project_id` — the hash changes only when
+# the template itself changes, not when the operator switches projects.
+_CANONICAL_PROJECT_ID_FOR_HASH = "canonical-project-id"
+
+
 def render_prompt(
     *,
     template: jinja2.Template,
@@ -93,13 +99,27 @@ def render_prompt(
     packages: list[PackageCandidate],
     columns: list[ColumnCandidate],
     settings: Settings,
+    project_id: str | None = None,
 ) -> str:
+    """Render the SQL-gen prompt.
+
+    `project_id` defaults to `settings.gcp_project_id`; callers pass an
+    override for the canonical prompt hash so the hash stays stable
+    across projects.
+    """
+    resolved_project = project_id or settings.gcp_project_id
+    if not resolved_project:
+        raise RuntimeError(
+            "sql_generator: settings.gcp_project_id is required to render "
+            "the prompt (the worked example fully-qualifies tables)."
+        )
     return template.render(
         question=question,
         packages=packages,
         columns=columns,
         row_limit=settings.eval_row_limit,
         allowed_datasets=settings.eval_allowed_datasets,
+        project_id=resolved_project,
     )
 
 
@@ -115,6 +135,7 @@ def prompt_template_hash(template: jinja2.Template, settings: Settings) -> str:
         packages=[],
         columns=[],
         settings=settings,
+        project_id=_CANONICAL_PROJECT_ID_FOR_HASH,
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 

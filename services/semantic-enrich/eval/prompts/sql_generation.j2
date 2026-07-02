@@ -15,6 +15,9 @@ Hard rules:
 - Do not invent column names. Only use column names listed below.
 - Do not invent table names. The only tables that exist for this
   question are the listed candidates joined via raw.rows / raw.documents.
+- All fully-qualified table references MUST use the project id
+  `{{ project_id }}` verbatim — e.g. `` `{{ project_id }}.raw.rows` ``.
+  Never emit a placeholder like `<project>` or `PROJECT_ID`.
 
 The question:
 {{ question }}
@@ -40,8 +43,8 @@ Worked example, showing the canonical query shape:
   SELECT
     JSON_VALUE(r.row, '$.FISCAL_YEAR') AS fiscal_year,
     SUM(SAFE_CAST(JSON_VALUE(r.row, '$.TOT_EXP') AS FLOAT64)) AS total_expenditure
-  FROM `<project>.raw.rows` AS r
-  JOIN `<project>.raw.documents` AS d USING (document_id)
+  FROM `{{ project_id }}.raw.rows` AS r
+  JOIN `{{ project_id }}.raw.documents` AS d USING (document_id)
   WHERE d.package_id = '<one_of_the_candidate_package_ids>'
   GROUP BY fiscal_year
   ORDER BY fiscal_year
