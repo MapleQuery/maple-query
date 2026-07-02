@@ -1,0 +1,41 @@
+# Cloud Build config for the agent-service bootstrap image.
+#
+# Used only for the FIRST deploy on a fresh project — after the
+# terraform apply provisions the Artifact Registry repo but before the
+# GitHub Actions CD workflow can take over. Steady-state deploys go
+# through the workflow at .github/workflows/deploy-agent-service.yml
+# (which uses `docker build` in the runner, not Cloud Build).
+#
+# Invoke from the REPO ROOT so the Dockerfile's repo-root COPY paths
+# resolve. Both service trees (agent-service + semantic-enrich) must be
+# in the build context.
+#
+# Example:
+#   gcloud builds submit \
+#     --project=<project> \
+#     --region=us-central1 \
+#     --config=services/agent-service/cloudbuild.yaml \
+#     --substitutions=_IMAGE=us-central1-docker.pkg.dev/<project>/agent-service/agent-service:bootstrap \
+#     .
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - services/agent-service/Dockerfile
+      - -t
+      - ${_IMAGE}
+      - .
+
+images:
+  - ${_IMAGE}
+
+# Cloud Build's default is a small `e2-standard-1` worker; the multi-
+# stage build with heavy ML deps needs more RAM to avoid OOMs during
+# `uv sync`. E2_HIGHCPU_8 is the smallest tier that reliably completes.
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 1200s
