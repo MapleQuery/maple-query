@@ -13,7 +13,11 @@ import jinja2
 import pytest
 
 from semantic_enrich.config.settings import Settings
-from semantic_enrich.core.retrieval import ColumnCandidate, PackageCandidate
+from semantic_enrich.core.retrieval import (
+    ColumnCandidate,
+    DocumentCandidate,
+    PackageCandidate,
+)
 from semantic_enrich.core.sql_generator import (
     load_prompt_template,
     prompt_template_hash,
@@ -55,12 +59,51 @@ def test_render_contains_question_and_limit() -> None:
                 distance=0.15,
             )
         ],
+        documents=[],
         settings=_settings(),
     )
     assert "How much was spent on housing?" in prompt
     assert "pkg-1" in prompt
     assert "TOT_EXP" in prompt
     assert "LIMIT 100" in prompt
+
+
+def test_render_contains_documents() -> None:
+    """The resolved document_ids must appear in the prompt so the model
+    can inline them as literals — that's the whole point of the
+    third-stage retrieval."""
+    tmpl = load_prompt_template(_TEMPLATE)
+    prompt = render_prompt(
+        template=tmpl,
+        question="How much was spent on housing?",
+        packages=[],
+        columns=[],
+        documents=[
+            DocumentCandidate(
+                document_id="doc-abc",
+                package_id="pkg-1",
+                title="Housing expenditure 2023",
+                row_count=1234,
+                resource_last_modified=None,
+            ),
+            DocumentCandidate(
+                document_id="doc-def",
+                package_id="pkg-1",
+                title=None,
+                row_count=None,
+                resource_last_modified=None,
+            ),
+        ],
+        settings=_settings(),
+    )
+    assert "doc-abc" in prompt
+    assert "doc-def" in prompt
+    # Prompt must instruct the model to inline literals rather than emit
+    # a subquery IN — that's the whole point of the third-stage retrieval.
+    assert "LITERAL `document_id` IN-list" in prompt
+    # Missing row_count / title fall back to the "unspecified" sentinel
+    # rather than rendering Python `None`.
+    assert "unspecified" in prompt
 
 
 def test_render_missing_var_raises(tmp_path: Path) -> None:

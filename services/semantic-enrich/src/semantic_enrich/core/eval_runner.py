@@ -47,6 +47,7 @@ from semantic_enrich.core.eval_report import (
 from semantic_enrich.core.retrieval import (
     embed_question,
     retrieve_columns,
+    retrieve_documents,
     retrieve_packages,
 )
 from semantic_enrich.core.sql_executor import execute as execute_sql
@@ -381,6 +382,23 @@ def _process_question(
         latency_ms=columns_ms,
     )
 
+    documents, documents_ms = retrieve_documents(
+        bq=bq, package_ids=scoped_ids, settings=settings
+    )
+    if not documents:
+        inputs.retrieval_miss = True
+        log.info(
+            "retrieval_miss", question_id=question.id, stage="documents"
+        )
+        return inputs
+    log.info(
+        "retrieval_documents_done",
+        question_id=question.id,
+        top_k_documents=len(documents),
+        document_ids=[d.document_id for d in documents],
+        latency_ms=documents_ms,
+    )
+
     try:
         sql_result, prompt = generate_sql(
             openai_client=openai_client,
@@ -388,6 +406,7 @@ def _process_question(
             question=question.question,
             packages=packages,
             columns=columns,
+            documents=documents,
             settings=settings,
         )
     except SqlGenerationError as exc:

@@ -87,6 +87,10 @@ def guard(*, sql: str, bq: BqClient, settings: Settings) -> GuardResult:
     if project_violation is not None:
         return _rejected(project_violation, sql)
 
+    document_id_violation = _document_id_filter_violation(tree, settings)
+    if document_id_violation is not None:
+        return _rejected(document_id_violation, sql)
+
     sql_final, limit_wrapped = _ensure_limit(tree, sql, settings)
 
     try:
@@ -216,6 +220,44 @@ def _project_violation(
         ):
             return f"sql_wrong_project: {project_name}"
     return None
+
+
+def _document_id_filter_violation(
+    tree: exp.Expression, settings: Settings
+) -> str | None:
+    """`raw.rows` is clustered by `document_id`; only a literal IN-list
+    on that column is plan-time-prunable. A subquery IN or a JOIN to
+    `raw.documents` forces the full clustered scan (~200 GB).
+
+    Fire the guard when `raw.rows` is referenced anywhere in the tree
+    but no literal `document_id IN (...)` predicate is present. Only
+    literal children count — subquery INs and expression-list INs are
+    both rejected."""
+    references_rows = False
+    for table in tree.find_all(exp.Table):
+        db = table.args.get("db")
+        db_name = (
+            db.name if db is not None and hasattr(db, "name") else None
+        )
+        if (
+            db_name == settings.bq_dataset_raw
+            and table.name == settings.bq_rows_table
+        ):
+            references_rows = True
+            break
+    if not references_rows:
+        return None
+
+    for in_expr in tree.find_all(exp.In):
+        col = in_expr.this
+        if not isinstance(col, exp.Column):
+            continue
+        if col.name != "document_id":
+            continue
+        literals = in_expr.args.get("expressions") or []
+        if literals and all(isinstance(e, exp.Literal) for e in literals):
+            return None
+    return "sql_no_document_id_filter"
 
 
 def _cte_names(tree: exp.Expression) -> set[str]:

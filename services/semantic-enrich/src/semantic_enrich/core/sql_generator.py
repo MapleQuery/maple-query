@@ -23,7 +23,11 @@ from semantic_enrich.clients.openai import (
     StructuredGenerationResult,
 )
 from semantic_enrich.config.settings import Settings
-from semantic_enrich.core.retrieval import ColumnCandidate, PackageCandidate
+from semantic_enrich.core.retrieval import (
+    ColumnCandidate,
+    DocumentCandidate,
+    PackageCandidate,
+)
 
 SQL_GEN_SCHEMA_NAME = "sql_result"
 
@@ -98,10 +102,15 @@ def render_prompt(
     question: str,
     packages: list[PackageCandidate],
     columns: list[ColumnCandidate],
+    documents: list[DocumentCandidate],
     settings: Settings,
     project_id: str | None = None,
 ) -> str:
     """Render the SQL-gen prompt.
+
+    `documents` is the resolved list of `raw.documents` rows for the
+    candidate packages; the template inlines their `document_id`s as
+    literals so the emitted SQL can plan-time-prune `raw.rows`.
 
     `project_id` defaults to `settings.gcp_project_id`; callers pass an
     override for the canonical prompt hash so the hash stays stable
@@ -117,6 +126,7 @@ def render_prompt(
         question=question,
         packages=packages,
         columns=columns,
+        documents=documents,
         row_limit=settings.eval_row_limit,
         allowed_datasets=settings.eval_allowed_datasets,
         project_id=resolved_project,
@@ -134,6 +144,7 @@ def prompt_template_hash(template: jinja2.Template, settings: Settings) -> str:
         question="canonical prompt hash question",
         packages=[],
         columns=[],
+        documents=[],
         settings=settings,
         project_id=_CANONICAL_PROJECT_ID_FOR_HASH,
     )
@@ -147,6 +158,7 @@ def generate_sql(
     question: str,
     packages: list[PackageCandidate],
     columns: list[ColumnCandidate],
+    documents: list[DocumentCandidate],
     settings: Settings,
 ) -> tuple[SqlGenerationResult, str]:
     """Emit one SELECT statement for `question`. Returns
@@ -157,6 +169,7 @@ def generate_sql(
         question=question,
         packages=packages,
         columns=columns,
+        documents=documents,
         settings=settings,
     )
     started = time.monotonic()

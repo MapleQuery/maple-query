@@ -163,6 +163,12 @@ class Settings(BaseSettings):
     # Retrieval knobs. See PRD §6.4 for the k rationale.
     eval_k_packages: int = 5
     eval_k_columns: int = 15
+    # Per-package cap on document literals inlined into the SQL-gen prompt.
+    # `raw.rows` is clustered by document_id; only a literal IN-list
+    # prunes the clustered scan at plan time. 10 gives the model room to
+    # pick "most recent" or a specific title among sibling docs without
+    # bloating the prompt (5 pkgs x 10 = 50 literals in the worst case).
+    eval_max_documents_per_package: int = 10
 
     # SQL guard knobs. Cost cap default catches hallucinated full-scan
     # queries against `raw.rows` (~50 GB unfiltered) cheaply; operators

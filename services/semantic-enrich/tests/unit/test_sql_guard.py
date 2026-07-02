@@ -41,7 +41,10 @@ def _settings() -> Settings:
 
 
 def test_select_accepted() -> None:
-    sql = "SELECT 1 AS n FROM `proj.raw.rows` LIMIT 10"
+    sql = (
+        "SELECT 1 AS n FROM `proj.raw.rows` "
+        "WHERE document_id IN ('doc-1') LIMIT 10"
+    )
     result = guard(sql=sql, bq=_FakeBq(), settings=_settings())
     assert result.accepted
     assert result.limit_wrapped is False
@@ -104,7 +107,10 @@ def test_multi_statement_textual_rejected() -> None:
 
 
 def test_cost_too_high_rejected() -> None:
-    sql = "SELECT * FROM `proj.raw.rows` LIMIT 10"
+    sql = (
+        "SELECT * FROM `proj.raw.rows` "
+        "WHERE document_id IN ('doc-1') LIMIT 10"
+    )
     bq = _FakeBq(bytes_processed=100 * 1024 * 1024 * 1024)  # 100 GB
     result = guard(sql=sql, bq=bq, settings=_settings())
     assert not result.accepted
@@ -113,7 +119,10 @@ def test_cost_too_high_rejected() -> None:
 
 
 def test_dry_run_failure_captured() -> None:
-    sql = "SELECT * FROM `proj.raw.rows` LIMIT 10"
+    sql = (
+        "SELECT * FROM `proj.raw.rows` "
+        "WHERE document_id IN ('doc-1') LIMIT 10"
+    )
     bq = _FakeBq(raise_exc=RuntimeError("bad SQL"))
     result = guard(sql=sql, bq=bq, settings=_settings())
     assert not result.accepted
@@ -138,7 +147,10 @@ def test_absurdly_long_sql_rejected() -> None:
 
 def test_cte_alias_skips_dataset_check() -> None:
     sql = (
-        "WITH t AS (SELECT 1 AS n FROM `proj.raw.rows`) "
+        "WITH t AS ("
+        "SELECT 1 AS n FROM `proj.raw.rows` "
+        "WHERE document_id IN ('doc-1')"
+        ") "
         "SELECT * FROM t LIMIT 10"
     )
     result = guard(sql=sql, bq=_FakeBq(), settings=_settings())
@@ -181,6 +193,53 @@ def test_union_not_select_rejected() -> None:
     result = guard(sql=sql, bq=_FakeBq(), settings=_settings())
     assert not result.accepted
     assert result.reason == "sql_not_select"
+
+
+def test_raw_rows_without_document_id_filter_rejected() -> None:
+    """`raw.rows` is clustered by document_id; only a literal IN-list
+    prunes the scan. Any reference to `raw.rows` without one is a
+    guaranteed full-scan and must be rejected before the dry-run."""
+    sql = "SELECT * FROM `proj.raw.rows` LIMIT 10"
+    result = guard(sql=sql, bq=_FakeBq(), settings=_settings())
+    assert not result.accepted
+    assert result.reason == "sql_no_document_id_filter"
+
+
+def test_document_id_subquery_in_rejected() -> None:
+    """A subquery IN doesn't plan-time-prune the cluster — that's the
+    exact regression the guard is meant to block."""
+    sql = (
+        "WITH docs AS ("
+        "SELECT document_id FROM `proj.raw.documents` "
+        "WHERE package_id = 'pkg-1'"
+        ") "
+        "SELECT * FROM `proj.raw.rows` "
+        "WHERE document_id IN (SELECT document_id FROM docs) "
+        "LIMIT 10"
+    )
+    result = guard(sql=sql, bq=_FakeBq(), settings=_settings())
+    assert not result.accepted
+    assert result.reason == "sql_no_document_id_filter"
+
+
+def test_document_id_literal_in_accepted() -> None:
+    """A literal IN-list on document_id is the shape the harness inlines
+    from the retrieve_documents stage — must pass the guard."""
+    sql = (
+        "SELECT * FROM `proj.raw.rows` AS r "
+        "WHERE r.document_id IN ('doc-1', 'doc-2') LIMIT 10"
+    )
+    result = guard(sql=sql, bq=_FakeBq(), settings=_settings())
+    assert result.accepted, result.reason
+
+
+def test_raw_rows_not_referenced_no_check() -> None:
+    """The document_id-filter rule only fires when `raw.rows` is
+    actually referenced. A pure `raw.documents` query is fine without
+    it."""
+    sql = "SELECT title FROM `proj.raw.documents` LIMIT 10"
+    result = guard(sql=sql, bq=_FakeBq(), settings=_settings())
+    assert result.accepted, result.reason
 
 
 @pytest.mark.parametrize(

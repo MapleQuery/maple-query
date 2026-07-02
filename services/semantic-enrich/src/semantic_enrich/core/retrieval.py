@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from google.cloud import bigquery
@@ -53,6 +54,24 @@ class ColumnCandidate:
     description: str
     sample_values: tuple[str, ...]
     distance: float
+
+
+@dataclass(frozen=True)
+class DocumentCandidate:
+    """One `raw.documents` row for a candidate package.
+
+    Threaded verbatim into the SQL-gen prompt so the model can inline a
+    literal `document_id IN ('…', '…')` filter. That literal shape is
+    the only one BigQuery can plan-time-prune against `raw.rows`'
+    `document_id` cluster; a subquery IN — even against `raw.documents` —
+    forces a full clustered scan.
+    """
+
+    document_id: str
+    package_id: str
+    title: str | None
+    row_count: int | None
+    resource_last_modified: datetime | None
 
 
 @dataclass(frozen=True)
@@ -146,6 +165,49 @@ def retrieve_columns(
     return [_column_from_row(r) for r in rows], latency_ms
 
 
+def retrieve_documents(
+    *,
+    bq: BqClient,
+    package_ids: list[str],
+    settings: Settings,
+) -> tuple[list[DocumentCandidate], int]:
+    """Fetch loaded `raw.documents` rows for the candidate packages.
+
+    Filter posture:
+    - `load_status = 'loaded'` — the strictest signal that rows landed
+      in `raw.rows`. Sibling code (`column_inputs`, `package_grouper`,
+      `sample_selector`) uses the same filter; it subsumes
+      `ingestion_status='success'` and excludes 'pending', 'blob_missing',
+      'parse_failed', 'skipped_non_csv'.
+    - Ordered by `resource_last_modified DESC` so "most recent" questions
+      get the freshest doc first when the model has to pick.
+    - Capped per-package at `settings.eval_max_documents_per_package` to
+      keep the literal IN-list tractable in the prompt.
+
+    Returns `(candidates, latency_ms)`.
+    """
+    project_id = _require_project(settings)
+    sql = _DOCUMENT_SEARCH_SQL.format(
+        project_id=project_id,
+        dataset=settings.bq_dataset_raw,
+        table=settings.bq_documents_table,
+    )
+    params: list[
+        bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter
+    ] = [
+        bigquery.ArrayQueryParameter("package_ids", "STRING", package_ids),
+        bigquery.ScalarQueryParameter(
+            "max_per_package",
+            "INT64",
+            settings.eval_max_documents_per_package,
+        ),
+    ]
+    started = time.monotonic()
+    rows = list(bq.query_rows(sql, params=params))
+    latency_ms = int((time.monotonic() - started) * 1000)
+    return [_document_from_row(r) for r in rows], latency_ms
+
+
 def _require_project(settings: Settings) -> str:
     if not settings.gcp_project_id:
         raise RuntimeError(
@@ -177,6 +239,27 @@ def _column_from_row(row: dict[str, Any]) -> ColumnCandidate:
         sample_values=tuple(_str_list(row.get("sample_values"))),
         distance=float(row.get("distance") or 0.0),
     )
+
+
+def _document_from_row(row: dict[str, Any]) -> DocumentCandidate:
+    row_count = row.get("row_count")
+    return DocumentCandidate(
+        document_id=str(row["document_id"]),
+        package_id=str(row["package_id"]),
+        title=_optional_str(row.get("title")),
+        row_count=int(row_count) if row_count is not None else None,
+        resource_last_modified=_optional_datetime(
+            row.get("resource_last_modified")
+        ),
+    )
+
+
+def _optional_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    return None
 
 
 def _optional_str(value: Any) -> str | None:
@@ -213,6 +296,29 @@ FROM VECTOR_SEARCH(
   distance_type => 'COSINE'
 )
 ORDER BY distance ASC
+""".strip()
+
+
+_DOCUMENT_SEARCH_SQL = """
+WITH ranked AS (
+  SELECT
+    document_id,
+    package_id,
+    title,
+    row_count,
+    resource_last_modified,
+    ROW_NUMBER() OVER (
+      PARTITION BY package_id
+      ORDER BY resource_last_modified DESC NULLS LAST, document_id
+    ) AS rn
+  FROM `{project_id}.{dataset}.{table}`
+  WHERE package_id IN UNNEST(@package_ids)
+    AND load_status = 'loaded'
+)
+SELECT document_id, package_id, title, row_count, resource_last_modified
+FROM ranked
+WHERE rn <= @max_per_package
+ORDER BY package_id, rn
 """.strip()
 
 

@@ -75,7 +75,8 @@ def test_mixed_outcome_run(tmp_path: Path) -> None:
     bq.register_query("COUNT(*) AS n", [{"n": 10}])
     bq.register_query("COUNT(*) AS n", [{"n": 100}])
     bq.register_query("ARRAY_LENGTH(embedding)", [{"dim": 1536}])
-    # q01: VECTOR_SEARCH returns one package + one column.
+    # q01: VECTOR_SEARCH returns one package + one column, then the
+    # documents lookup returns one loaded doc.
     bq.register_query("VECTOR_SEARCH", [
         {"package_id": "pkg-1", "summary": "housing", "grain": None,
          "measures": [], "dimensions": [], "distance": 0.1}
@@ -84,6 +85,11 @@ def test_mixed_outcome_run(tmp_path: Path) -> None:
         {"package_id": "pkg-1", "column_name": "TOT_EXP",
          "semantic_type": "currency", "description": "spend",
          "sample_values": [], "distance": 0.15}
+    ])
+    bq.register_query("load_status = 'loaded'", [
+        {"document_id": "doc-1", "package_id": "pkg-1",
+         "title": "Housing 2023", "row_count": 42,
+         "resource_last_modified": None},
     ])
     # q02: same retrieval shape as q01.
     bq.register_query("VECTOR_SEARCH", [
@@ -95,13 +101,20 @@ def test_mixed_outcome_run(tmp_path: Path) -> None:
          "semantic_type": None, "description": "tax",
          "sample_values": [], "distance": 0.25}
     ])
+    bq.register_query("load_status = 'loaded'", [
+        {"document_id": "doc-2", "package_id": "pkg-2",
+         "title": None, "row_count": None,
+         "resource_last_modified": None},
+    ])
     # q03: retrieval miss — both VECTOR_SEARCH calls return [].
     bq.register_query("VECTOR_SEARCH", [])
     bq.register_query("VECTOR_SEARCH", [])
 
-    # Executor result for q01 → answered.
+    # Executor result for q01 → answered. Key off the literal doc_id the
+    # model inlines (not the package_id — the emitted SQL no longer
+    # references packages at all).
     bq.register_bounded_query(
-        "pkg-1",
+        "doc-1",
         BoundedQueryResult(
             rows=[{"n": 1}],
             total_bytes_billed=1024,
@@ -113,7 +126,10 @@ def test_mixed_outcome_run(tmp_path: Path) -> None:
     )
 
     q1_response = {
-        "sql": "SELECT 1 AS n FROM `proj.raw.rows` WHERE d = 'pkg-1' LIMIT 10",
+        "sql": (
+            "SELECT 1 AS n FROM `proj.raw.rows` "
+            "WHERE document_id IN ('doc-1') LIMIT 10"
+        ),
         "rationale": "pkg-1 matches housing",
         "answer_summary": "one row",
     }

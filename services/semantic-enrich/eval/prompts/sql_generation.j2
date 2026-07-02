@@ -3,26 +3,26 @@ candidate dataset and column descriptions, you emit ONE SELECT
 statement that answers the question using only the candidates.
 
 Hard rules:
-- You may reference ONLY the tables `{{ allowed_datasets | join("`, `") }}`. Other
-  tables do not exist.
+- You may reference ONLY the table `{{ project_id }}.raw.rows`. Do NOT
+  reference `raw.documents`, `semantic.datasets`, or `semantic.columns`
+  in the emitted SQL — the harness has already resolved the relevant
+  `document_id`s and listed them below.
 - The query MUST be a single SELECT statement. No INSERT, UPDATE,
   DELETE, MERGE, CREATE, DROP, or other DDL/DML.
 - The query MUST include `LIMIT {{ row_limit }}`.
 - Row bodies live in `raw.rows(document_id, row_index, row JSON)`. Use
   `JSON_VALUE(row, '$.<column_name>')` to extract a column value.
-- `raw.rows` is CLUSTERED BY `document_id`. To keep the query cheap you
-  MUST filter `raw.rows` directly on `document_id` — a JOIN to
-  `raw.documents` with the `package_id` predicate on the documents side
-  does NOT prune the clustered scan and reads the entire ~200 GB `row`
-  JSON column.
-- The canonical shape resolves `document_id`s from `raw.documents` in a
-  CTE, then filters `raw.rows` on `WHERE r.document_id IN (SELECT
-  document_id FROM docs)`. Never emit `JOIN raw.documents USING
-  (document_id) WHERE d.package_id = ...` as your top-level filter — it
-  will be rejected as too expensive.
-- Do not invent column names. Only use column names listed below.
-- Do not invent table names. The only tables that exist for this
-  question are the listed candidates joined via raw.rows / raw.documents.
+- `raw.rows` is CLUSTERED BY `document_id`. Every query MUST filter
+  `raw.rows` with a LITERAL `document_id` IN-list picked from the
+  candidate documents below —
+  `WHERE r.document_id IN ('<literal-id-1>', '<literal-id-2>', ...)`.
+  A subquery IN (e.g. `IN (SELECT document_id FROM …)`) does NOT prune
+  the clustered scan and will be rejected as too expensive; a JOIN to
+  `raw.documents` is likewise rejected. Inline the literals.
+- Do not invent `document_id`s. Only use ids listed in the "Candidate
+  documents" block below.
+- Do not invent column names. Only use column names listed in the
+  "Candidate columns" block below.
 - All fully-qualified table references MUST use the project id
   `{{ project_id }}` verbatim — e.g. `` `{{ project_id }}.raw.rows` ``.
   Never emit a placeholder like `<project>` or `PROJECT_ID`.
@@ -46,25 +46,37 @@ scoped to the packages above):
   sample_values: {{ c.sample_values | tojson }}
 {% endfor %}
 
+Candidate documents (loaded `raw.documents` rows for the candidate
+packages; every `document_id` in your WHERE clause MUST come from this
+list):
+{% for d in documents %}
+- document_id: {{ d.document_id }}
+  package_id: {{ d.package_id }}
+  title: {{ d.title or "unspecified" }}
+  row_count: {{ d.row_count if d.row_count is not none else "unspecified" }}
+  last_modified: {{ d.resource_last_modified or "unspecified" }}
+{% endfor %}
+
 Worked example, showing the canonical query shape:
 
-  WITH docs AS (
-    SELECT document_id
-    FROM `{{ project_id }}.raw.documents`
-    WHERE package_id = '<one_of_the_candidate_package_ids>'
-  )
   SELECT
     JSON_VALUE(r.row, '$.FISCAL_YEAR') AS fiscal_year,
     SUM(SAFE_CAST(JSON_VALUE(r.row, '$.TOT_EXP') AS FLOAT64)) AS total_expenditure
   FROM `{{ project_id }}.raw.rows` AS r
-  WHERE r.document_id IN (SELECT document_id FROM docs)
+  WHERE r.document_id IN (
+    '<one_of_the_candidate_document_ids_above>',
+    '<another_candidate_document_id_if_needed>'
+  )
   GROUP BY fiscal_year
   ORDER BY fiscal_year
   LIMIT {{ row_limit }};
 
-For questions that span multiple candidate packages, put the full list
-in the CTE's `WHERE package_id IN (...)` clause — the CTE's
-`document_id` set is still what prunes `raw.rows`.
+Picking documents: if the question spans one package, inline every
+`document_id` for that package. If it spans multiple packages, inline
+one representative `document_id` per package (or several if the
+question needs multi-file coverage, e.g. per-year breakdowns). If the
+question wants "most recent", the list is already ordered by
+`last_modified DESC` per package — pick the top entry.
 
 Return a JSON object with these fields:
 - "sql": the SELECT statement. Single statement. Must include

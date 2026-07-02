@@ -396,6 +396,10 @@ Committed at `services/semantic-enrich/eval/questions.yaml`. 20 hand-curated que
 
 `services/semantic-enrich/eval/prompts/sql_generation.j2`. The load-bearing artefact of the harness. Rendered under `StrictUndefined` (a missing variable raises rather than emitting literal `None`). Edit and re-run; the `prompt_template_hash` in the summary confirms two runs used the same prompt.
 
+### Retrieval stages
+
+Retrieval is three-stage: `VECTOR_SEARCH` over `semantic.datasets` → scoped `VECTOR_SEARCH` over `semantic.columns` → a plain `SELECT` from `raw.documents` filtered to `load_status = 'loaded'` and scoped to the candidate packages. The document stage exists so the harness can inline resolved `document_id`s as literals in the SQL-gen prompt. `raw.rows` is clustered by `document_id` and only a literal `WHERE document_id IN ('…', '…')` shape is plan-time-prunable — a subquery IN (even against `raw.documents`) forces the full ~200 GB clustered scan. The `sql_no_document_id_filter` guard rule enforces this at rejection time; it fires if the model regresses to a subquery-IN or a join through `raw.documents`.
+
 ### Reports
 
 Written to `services/semantic-enrich/eval/reports/<run_id>.{json,md}`. JSON is machine-diffable; Markdown is the operator's reading surface. The directory is `.gitignore`d by default; commit a specific acceptance report via `git add -f`.
@@ -403,7 +407,7 @@ Written to `services/semantic-enrich/eval/reports/<run_id>.{json,md}`. JSON is m
 Each question grades into exactly one terminal state:
 - `answered` — SQL executed, returned rows (for `must_return_rows=true`).
 - `no_rows` — SQL executed, empty result.
-- `sql_invalid` — guard rejected (parse, SELECT-only, identifier whitelist, multi-statement).
+- `sql_invalid` — guard rejected (parse, SELECT-only, identifier whitelist, multi-statement, missing literal `document_id` IN-filter on `raw.rows`).
 - `sql_too_expensive` — guard rejected on cost cap.
 - `sql_timed_out` — execution exceeded 30 s.
 - `retrieval_miss` — zero `VECTOR_SEARCH` hits.
