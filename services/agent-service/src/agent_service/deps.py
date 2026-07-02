@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+import structlog
 from fastapi import Request
 from semantic_enrich.clients.bq import BqClient, RealBqClient
 from semantic_enrich.clients.openai import OpenAIClient, RealOpenAIClient
@@ -21,8 +22,12 @@ from semantic_enrich.core.agent_loop import (
     load_system_prompt,
     make_snapshot_hash_provider,
 )
+from semantic_enrich.providers.braintrust_tracing import configure_braintrust
 
 from agent_service.config import AgentServiceSettings
+from agent_service.telemetry import build_posthog_client
+
+_log = structlog.get_logger("agent_service.deps")
 
 
 class ProbeFn(Protocol):
@@ -42,6 +47,9 @@ class AppState:
     loop_deps: LoopDeps
     bq: BqClient
     openai_client: OpenAIClient
+    # Optional PostHog client. `None` when no key is configured — every
+    # capture call site null-checks before firing.
+    posthog: object | None = None
 
 
 def build_loop_settings(service_settings: AgentServiceSettings) -> Settings:
@@ -81,6 +89,25 @@ def build_app_state(service_settings: AgentServiceSettings) -> AppState:
             "WHENRICH_OPENAI_API_KEY."
         )
 
+    # Init Braintrust before constructing the OpenAI client — the
+    # client's __init__ pipes itself through `wrap_openai_client`, which
+    # is a no-op until `configure_braintrust` has flipped tracing on.
+    braintrust_key = (
+        service_settings.braintrust_api_key.get_secret_value()
+        if service_settings.braintrust_api_key is not None
+        else None
+    )
+    braintrust_active = configure_braintrust(
+        api_key=braintrust_key,
+        project=service_settings.braintrust_project,
+        enabled=True,
+    )
+    _log.info(
+        "braintrust_configured",
+        active=braintrust_active,
+        project=service_settings.braintrust_project,
+    )
+
     bq = RealBqClient.for_project(loop_settings.gcp_project_id)
     openai_client = RealOpenAIClient.for_settings(
         api_key=loop_settings.openai_api_key.get_secret_value(),
@@ -105,12 +132,15 @@ def build_app_state(service_settings: AgentServiceSettings) -> AppState:
         cache=cache,
         snapshot_hash_provider=make_snapshot_hash_provider(bq, loop_settings),
     )
+    posthog_client = build_posthog_client(service_settings)
+    _log.info("posthog_configured", active=posthog_client is not None)
     return AppState(
         service_settings=service_settings,
         loop_settings=loop_settings,
         loop_deps=loop_deps,
         bq=bq,
         openai_client=openai_client,
+        posthog=posthog_client,
     )
 
 

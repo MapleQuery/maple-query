@@ -69,5 +69,40 @@ class AgentServiceSettings(BaseSettings):
     datasets_default_limit: int = 20
     datasets_max_limit: int = 100
 
+    # ── Observability ──
+    # Braintrust traces every LLM call when a key is set. Absent →
+    # tracing disabled, no-op wrap around the OpenAI client. Accepts
+    # the unprefixed BRAINTRUST_API_KEY so a single value works for
+    # both the SDK's implicit lookup and this service.
+    braintrust_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MQAGENT_BRAINTRUST_API_KEY",
+            "WHENRICH_BRAINTRUST_API_KEY",
+            "BRAINTRUST_API_KEY",
+        ),
+    )
+    braintrust_project: str = Field(
+        default="maplequery",
+        validation_alias=AliasChoices(
+            "MQAGENT_BRAINTRUST_PROJECT", "BRAINTRUST_PROJECT"
+        ),
+    )
+
+    # PostHog captures product analytics from the server side (chat
+    # turn finished, sql run finished). Absent → capture calls no-op.
+    posthog_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MQAGENT_POSTHOG_API_KEY", "POSTHOG_API_KEY"
+        ),
+    )
+    posthog_host: str = Field(
+        default="https://us.i.posthog.com",
+        validation_alias=AliasChoices(
+            "MQAGENT_POSTHOG_HOST", "POSTHOG_HOST"
+        ),
+    )
+
     def parsed_cors_origins(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

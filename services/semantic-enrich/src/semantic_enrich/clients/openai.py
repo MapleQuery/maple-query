@@ -23,6 +23,7 @@ from typing import Any, Protocol, runtime_checkable
 from openai import OpenAI
 from tenacity import Retrying
 
+from semantic_enrich.providers.braintrust_tracing import wrap_openai_client
 from semantic_enrich.providers.openai_retry import openai_retry_policy
 
 
@@ -139,10 +140,16 @@ class RealOpenAIClient:
         # centralise retry policy in tenacity so the shape matches
         # `bq_retry_policy`. Client-level max_retries=0 keeps the SDK
         # from double-retrying underneath us.
-        self._client = OpenAI(
-            api_key=api_key,
-            timeout=request_timeout_s,
-            max_retries=0,
+        # Wrap the raw OpenAI client with Braintrust tracing when a
+        # Braintrust key was configured at startup. `wrap_openai_client`
+        # is a no-op when tracing is disabled, so this call is safe in
+        # every environment.
+        self._client = wrap_openai_client(
+            OpenAI(
+                api_key=api_key,
+                timeout=request_timeout_s,
+                max_retries=0,
+            )
         )
         self._embedding_model = embedding_model
         self._retry = retry if retry is not None else openai_retry_policy(

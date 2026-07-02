@@ -243,3 +243,17 @@ class Settings(BaseSettings):
     # cluster-pruned to one package.
     agent_sample_rows_timeout_ms: int = 5_000
     agent_sample_rows_max_bytes_billed: int = 1024 * 1024 * 1024
+
+    # ── Braintrust tracing ──
+    # Wrapping the OpenAI client through `braintrust.wrap_openai` sends
+    # every generation / embedding / tool call to the Braintrust project.
+    # Disabled by default — set `braintrust_api_key` to turn it on. The
+    # unprefixed `BRAINTRUST_API_KEY` is accepted too so the same value
+    # works for the Braintrust CLI / SDK.
+    braintrust_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "WHENRICH_BRAINTRUST_API_KEY", "BRAINTRUST_API_KEY"
+        ),
+    )
+    braintrust_project: str = "maplequery"

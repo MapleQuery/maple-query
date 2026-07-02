@@ -53,6 +53,11 @@ Two settings layers:
 - **`AgentServiceSettings`** (env prefix `MQAGENT_`) — auth token, CORS, port. Reads `MQAGENT_OPENAI_API_KEY` / `MQAGENT_GCP_PROJECT_ID` and forwards them into the loop's Settings so the Cloud Run manifest wires everything with one consistent prefix.
 - **`semantic_enrich.config.settings.Settings`** (env prefix `WHENRICH_`) — the loop's own knobs: budgets, cache, retrieval `k`, guard caps, model rates. Reused verbatim.
 
+### Observability
+
+- **Braintrust** — when `BRAINTRUST_API_KEY` (or `MQAGENT_BRAINTRUST_API_KEY`) is set at startup, the OpenAI client is wrapped with `braintrust.wrap_openai` and every chat / embedding / tool call flows to the `MQAGENT_BRAINTRUST_PROJECT` (default `maplequery`). Missing key → no-op wrap, no traces.
+- **PostHog (server-side)** — when `POSTHOG_API_KEY` (or `MQAGENT_POSTHOG_API_KEY`) is set, the service fires `chat_turn_finished` (per drained SSE stream) and `sql_run_finished` (per `POST /sql/run`) events. Host defaults to `https://us.i.posthog.com`; override via `MQAGENT_POSTHOG_HOST`. Missing key → capture calls no-op.
+
 ## Deployment
 
 - **Region**: `us-central1` — same as the BQ US multi-region so reads are cheapest and fastest.

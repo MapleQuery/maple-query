@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "@/styles/globals.css";
 import { SiteHeader } from "@/components/layout/site-header";
 import { ToastProvider } from "@/components/ui/toast";
+import { PostHogProvider } from "@/components/analytics/posthog-provider";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -32,12 +33,14 @@ export default function RootLayout({
   return (
     <html lang="en" className={inter.variable}>
       <body className="min-h-screen bg-canvas font-sans text-body antialiased">
-        <ToastProvider>
-          <div className="flex min-h-screen flex-col">
-            <SiteHeader />
-            <div className="flex-1">{children}</div>
-          </div>
-        </ToastProvider>
+        <PostHogProvider>
+          <ToastProvider>
+            <div className="flex min-h-screen flex-col">
+              <SiteHeader />
+              <div className="flex-1">{children}</div>
+            </div>
+          </ToastProvider>
+        </PostHogProvider>
       </body>
     </html>
   );

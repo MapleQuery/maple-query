@@ -46,6 +46,12 @@ def create_app(
         try:
             yield
         finally:
+            posthog = getattr(state, "posthog", None)
+            if posthog is not None:
+                try:
+                    posthog.shutdown()
+                except Exception as exc:  # pragma: no cover - defensive
+                    _log.warning("posthog_shutdown_failed", error=str(exc))
             _log.info("app_stopped")
 
     app = FastAPI(

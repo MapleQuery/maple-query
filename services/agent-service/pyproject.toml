@@ -22,6 +22,13 @@ dependencies = [
   # Logging. Same choice as sibling services so events aggregate cleanly
   # in Cloud Logging.
   "structlog>=24.1,<26",
+  # Observability. `braintrust` is imported by the sibling package too,
+  # but it's declared here so the runtime image and any editable install
+  # resolve it directly (the semantic-enrich path dep doesn't propagate
+  # optional groups). `posthog` is server-side product analytics; the
+  # capture calls no-op when no key is configured.
+  "braintrust>=0.0.200,<1",
+  "posthog>=3.5,<6",
 ]
 
 [project.scripts]
@@ -77,6 +84,10 @@ module = [
   # typed here rather than tunneling PEP 561 through a workspace root.
   "semantic_enrich",
   "semantic_enrich.*",
+  "braintrust",
+  "braintrust.*",
+  "posthog",
+  "posthog.*",
 ]
 ignore_missing_imports = true
 

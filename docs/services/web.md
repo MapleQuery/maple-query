@@ -107,6 +107,8 @@ Every env var is `NEXT_PUBLIC_*` because it needs to reach the browser. See
 | `NEXT_PUBLIC_MAPLEQUERY_API_BASE_URL`| Cloud Run agent-service URL, no trailing `/`. |
 | `NEXT_PUBLIC_MAPLEQUERY_API_TOKEN`   | Bearer token from Secret Manager (see below). |
 | `NEXT_PUBLIC_MAPLEQUERY_ENV`         | `prod` / `preview` / `dev` label.        |
+| `NEXT_PUBLIC_POSTHOG_KEY`            | PostHog project key. Absent → capture no-ops, provider passes through. |
+| `NEXT_PUBLIC_POSTHOG_HOST`           | PostHog host (default `https://us.i.posthog.com`). |
 
 Retrieve the bearer token once for local dev:
 
