@@ -18,30 +18,42 @@ export function CorpusStats() {
     return () => controller.abort();
   }, []);
 
-  const docs = stats ? formatInt(stats.documents) : failed ? "3,700+" : null;
-  const rows = stats ? formatInt(stats.rows) : failed ? "Millions" : null;
+  const datasets = pick(stats?.datasets, failed, "3,700+");
+  const documents = pick(stats?.documents, failed, "14,000+");
+  const rows = pick(stats?.rows, failed, "Millions");
 
   return (
     <dl className="mt-12 grid max-w-xl gap-6 sm:grid-cols-3">
       <Callout
-        headline={docs ?? "—"}
-        label="Federal documents"
-        sublabel="indexed to date"
-        loading={docs === null}
+        headline={datasets ?? "—"}
+        label="Datasets"
+        sublabel="unique packages on open.canada.ca"
+        loading={datasets === null}
+      />
+      <Callout
+        headline={documents ?? "—"}
+        label="Documents"
+        sublabel="CSV files within them"
+        loading={documents === null}
       />
       <Callout
         headline={rows ?? "—"}
-        label="Joinable rows"
-        sublabel="across every dataset"
+        label="Rows"
+        sublabel="joinable across every dataset"
         loading={rows === null}
-      />
-      <Callout
-        headline="Zero"
-        label="Uncited answers"
-        sublabel="the guard refuses first"
       />
     </dl>
   );
+}
+
+function pick(
+  live: number | undefined,
+  failed: boolean,
+  fallback: string,
+): string | null {
+  if (typeof live === "number") return formatInt(live);
+  if (failed) return fallback;
+  return null;
 }
 
 function Callout({

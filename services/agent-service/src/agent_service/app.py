@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from agent_service.config import AgentServiceSettings
 from agent_service.deps import AppState, build_app_state
-from agent_service.routes import chat, datasets, health, sql
+from agent_service.routes import chat, corpus, datasets, health, sql
 
 _log = structlog.get_logger("agent_service.app")
 
@@ -73,6 +73,7 @@ def create_app(
     app.include_router(chat.router)
     app.include_router(sql.router)
     app.include_router(datasets.router)
+    app.include_router(corpus.router)
 
     return app
 
