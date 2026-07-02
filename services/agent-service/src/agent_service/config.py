@@ -36,6 +36,13 @@ class AgentServiceSettings(BaseSettings):
     # entirely and should only be used for local smoke tests.
     cors_origins: str = "http://localhost:3000"
 
+    # Regex allow-list for origins whose URL varies per deploy — Vercel
+    # preview URLs specifically. `None` disables regex matching; the
+    # exact-match `cors_origins` list is what's used at that point.
+    # Scope this to your Vercel team slug so a fork on someone else's
+    # team can't hit the API.
+    cors_origin_regex: str | None = None
+
     # OpenAI + GCP identifiers. Both accept the semantic-enrich-native
     # env names too so a single .env file (WHENRICH_OPENAI_API_KEY /
     # WHENRICH_GCP_PROJECT_ID / OPENAI_API_KEY / GCP_PROJECT_ID) still
@@ -68,6 +75,41 @@ class AgentServiceSettings(BaseSettings):
     # Datasets route defaults. Non-vector-search pagination.
     datasets_default_limit: int = 20
     datasets_max_limit: int = 100
+
+    # ── Observability ──
+    # Braintrust traces every LLM call when a key is set. Absent →
+    # tracing disabled, no-op wrap around the OpenAI client. Accepts
+    # the unprefixed BRAINTRUST_API_KEY so a single value works for
+    # both the SDK's implicit lookup and this service.
+    braintrust_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MQAGENT_BRAINTRUST_API_KEY",
+            "WHENRICH_BRAINTRUST_API_KEY",
+            "BRAINTRUST_API_KEY",
+        ),
+    )
+    braintrust_project: str = Field(
+        default="maplequery",
+        validation_alias=AliasChoices(
+            "MQAGENT_BRAINTRUST_PROJECT", "BRAINTRUST_PROJECT"
+        ),
+    )
+
+    # PostHog captures product analytics from the server side (chat
+    # turn finished, sql run finished). Absent → capture calls no-op.
+    posthog_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MQAGENT_POSTHOG_API_KEY", "POSTHOG_API_KEY"
+        ),
+    )
+    posthog_host: str = Field(
+        default="https://us.i.posthog.com",
+        validation_alias=AliasChoices(
+            "MQAGENT_POSTHOG_HOST", "POSTHOG_HOST"
+        ),
+    )
 
     def parsed_cors_origins(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

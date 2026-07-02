@@ -17,6 +17,7 @@ import type { HistoryMessage } from "@/lib/types";
 import { appendUserTurn, isAtMessageCap } from "@/lib/history";
 import { useToast } from "@/components/ui/toast";
 import { truncate, uuid } from "@/lib/utils";
+import { track } from "@/lib/analytics";
 
 const SUGGESTIONS = [
   "Which federal departments spent the most on IT consulting in 2023?",
@@ -222,6 +223,13 @@ export function ChatContainer({ conversationId }: ChatContainerProps) {
       },
     ]);
     reset();
+
+    track("chat_message_sent", {
+      conversation_id: conversationId,
+      turn_id: turnId,
+      question_length: question.length,
+      history_length: history.length,
+    });
 
     const nextHistory = appendUserTurn(history, question);
     await send(question, nextHistory);

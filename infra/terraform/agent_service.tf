@@ -12,9 +12,15 @@ variable "agent_service_image" {
 }
 
 variable "agent_service_cors_origins" {
-  description = "Comma-separated CORS allow-list. Includes the production Vercel URL, preview URLs, and localhost for dev. Ends up in MQAGENT_CORS_ORIGINS."
+  description = "Comma-separated exact-match CORS allow-list. Production Vercel URL + localhost for dev. Preview URLs are handled by the regex below because they carry a random hash per deploy. Ends up in MQAGENT_CORS_ORIGINS."
   type        = string
-  default     = "https://maplequery.vercel.app,http://localhost:3000"
+  default     = "https://maple-query.vercel.app,http://localhost:3000"
+}
+
+variable "agent_service_cors_origin_regex" {
+  description = "Regex allow-list for Vercel preview URLs. Scoped to the `coles-projects-4b94bd7b` team slug so a fork on a different team can't hit the API. Matches both deployment (`maple-query-<hash>-<team>.vercel.app`) and branch (`maple-query-git-<branch>-<team>.vercel.app`) URL shapes. Ends up in MQAGENT_CORS_ORIGIN_REGEX."
+  type        = string
+  default     = "^https://maple-query-[a-z0-9-]+-coles-projects-4b94bd7b\\.vercel\\.app$"
 }
 
 # ── Service account ────────────────────────────────────────────────
@@ -56,9 +62,13 @@ resource "google_project_iam_member" "agent_service_log_writer" {
 }
 
 # ── Secrets ────────────────────────────────────────────────────────
-# The service reads two secrets:
+# The service reads four secrets:
 #   - openai-api-key (shared with the semantic-enrich reembed pipeline).
 #   - mqagent-api-token (bearer token shared with the FE bundle).
+#   - braintrust-api-key (LLM tracing; the service degrades to no-op
+#     traces when the value is empty).
+#   - posthog-api-key (server-side product analytics; capture calls
+#     no-op when the value is empty).
 #
 # Secrets themselves are created here so a fresh apply provisions them;
 # operators manage versions manually via `gcloud secrets versions add`.
@@ -91,6 +101,34 @@ resource "google_secret_manager_secret" "mqagent_api_token" {
   }
 }
 
+resource "google_secret_manager_secret" "braintrust_api_key" {
+  project   = var.gcp_project_id
+  secret_id = "braintrust-api-key"
+
+  replication {
+    auto {}
+  }
+
+  labels = {
+    component  = "agent-service"
+    managed_by = "terraform"
+  }
+}
+
+resource "google_secret_manager_secret" "posthog_api_key" {
+  project   = var.gcp_project_id
+  secret_id = "posthog-api-key"
+
+  replication {
+    auto {}
+  }
+
+  labels = {
+    component  = "agent-service"
+    managed_by = "terraform"
+  }
+}
+
 resource "google_secret_manager_secret_iam_member" "agent_service_openai_key_accessor" {
   project   = var.gcp_project_id
   secret_id = google_secret_manager_secret.openai_api_key.secret_id
@@ -101,6 +139,20 @@ resource "google_secret_manager_secret_iam_member" "agent_service_openai_key_acc
 resource "google_secret_manager_secret_iam_member" "agent_service_api_token_accessor" {
   project   = var.gcp_project_id
   secret_id = google_secret_manager_secret.mqagent_api_token.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.agent_service.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "agent_service_braintrust_key_accessor" {
+  project   = var.gcp_project_id
+  secret_id = google_secret_manager_secret.braintrust_api_key.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.agent_service.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "agent_service_posthog_key_accessor" {
+  project   = var.gcp_project_id
+  secret_id = google_secret_manager_secret.posthog_api_key.secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.agent_service.email}"
 }
@@ -161,6 +213,11 @@ resource "google_cloud_run_v2_service" "agent_service" {
       }
 
       env {
+        name  = "MQAGENT_CORS_ORIGIN_REGEX"
+        value = var.agent_service_cors_origin_regex
+      }
+
+      env {
         name = "MQAGENT_OPENAI_API_KEY"
         value_source {
           secret_key_ref {
@@ -175,6 +232,26 @@ resource "google_cloud_run_v2_service" "agent_service" {
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.mqagent_api_token.secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "BRAINTRUST_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.braintrust_api_key.secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "POSTHOG_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.posthog_api_key.secret_id
             version = "latest"
           }
         }
@@ -210,6 +287,8 @@ resource "google_cloud_run_v2_service" "agent_service" {
     google_project_iam_member.agent_service_job_user,
     google_secret_manager_secret_iam_member.agent_service_openai_key_accessor,
     google_secret_manager_secret_iam_member.agent_service_api_token_accessor,
+    google_secret_manager_secret_iam_member.agent_service_braintrust_key_accessor,
+    google_secret_manager_secret_iam_member.agent_service_posthog_key_accessor,
   ]
 
   # CD updates the container image directly via `gcloud run services

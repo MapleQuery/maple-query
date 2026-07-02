@@ -19,6 +19,7 @@ from semantic_enrich.core.agent_loop import ChatRequest, run_turn
 from agent_service.auth import BearerAuth
 from agent_service.deps import AppState, get_app_state
 from agent_service.sse import sse_stream
+from agent_service.telemetry import capture
 
 router = APIRouter()
 _log = structlog.get_logger("agent_service.routes.chat")
@@ -75,13 +76,28 @@ async def chat(
             async for chunk in sse_stream(_observe(events), request=request):
                 yield chunk
         finally:
+            elapsed_ms = int((time.monotonic() - started) * 1000)
             _log.info(
                 "turn_finished",
                 conversation_id=body.conversation_id,
                 tool_calls=tool_calls_total,
                 dollars=round(dollars_total, 6),
-                elapsed_ms=int((time.monotonic() - started) * 1000),
+                elapsed_ms=elapsed_ms,
                 terminal_state=terminal_state,
+            )
+            capture(
+                state.posthog,
+                distinct_id=body.conversation_id,
+                event="chat_turn_finished",
+                properties={
+                    "conversation_id": body.conversation_id,
+                    "tool_calls": tool_calls_total,
+                    "dollars": round(dollars_total, 6),
+                    "elapsed_ms": elapsed_ms,
+                    "terminal_state": terminal_state,
+                    "question_length": len(body.question),
+                    "history_length": len(body.history),
+                },
             )
 
     return StreamingResponse(

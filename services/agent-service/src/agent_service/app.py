@@ -46,6 +46,12 @@ def create_app(
         try:
             yield
         finally:
+            posthog = getattr(state, "posthog", None)
+            if posthog is not None:
+                try:
+                    posthog.shutdown()
+                except Exception as exc:  # pragma: no cover - defensive
+                    _log.warning("posthog_shutdown_failed", error=str(exc))
             _log.info("app_stopped")
 
     app = FastAPI(
@@ -57,6 +63,7 @@ def create_app(
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.parsed_cors_origins(),
+        allow_origin_regex=settings.cors_origin_regex,
         allow_credentials=False,
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],

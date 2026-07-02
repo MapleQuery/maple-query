@@ -95,6 +95,7 @@ from semantic_enrich.core.reembed import (
     run_datasets_reembed,
 )
 from semantic_enrich.core.smoke import run_smoke_test, write_models_lock
+from semantic_enrich.providers.braintrust_tracing import configure_braintrust
 from semantic_enrich.providers.logging import configure_logging, get_logger
 
 app = typer.Typer(name="semantic-enrich", help="MapleQuery semantic enrichment runtime CLI.")
@@ -996,6 +997,23 @@ def _build_openai_client(
             hint="set WHENRICH_OPENAI_API_KEY or OPENAI_API_KEY",
         )
         raise typer.Exit(3)
+    # Flip Braintrust on before building the real client so the client's
+    # __init__ picks up the wrapper. No-op when no Braintrust key is set.
+    braintrust_key = (
+        settings.braintrust_api_key.get_secret_value()
+        if settings.braintrust_api_key is not None
+        else None
+    )
+    braintrust_active = configure_braintrust(
+        api_key=braintrust_key,
+        project=settings.braintrust_project,
+        enabled=True,
+    )
+    log.info(
+        "braintrust_configured",
+        active=braintrust_active,
+        project=settings.braintrust_project,
+    )
     return RealOpenAIClient.for_settings(
         api_key=settings.openai_api_key.get_secret_value(),
         embedding_model=settings.openai_embedding_model,

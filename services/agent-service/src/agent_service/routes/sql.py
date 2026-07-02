@@ -16,6 +16,7 @@ from semantic_enrich.core.agent_events import AgentEvent
 
 from agent_service.auth import BearerAuth
 from agent_service.deps import AppState, get_app_state
+from agent_service.telemetry import capture
 
 router = APIRouter()
 
@@ -86,6 +87,19 @@ def run_sql(
     bytes_billed = int(result.get("bytes_billed") or 0)
     truncated = bool(result.get("truncated") or False)
     result_elapsed = int(result.get("elapsed_ms") or elapsed_ms)
+    capture(
+        state.posthog,
+        distinct_id=call_id,
+        event="sql_run_finished",
+        properties={
+            "status": status,
+            "reason": reason,
+            "row_count": row_count,
+            "bytes_billed": bytes_billed,
+            "elapsed_ms": result_elapsed,
+            "truncated": truncated,
+        },
+    )
     return SqlResponse(
         status=status,
         reason=str(reason) if reason else None,
