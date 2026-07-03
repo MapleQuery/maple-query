@@ -32,9 +32,16 @@ def load_generation_model(
     `"cuda"` lets accelerate place the weights, and `"cuda:0"` /
     `"cuda:1"` pins to a specific card when the box has more than one.
     """
-    import outlines
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    try:
+        import outlines
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+    except ImportError as exc:
+        raise RuntimeError(
+            "GPU dependencies not installed. "
+            "GPU box (conda): pip install -e '.[gpu]'  "
+            "GPU box (uv): uv sync --extra gpu"
+        ) from exc
 
     torch_dtype = getattr(torch, dtype)
 
