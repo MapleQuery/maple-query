@@ -111,6 +111,14 @@ class ColumnsRanked(_EventBase):
 
 @dataclass(frozen=True)
 class DocumentsListed(_EventBase):
+    """Emitted after `list_documents` resolves candidate docs.
+
+    Each `documents[i]["columns"]` is a `dict[str, list[str]]` mapping
+    column name to a small sample of values from the doc's leading
+    rows. SSE consumers can render the map directly; the keys are the
+    canonical column set for that doc.
+    """
+
     package_ids: list[str]
     documents: list[dict[str, Any]]
 

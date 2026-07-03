@@ -66,9 +66,10 @@ def test_retrieve_documents_scoped_and_filtered() -> None:
     """Documents retrieval feeds the literal-IN filter in the SQL-gen
     prompt: only `load_status='loaded'` docs get inlined, scoped to
     the candidate packages, capped per-package. A second query pulls
-    the per-doc column set from `raw.rows` (JSON-keys of the first row
-    per doc, PARSE_JSON-unwrapped) so the model can pair the right
-    column with the right doc."""
+    the leading rows per doc from `raw.rows` and Python extracts both
+    the ordered column set AND per-column sample values so the model
+    can pair the right column with the right doc and catch mislabeled
+    columns."""
     bq = FakeBqClient()
     bq.register_query(
         "load_status = 'loaded'",
@@ -90,10 +91,30 @@ def test_retrieve_documents_scoped_and_filtered() -> None:
         ],
     )
     bq.register_query(
-        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        "PARSE_JSON(STRING(row)) AS row_body",
         [
-            {"document_id": "doc-1", "columns": ["Amount", "Organization"]},
-            {"document_id": "doc-2", "columns": []},
+            {
+                "document_id": "doc-1",
+                "row_index": 0,
+                "row_body": {"Amount": "100", "Organization": "CMHC"},
+            },
+            {
+                "document_id": "doc-1",
+                "row_index": 1,
+                # Duplicate + null + empty exercise the dedup / skip paths.
+                "row_body": {
+                    "Amount": "200", "Organization": "CMHC", "Note": None
+                },
+            },
+            {
+                "document_id": "doc-1",
+                "row_index": 2,
+                "row_body": {"Amount": "300", "Organization": "NCC", "Note": ""},
+            },
+            # doc-2's rows come back but the body isn't a JSON object —
+            # the fetcher must skip cleanly and leave the doc with an
+            # empty column set.
+            {"document_id": "doc-2", "row_index": 0, "row_body": None},
         ],
     )
     docs, _ = retrieve_documents(
@@ -103,9 +124,16 @@ def test_retrieve_documents_scoped_and_filtered() -> None:
     )
     assert [d.document_id for d in docs] == ["doc-1", "doc-2"]
     assert docs[0].title == "Housing 2023"
-    assert docs[0].columns == ("Amount", "Organization")
+    # First-seen ordering across sampled rows: Amount → Organization → Note.
+    assert docs[0].columns == ("Amount", "Organization", "Note")
+    assert docs[0].column_samples == {
+        "Amount": ("100", "200", "300"),
+        "Organization": ("CMHC", "NCC"),
+        "Note": (),
+    }
     assert docs[1].title is None
     assert docs[1].columns == ()
+    assert docs[1].column_samples == {}
 
     docs_call = bq.calls[-2]
     assert "load_status = 'loaded'" in docs_call["sql"]
@@ -114,17 +142,50 @@ def test_retrieve_documents_scoped_and_filtered() -> None:
         "package_ids", "max_per_package"
     }
 
-    keys_call = bq.calls[-1]
-    # Per-doc keys are cluster-pruned by a literal IN-list on document_id
-    # and PARSE_JSON-unwrapped because raw.rows.row is a JSON-string scalar.
-    assert "IN UNNEST(@document_ids)" in keys_call["sql"]
-    assert "JSON_KEYS(PARSE_JSON(STRING(row)))" in keys_call["sql"]
-    assert {p.name for p in keys_call["params"]} == {"document_ids"}
+    data_call = bq.calls[-1]
+    # Sample-row fetch is cluster-pruned by a literal IN-list on
+    # document_id and pulls PARSE_JSON-unwrapped bodies so Python sees
+    # dicts, not double-encoded strings.
+    assert "IN UNNEST(@document_ids)" in data_call["sql"]
+    assert "PARSE_JSON(STRING(row)) AS row_body" in data_call["sql"]
+    assert {p.name for p in data_call["params"]} == {
+        "document_ids", "sample_rows"
+    }
+
+
+def test_retrieve_documents_caps_samples_per_column() -> None:
+    """Cap on samples per column keeps the payload compact even when a
+    column has many distinct values across the sampled rows."""
+    bq = FakeBqClient()
+    bq.register_query(
+        "load_status = 'loaded'",
+        [
+            {
+                "document_id": "doc-1",
+                "package_id": "pkg-1",
+                "title": None,
+                "row_count": None,
+                "resource_last_modified": None,
+            }
+        ],
+    )
+    bq.register_query(
+        "PARSE_JSON(STRING(row)) AS row_body",
+        [
+            {"document_id": "doc-1", "row_index": i, "row_body": {"Org": f"v{i}"}}
+            for i in range(5)
+        ],
+    )
+    docs, _ = retrieve_documents(
+        bq=bq, package_ids=["pkg-1"], settings=_settings(),
+    )
+    # 5 distinct values but the cap is 3.
+    assert docs[0].column_samples["Org"] == ("v0", "v1", "v2")
 
 
 def test_retrieve_documents_empty_docs_skips_keys_query() -> None:
     """If the docs query returns nothing, don't send an empty-array
-    IN-list to the keys query — return an empty list."""
+    IN-list to the sample-rows query — return an empty list."""
     bq = FakeBqClient()
     bq.register_query("load_status = 'loaded'", [])
     docs, _ = retrieve_documents(
@@ -133,5 +194,5 @@ def test_retrieve_documents_empty_docs_skips_keys_query() -> None:
         settings=_settings(),
     )
     assert docs == []
-    # Only the docs query fired — no keys query.
+    # Only the docs query fired — no sample-rows query.
     assert len(bq.calls) == 1

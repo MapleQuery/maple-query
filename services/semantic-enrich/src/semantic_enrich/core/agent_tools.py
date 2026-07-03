@@ -132,13 +132,18 @@ _LIST_DOCUMENTS: dict[str, Any] = {
     "name": "list_documents",
     "description": (
         "List loaded `raw.documents` rows for one or more candidate "
-        "packages, together with each doc's actual JSON key set. Every "
-        "run_sql needs a LITERAL `document_id IN (...)` filter picked "
-        "from this tool's output — raw.rows is clustered by document_id "
-        "and only a literal IN-list gets plan-time pruning. Also use "
-        "the per-doc `columns` list to check that the columns you want "
-        "actually appear in the doc you inline (different docs in the "
-        "same package can have disjoint key sets)."
+        "packages. Each doc's `columns` field is an object mapping "
+        "column name → up to 3 sample values drawn from the leading "
+        "rows (empty list when the column is null across the sample). "
+        "Every run_sql needs a LITERAL `document_id IN (...)` filter "
+        "picked from this tool's output — raw.rows is clustered by "
+        "document_id and only a literal IN-list gets plan-time pruning. "
+        "Use the column names (the `columns` keys) to check that the "
+        "columns you want actually appear in the doc you inline, and "
+        "use the sample values to check that a column's real contents "
+        "match what its name suggests — a `Corp_Name` column whose "
+        "samples are `\"Total\"` / `\"Internal Services\"` is a "
+        "garbage-parsed section header, not a corporate-name column."
     ),
     "parameters": {
         "type": "object",
@@ -360,6 +365,13 @@ def run_list_documents(
     documents, _latency = retrieve_documents(
         bq=ctx.bq, package_ids=list(package_ids), settings=ctx.settings
     )
+    # `columns` ships as a mapping (column_name → sample values) rather
+    # than a bare list of names. The keys still give the column set —
+    # the pairing check and the model's "which columns are in this doc"
+    # question both read them — and the sample values let the model
+    # spot mislabeled columns (a header parsed as `Corp_Name` whose
+    # values are all `"Total"` / `"Internal Services"` is a section
+    # label, not a corporate-name column).
     payload: list[dict[str, Any]] = [
         {
             "document_id": d.document_id,
@@ -371,15 +383,15 @@ def run_list_documents(
                 if d.resource_last_modified is not None
                 else None
             ),
-            "columns": list(d.columns),
+            "columns": {
+                col: list(d.column_samples.get(col, ())) for col in d.columns
+            },
         }
         for d in documents
     ]
-    for d in payload:
-        doc_id = str(d["document_id"])
-        ctx.state.known_document_ids.add(doc_id)
-        cols = d.get("columns") or []
-        ctx.state.doc_columns[doc_id] = [str(c) for c in cols]
+    for doc in documents:
+        ctx.state.known_document_ids.add(doc.document_id)
+        ctx.state.doc_columns[doc.document_id] = list(doc.columns)
     ctx.emit(
         agent_events.DocumentsListed(
             package_ids=list(package_ids), documents=payload

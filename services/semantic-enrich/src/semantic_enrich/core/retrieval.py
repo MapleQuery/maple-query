@@ -14,7 +14,7 @@ this corpus size — parent §3.4 commits to this posture; revisit when
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -66,12 +66,21 @@ class DocumentCandidate:
     `document_id` cluster; a subquery IN — even against `raw.documents` —
     forces a full clustered scan.
 
-    `columns` is the doc's actual JSON key set, drawn from
-    `raw.column_index`. Different docs in the same CKAN package can have
+    `columns` is the doc's actual JSON key set, drawn from the first
+    row's parsed body. Different docs in the same CKAN package can have
     entirely disjoint column sets (bilingual pairs, header-parse
     failures collapsing to `__col_N`, resource variants). Exposing the
     per-doc set lets the model pair the right column with the right
     doc instead of picking columns from the package-wide union.
+
+    `column_samples` maps each column name to up to 3 distinct non-empty
+    sample values drawn from the first few rows of the doc. A column
+    with no non-empty values across the sampled rows has an empty tuple.
+    Threaded into the `list_documents` tool payload so the model can
+    spot mislabeled columns before writing SQL — e.g. a "column" named
+    `Canada_Mortgage_and_Housing_Corporation` whose samples are all
+    `"Total"` / `"Internal Services"` is a garbage-parsed section
+    header, not a corporate-name column.
     """
 
     document_id: str
@@ -80,6 +89,7 @@ class DocumentCandidate:
     row_count: int | None
     resource_last_modified: datetime | None
     columns: tuple[str, ...]
+    column_samples: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -213,39 +223,58 @@ def retrieve_documents(
     started = time.monotonic()
     doc_rows = list(bq.query_rows(docs_sql, params=docs_params))
     doc_ids = [str(r["document_id"]) for r in doc_rows]
-    keys_by_doc = _fetch_doc_columns(
+    keys_by_doc, samples_by_doc = _fetch_doc_column_data(
         bq=bq, project_id=project_id, doc_ids=doc_ids, settings=settings
     )
     latency_ms = int((time.monotonic() - started) * 1000)
     return [
-        _document_from_row(r, keys_by_doc.get(str(r["document_id"]), []))
+        _document_from_row(
+            r,
+            keys_by_doc.get(str(r["document_id"]), []),
+            samples_by_doc.get(str(r["document_id"]), {}),
+        )
         for r in doc_rows
     ], latency_ms
 
 
-def _fetch_doc_columns(
+# The doc/column pairing check and the tool payload both need the
+# per-doc column set; the payload additionally wants a few sample values
+# per column so the model can catch mislabeled columns (a `Corp_Name`
+# header whose real values are section labels like `"Total"`). Sampling
+# 5 rows per doc gives 2-3 non-null samples per column even when the
+# first row has empty cells, without inflating the query cost — the
+# scan is cluster-pruned by document_id.
+_SAMPLE_ROWS_PER_DOC = 5
+_MAX_SAMPLES_PER_COLUMN = 3
+
+
+def _fetch_doc_column_data(
     *,
     bq: BqClient,
     project_id: str,
     doc_ids: list[str],
     settings: Settings,
-) -> dict[str, list[str]]:
-    """Fetch the JSON key set of each doc's first row from `raw.rows`.
+) -> tuple[dict[str, list[str]], dict[str, dict[str, list[str]]]]:
+    """Fetch the ordered column set and sample values for each doc.
 
-    `raw.rows.row` is stored as a JSON-string scalar (loader
-    double-encodes via `json.dumps`), so a bare `JSON_KEYS(row)` returns
-    null; every consumer has to `PARSE_JSON(STRING(row))` first. That's
-    also why `raw.column_index` is currently empty — its rebuild uses
-    the broken bare form. Until 3.3.1 lands and the rows table is
-    reloaded, the harness pulls the keys directly per-doc.
+    Returns `(columns_by_doc, samples_by_doc)`:
+    - `columns_by_doc[doc_id]` — ordered column names (first-seen order
+      across the sampled rows). Used by the doc/column pairing check.
+    - `samples_by_doc[doc_id][col]` — up to `_MAX_SAMPLES_PER_COLUMN`
+      distinct non-empty stringified sample values for `col`. Empty
+      list when every sampled row's value for that column is null or
+      empty. Threaded into the tool payload.
 
-    Row bodies are typically identical in shape across a single doc, so
-    reading just the `row_index=0` row per doc via a literal `IN`-list
-    is both cheap (cluster-pruned) and accurate for the model's purpose.
+    Reads the first `_SAMPLE_ROWS_PER_DOC` rows per doc from `raw.rows`
+    via a literal IN-list on `document_id` (cluster-pruned). The row
+    body is stored as a JSON-string scalar (loader double-encodes), so
+    `PARSE_JSON(STRING(row))` unwraps it into a real JSON object that
+    the BigQuery client hands back to Python as a dict — same shape as
+    `sample_rows` uses.
     """
     if not doc_ids:
-        return {}
-    sql = _DOC_KEYS_SQL.format(
+        return {}, {}
+    sql = _DOC_COLUMN_DATA_SQL.format(
         project_id=project_id,
         dataset=settings.bq_dataset_raw,
         rows_table=settings.bq_rows_table,
@@ -254,11 +283,42 @@ def _fetch_doc_columns(
         bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter
     ] = [
         bigquery.ArrayQueryParameter("document_ids", "STRING", doc_ids),
+        bigquery.ScalarQueryParameter(
+            "sample_rows", "INT64", _SAMPLE_ROWS_PER_DOC
+        ),
     ]
-    return {
-        str(r["document_id"]): _str_list(r.get("columns"))
-        for r in bq.query_rows(sql, params=params)
-    }
+
+    columns_by_doc: dict[str, list[str]] = {}
+    samples_by_doc: dict[str, dict[str, list[str]]] = {}
+    seen_by_doc: dict[str, set[str]] = {}
+    for row in bq.query_rows(sql, params=params):
+        doc_id = str(row["document_id"])
+        body = row.get("row_body")
+        if not isinstance(body, dict):
+            # PARSE_JSON returns None for invalid JSON, and non-object
+            # bodies (arrays, scalars) can't contribute keys.
+            continue
+        seen = seen_by_doc.setdefault(doc_id, set())
+        ordered = columns_by_doc.setdefault(doc_id, [])
+        samples = samples_by_doc.setdefault(doc_id, {})
+        for key, value in body.items():
+            key_str = str(key)
+            if key_str not in seen:
+                seen.add(key_str)
+                ordered.append(key_str)
+                samples[key_str] = []
+            if value is None:
+                continue
+            text = str(value).strip()
+            if not text:
+                continue
+            col_samples = samples[key_str]
+            if (
+                text not in col_samples
+                and len(col_samples) < _MAX_SAMPLES_PER_COLUMN
+            ):
+                col_samples.append(text)
+    return columns_by_doc, samples_by_doc
 
 
 def _require_project(settings: Settings) -> str:
@@ -295,7 +355,9 @@ def _column_from_row(row: dict[str, Any]) -> ColumnCandidate:
 
 
 def _document_from_row(
-    row: dict[str, Any], columns: list[str]
+    row: dict[str, Any],
+    columns: list[str],
+    column_samples: dict[str, list[str]],
 ) -> DocumentCandidate:
     row_count = row.get("row_count")
     return DocumentCandidate(
@@ -307,6 +369,9 @@ def _document_from_row(
             row.get("resource_last_modified")
         ),
         columns=tuple(columns),
+        column_samples={
+            col: tuple(column_samples.get(col, [])) for col in columns
+        },
     )
 
 
@@ -381,14 +446,18 @@ ORDER BY package_id, rn
 # Two-query approach because `WHERE document_id IN (SELECT ...)` would
 # not plan-time-prune the `raw.rows` cluster (same failure mode 3.3.1
 # documents). The literal IN-list from the docs query is small and
-# cluster-pruned in the second query.
-_DOC_KEYS_SQL = """
+# cluster-pruned in the second query. Ordering the QUALIFY window by
+# `row_index` picks the leading N rows per doc; Python then flattens
+# them into an ordered key set plus per-key samples.
+_DOC_COLUMN_DATA_SQL = """
 SELECT
   document_id,
-  JSON_KEYS(PARSE_JSON(STRING(row))) AS columns
+  row_index,
+  PARSE_JSON(STRING(row)) AS row_body
 FROM `{project_id}.{dataset}.{rows_table}`
 WHERE document_id IN UNNEST(@document_ids)
-QUALIFY ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY row_index) = 1
+QUALIFY ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY row_index) <= @sample_rows
+ORDER BY document_id, row_index
 """.strip()
 
 

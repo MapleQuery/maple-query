@@ -163,8 +163,19 @@ def test_list_documents_returns_docs_and_columns() -> None:
         ],
     )
     bq.register_query(
-        "JSON_KEYS(PARSE_JSON(STRING(row)))",
-        [{"document_id": "doc-1", "columns": ["Amount", "Organization"]}],
+        "PARSE_JSON(STRING(row)) AS row_body",
+        [
+            {
+                "document_id": "doc-1",
+                "row_index": 0,
+                "row_body": {"Amount": "100", "Organization": "CMHC"},
+            },
+            {
+                "document_id": "doc-1",
+                "row_index": 1,
+                "row_body": {"Amount": "200", "Organization": "NCC"},
+            },
+        ],
     )
     ctx, events = _ctx(bq=bq)
     ctx.state.known_package_ids.add("pkg-1")
@@ -173,8 +184,15 @@ def test_list_documents_returns_docs_and_columns() -> None:
     )
     doc = result["documents"][0]
     assert doc["document_id"] == "doc-1"
-    assert doc["columns"] == ["Amount", "Organization"]
+    # `columns` is now a map keyed by column name; the values are the
+    # sampled non-empty values from the leading rows.
+    assert doc["columns"] == {
+        "Amount": ["100", "200"],
+        "Organization": ["CMHC", "NCC"],
+    }
     assert "doc-1" in ctx.state.known_document_ids
+    # Pairing-check state stores the column *names* (map keys) only.
+    assert ctx.state.doc_columns["doc-1"] == ["Amount", "Organization"]
     assert any(e.event_type == "documents_listed" for e in events)
 
 
@@ -264,10 +282,18 @@ def test_list_documents_populates_doc_columns_for_pairing_check() -> None:
         ],
     )
     bq.register_query(
-        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        "PARSE_JSON(STRING(row)) AS row_body",
         [
-            {"document_id": "doc-A", "columns": ["Amount", "Organization"]},
-            {"document_id": "doc-B", "columns": ["Amount", "Description"]},
+            {
+                "document_id": "doc-A",
+                "row_index": 0,
+                "row_body": {"Amount": "1", "Organization": "CMHC"},
+            },
+            {
+                "document_id": "doc-B",
+                "row_index": 0,
+                "row_body": {"Amount": "2", "Description": "note"},
+            },
         ],
     )
     ctx, _ = _ctx(bq=bq)
@@ -275,6 +301,68 @@ def test_list_documents_populates_doc_columns_for_pairing_check() -> None:
     agent_tools.run_list_documents(ctx=ctx, args={"package_ids": ["pkg-1"]})
     assert ctx.state.doc_columns["doc-A"] == ["Amount", "Organization"]
     assert ctx.state.doc_columns["doc-B"] == ["Amount", "Description"]
+
+
+def test_list_documents_surfaces_mislabeled_column_via_samples() -> None:
+    """The turn-5 CMHC failure mode: a column named for an
+    organization actually contains section labels. Sample values in the
+    tool payload let the model spot this without a run_sql round-trip."""
+    bq = FakeBqClient()
+    bq.register_query(
+        "load_status = 'loaded'",
+        [
+            {
+                "document_id": "doc-1",
+                "package_id": "pkg-1",
+                "title": None,
+                "row_count": None,
+                "resource_last_modified": None,
+            }
+        ],
+    )
+    bq.register_query(
+        "PARSE_JSON(STRING(row)) AS row_body",
+        [
+            {
+                "document_id": "doc-1",
+                "row_index": 0,
+                "row_body": {
+                    "Canada_Mortgage_and_Housing_Corporation": "Total",
+                    "__col_2": "-1,151,097,000",
+                },
+            },
+            {
+                "document_id": "doc-1",
+                "row_index": 1,
+                "row_body": {
+                    "Canada_Mortgage_and_Housing_Corporation":
+                        "National Capital Commission",
+                    "__col_2": "0",
+                },
+            },
+            {
+                "document_id": "doc-1",
+                "row_index": 2,
+                "row_body": {
+                    "Canada_Mortgage_and_Housing_Corporation":
+                        "Internal Services",
+                    "__col_2": "1,037,100",
+                },
+            },
+        ],
+    )
+    ctx, _ = _ctx(bq=bq)
+    ctx.state.known_package_ids.add("pkg-1")
+    result = agent_tools.run_list_documents(
+        ctx=ctx, args={"package_ids": ["pkg-1"]}
+    )
+    doc_cols = result["documents"][0]["columns"]
+    # Model sees org-label values in a column named as if it were a
+    # corporate name — the cue to pick a different column or doc.
+    assert doc_cols["Canada_Mortgage_and_Housing_Corporation"] == [
+        "Total", "National Capital Commission", "Internal Services",
+    ]
+    assert doc_cols["__col_2"] == ["-1,151,097,000", "0", "1,037,100"]
 
 
 def test_extract_json_path_columns_covers_bare_and_quoted() -> None:
