@@ -261,14 +261,17 @@ def test_csv_body_lands_with_normalised_keys_and_null_for_empty(tmp_path: Path) 
 
     _, payload = bq.append_calls[0]
     first = payload[0]
-    import json as _json
-    row = _json.loads(first["row"])
+    # `row` is a native dict — the loader writes it as a JSON object so
+    # BigQuery ingests it into the JSON column as an object tree.
+    row = first["row"]
+    assert isinstance(row, dict)
     # Whitespace in header collapsed to `_`.
     assert "Hello_World" in row
     assert row["value"] == "label_0"
     # Empty-cell row should land as nulls.
     last = payload[-1]
-    last_row = _json.loads(last["row"])
+    last_row = last["row"]
+    assert isinstance(last_row, dict)
     assert last_row["Hello_World"] is None
     assert last_row["value"] is None
 

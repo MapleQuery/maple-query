@@ -34,7 +34,7 @@ def test_refresh_emits_create_or_replace_with_cap() -> None:
     sql = bq.query_calls[0]
     assert "CREATE OR REPLACE TABLE `proj.raw.column_index`" in sql
     assert "LIMIT 1000" in sql
-    assert "JSON_KEYS(row)" in sql
+    assert "JSON_KEYS(PARSE_JSON(STRING(row)))" in sql
     assert "overflow_truncated" in sql
 
 

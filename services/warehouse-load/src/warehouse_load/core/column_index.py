@@ -95,7 +95,7 @@ WITH keys_per_doc AS (
     document_id,
     k AS col_name
   FROM `{rows_table}`,
-       UNNEST(JSON_KEYS(row)) AS k
+       UNNEST(JSON_KEYS(PARSE_JSON(STRING(row)))) AS k
 ),
 agg AS (
   SELECT
