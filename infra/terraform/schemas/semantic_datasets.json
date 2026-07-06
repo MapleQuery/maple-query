@@ -15,6 +15,9 @@
   {"name": "date_range_end", "type": "DATE", "mode": "NULLABLE",
    "description": "Latest covered period, best effort. NULL when undecidable."},
 
+  {"name": "representative_document_id", "type": "STRING", "mode": "NULLABLE",
+   "description": "raw.documents.document_id of the resource the enrichment pass used for column extraction and sample rows. NULL for rows enriched before the picker persisted its choice; backfilled by `semantic-enrich datasets-backfill-representative`."},
+
   {"name": "embedding", "type": "FLOAT64", "mode": "REPEATED",
    "description": "Dense embedding vector over `summary`. Array length is fixed by the embedding model chosen by the enrichment pipeline (Qwen3-Embedding-0.6B = 1024 dims). BigQuery does not enforce array length; a model swap is a load-time concern, not a schema-time concern. Stored inline as ARRAY<FLOAT64>; no vector index is created at this scale."},
 

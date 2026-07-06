@@ -7,6 +7,7 @@ from hypothesis import strategies as st
 
 from semantic_enrich.core.sample_selector import (
     derive_indices,
+    looks_like_dictionary,
     pick_representative,
     truncate_cell,
 )
@@ -54,6 +55,88 @@ def test_pick_representative_one_resource() -> None:
 def test_pick_representative_empty_raises() -> None:
     with pytest.raises(ValueError):
         pick_representative([])
+
+
+# ── Dictionary detection + demotion ──
+
+
+def test_looks_like_dictionary_classic_headers() -> None:
+    assert looks_like_dictionary(["COLUMN_NAME", "DATA_TYPE", "DESCRIPTION"])
+
+
+def test_looks_like_dictionary_normalizes_case_and_spaces() -> None:
+    assert looks_like_dictionary(["Field Name", " Data Type ", "Notes"])
+
+
+def test_looks_like_dictionary_rejects_domain_headers() -> None:
+    assert not looks_like_dictionary(
+        ["PERMIT_ID", "CANCEL_DT", "CURRENT_HA", "DEPOSIT_DUE_DATE"]
+    )
+
+
+def test_looks_like_dictionary_rejects_below_ratio() -> None:
+    # 2/5 vocabulary hits < 60%.
+    assert not looks_like_dictionary(
+        ["type", "notes", "permit_id", "area_ha", "region"]
+    )
+
+
+def test_looks_like_dictionary_rejects_wide_tables() -> None:
+    # >8 columns: even a vocabulary-heavy header set is not a
+    # dictionary; real dictionaries are narrow.
+    cols = ["column_name", "data_type", "description", "notes",
+            "example", "nullable", "constraint", "field", "definition"]
+    assert not looks_like_dictionary(cols)
+
+
+def test_looks_like_dictionary_empty_headers_is_not_dictionary() -> None:
+    assert not looks_like_dictionary([])
+
+
+def test_pick_representative_demotes_dictionary() -> None:
+    # Median of [10, 24, 100] is the 24-row dictionary; demotion must
+    # push the pick into the non-dictionary pool.
+    resources = [
+        _res("data-big", 100),
+        _res("dict", 24),
+        _res("data-small", 10),
+    ]
+    columns_by_doc = {
+        "data-big": ["permit_id", "area_ha"],
+        "dict": ["column_name", "data_type", "description"],
+        "data-small": ["permit_id", "area_ha"],
+    }
+    rep = pick_representative(resources, columns_by_doc=columns_by_doc)
+    # Non-dict pool sorted by row_count: [data-small, data-big];
+    # median index 1 → data-big.
+    assert rep.document_id == "data-big"
+
+
+def test_pick_representative_falls_back_when_all_dictionaries() -> None:
+    resources = [_res("dict-a", 24), _res("dict-b", 30)]
+    columns_by_doc = {
+        "dict-a": ["column_name", "data_type", "description"],
+        "dict-b": ["field", "type", "definition"],
+    }
+    rep = pick_representative(resources, columns_by_doc=columns_by_doc)
+    # Every resource demoted → full pool restored; median index 1.
+    assert rep.document_id == "dict-b"
+
+
+def test_pick_representative_missing_headers_treated_as_data() -> None:
+    resources = [_res("no-headers", 50), _res("dict", 24)]
+    columns_by_doc = {"dict": ["column_name", "data_type", "description"]}
+    rep = pick_representative(resources, columns_by_doc=columns_by_doc)
+    assert rep.document_id == "no-headers"
+
+
+def test_pick_representative_without_headers_matches_legacy() -> None:
+    resources = [_res("a", 100), _res("b", 5000), _res("c", 200)]
+    assert (
+        pick_representative(resources).document_id
+        == pick_representative(resources, columns_by_doc=None).document_id
+        == pick_representative(resources, columns_by_doc={}).document_id
+    )
 
 
 def test_derive_indices_deterministic() -> None:

@@ -14,6 +14,10 @@ Laptop (uv) ──────────────────────�
                                            [--dry-run]
   uv run semantic-enrich columns-reembed   [--run-id ID] [--batch-size N]
                                            [--dry-run]
+  uv run semantic-enrich datasets-backfill-representative
+                                           [--run-id ID]
+                                           [--limit-package-ids ID...]
+                                           [--dry-run] [--staging-dir PATH]
 
 GPU box (conda env active — no uv) ──────────────────────────────
   semantic-enrich smoke-test        [--write-lock]
@@ -93,6 +97,12 @@ from semantic_enrich.core.reembed import (
     DatasetsReembedRequest,
     run_columns_reembed,
     run_datasets_reembed,
+)
+from semantic_enrich.core.representative_backfill import (
+    RepresentativeBackfillRequest,
+)
+from semantic_enrich.core.representative_backfill import (
+    run_backfill as run_representative_backfill,
 )
 from semantic_enrich.core.smoke import run_smoke_test, write_models_lock
 from semantic_enrich.providers.braintrust_tracing import configure_braintrust
@@ -339,6 +349,58 @@ def datasets_load(
         dry_run=dry_run or settings.dry_run,
     )
     _dispatch(lambda: run_load(request=request, settings=settings, bq=bq))
+
+
+# ──────────────────────────────────────────────────────────────────
+# datasets-backfill-representative  (laptop)
+# ──────────────────────────────────────────────────────────────────
+
+
+@app.command("datasets-backfill-representative")
+def datasets_backfill_representative(
+    run_id: str | None = typer.Option(
+        None, "--run-id", help="Override WHENRICH_RUN_ID."
+    ),
+    limit_package_ids: list[str] | None = typer.Option(
+        None,
+        "--limit-package-ids",
+        help="Repeatable; restrict to these package_ids.",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run/--no-dry-run",
+        help="Logs picks (incl. representative_pick_changed) without "
+             "writing; use to size the re-enrichment scope.",
+    ),
+    staging_dir: Path | None = typer.Option(
+        None, "--staging-dir", help="Override WHENRICH_STAGING_DIR."
+    ),
+) -> None:
+    """Laptop-side. Re-run the representative picker for packages in
+    semantic.datasets; MERGE representative_document_id back."""
+    configure_logging()
+    settings = _build_settings(run_id=run_id, staging_dir=staging_dir)
+    log = get_logger("semantic_enrich.entrypoint")
+    if not settings.gcp_project_id:
+        log.error(
+            "missing_project_id",
+            subcommand="datasets-backfill-representative",
+        )
+        raise typer.Exit(3)
+    try:
+        bq = RealBqClient.for_project(settings.gcp_project_id)
+    except Exception as exc:
+        log.error("bq_auth_failed", error=str(exc))
+        raise typer.Exit(3) from exc
+    request = RepresentativeBackfillRequest(
+        run_id=settings.run_id,
+        dry_run=dry_run or settings.dry_run,
+        limit_package_ids=limit_package_ids,
+    )
+    _dispatch(
+        lambda: run_representative_backfill(
+            request=request, settings=settings, bq=bq
+        )
+    )
 
 
 # ──────────────────────────────────────────────────────────────────

@@ -4,8 +4,9 @@ from __future__ import annotations
 from semantic_enrich.core.package_grouper import (
     build_candidate_params,
     build_candidate_sql,
-    build_column_union_sql,
+    build_doc_columns_sql,
     build_sample_rows_sql,
+    column_union,
     decode_candidate_row,
     truncate_columns,
 )
@@ -101,8 +102,8 @@ def test_decode_candidate_row_pulls_resources() -> None:
     assert resources[0].subjects == ("s1", "s2")
 
 
-def test_build_column_union_sql_uses_json_keys() -> None:
-    sql = build_column_union_sql(
+def test_build_doc_columns_sql_uses_json_keys() -> None:
+    sql = build_doc_columns_sql(
         project_id="proj", dataset_raw="raw", rows_table="rows"
     )
     # PARSE_JSON(STRING(row)) unwraps the double-encoded JSON the rows
@@ -111,6 +112,19 @@ def test_build_column_union_sql_uses_json_keys() -> None:
     assert "JSON_KEYS(PARSE_JSON(STRING(row)))" in sql
     assert "QUALIFY" in sql
     assert "@document_ids" in sql
+    # One row per document — the picker needs per-doc headers, not a
+    # flattened union.
+    assert "document_id," in sql
+
+
+def test_column_union_is_sorted_distinct() -> None:
+    assert column_union(
+        {"doc-a": ["year", "amt"], "doc-b": ["amt", "region"]}
+    ) == ["amt", "region", "year"]
+
+
+def test_column_union_empty() -> None:
+    assert column_union({}) == []
 
 
 def test_build_sample_rows_sql_uses_row_index() -> None:

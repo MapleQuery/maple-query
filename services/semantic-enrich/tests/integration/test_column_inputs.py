@@ -66,12 +66,12 @@ def test_extract_three_packages_with_summary_lookup(tmp_path: Path) -> None:
             {"package_id": "pkg-c", "summary": "summary-c"},
         ],
     )
-    # Per-package: column-union then sample-values. 3 packages x 2
+    # Per-package: doc-columns then sample-values. 3 packages x 2
     # responses each = 6 canned responses.
-    for _ in range(3):
+    for doc in ("doc-a", "doc-b", "doc-c"):
         bq.register_query(
             "JSON_KEYS(PARSE_JSON(STRING(row)))",
-            [{"col_name": "year"}, {"col_name": "amt_cad"}],
+            [{"document_id": doc, "columns": ["year", "amt_cad"]}],
         )
         bq.register_query(
             "ranked AS",
@@ -121,7 +121,8 @@ def test_extract_resume_skips_already_extracted(tmp_path: Path) -> None:
     )
     bq.register_query("FROM `proj.semantic.datasets`", [])
     bq.register_query(
-        "JSON_KEYS(PARSE_JSON(STRING(row)))", [{"col_name": "x"}]
+        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        [{"document_id": "doc-b", "columns": ["x"]}],
     )
     bq.register_query("ranked AS", [{"col_name": "x", "v": "1"}])
 
@@ -157,8 +158,11 @@ def test_extract_filters_allowlist_violations(tmp_path: Path) -> None:
     bq.register_query(
         "JSON_KEYS(PARSE_JSON(STRING(row)))",
         [
-            {"col_name": "year"},
-            {"col_name": '"injection_attempt"'},  # allowlist drops
+            {
+                "document_id": "doc-a",
+                # Second column dropped by the allowlist.
+                "columns": ["year", '"injection_attempt"'],
+            }
         ],
     )
     bq.register_query(
@@ -189,7 +193,7 @@ def test_extract_empty_after_allowlist_skipped(tmp_path: Path) -> None:
     bq.register_query("FROM `proj.semantic.datasets`", [])
     bq.register_query(
         "JSON_KEYS(PARSE_JSON(STRING(row)))",
-        [{"col_name": '"all-bad"'}],
+        [{"document_id": "doc-a", "columns": ['"all-bad"']}],
     )
 
     request = ColumnsExtractRequest(
@@ -226,7 +230,8 @@ def test_extract_summary_table_missing_falls_back(tmp_path: Path) -> None:
     bq.query_rows = query_rows_with_not_found  # type: ignore[assignment]
 
     bq.register_query(
-        "JSON_KEYS(PARSE_JSON(STRING(row)))", [{"col_name": "year"}]
+        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        [{"document_id": "doc-a", "columns": ["year"]}],
     )
     bq.register_query(
         "ranked AS", [{"col_name": "year", "v": "2024"}]

@@ -239,7 +239,30 @@ def _extract_one_package(
             failure_reason="no_resources",
         )
 
-    rep = sample_selector.pick_representative(resources)
+    all_doc_ids = [r.document_id for r in resources]
+    columns_by_doc = package_grouper.fetch_doc_columns(
+        bq=bq,
+        project_id=project_id,
+        dataset_raw=settings.bq_dataset_raw,
+        rows_table=settings.bq_rows_table,
+        document_ids=all_doc_ids,
+    )
+
+    rep = sample_selector.pick_representative(
+        resources, columns_by_doc=columns_by_doc
+    )
+    plog.info(
+        "representative_picked",
+        resource_count=len(resources),
+        dictionary_candidates=sum(
+            1 for r in resources
+            if sample_selector.looks_like_dictionary(
+                columns_by_doc.get(r.document_id, [])
+            )
+        ),
+        chosen_document_id=rep.document_id,
+        chosen_row_count=rep.row_count,
+    )
     if rep.row_count is None or rep.row_count == 0:
         plog.error(
             "representative_doc_has_no_rows",
@@ -250,14 +273,7 @@ def _extract_one_package(
             failure_reason="no_rows",
         )
 
-    all_doc_ids = [r.document_id for r in resources]
-    col_union = package_grouper.fetch_column_union(
-        bq=bq,
-        project_id=project_id,
-        dataset_raw=settings.bq_dataset_raw,
-        rows_table=settings.bq_rows_table,
-        document_ids=all_doc_ids,
-    )
+    col_union = package_grouper.column_union(columns_by_doc)
     kept_cols, truncated_to = package_grouper.truncate_columns(
         names=col_union, cap=settings.sample_column_cap
     )

@@ -115,12 +115,15 @@ def decode_candidate_row(row: dict[str, Any]) -> tuple[str, tuple[PackageResourc
     return package_id, resources
 
 
-def build_column_union_sql(*, project_id: str, dataset_raw: str, rows_table: str) -> str:
-    """Union of column names across all of a package's documents.
+def build_doc_columns_sql(*, project_id: str, dataset_raw: str, rows_table: str) -> str:
+    """Per-document column names for a package's documents.
 
     One row per document is enough — keys are identical across rows of
     one document — so the `QUALIFY ROW_NUMBER()=1` cuts the scan to the
-    first row of each doc.
+    first row of each doc. The per-document grouping (rather than a
+    flattened union) is what lets the representative picker inspect
+    each resource's headers; callers derive the package-wide union in
+    Python via `column_union`.
 
     `raw.rows.row` is declared JSON but the rows loader writes the
     dict as a JSON-encoded string (double-encoding). `JSON_KEYS(row)`
@@ -130,34 +133,43 @@ def build_column_union_sql(*, project_id: str, dataset_raw: str, rows_table: str
     """
     fq = f"`{project_id}.{dataset_raw}.{rows_table}`"
     return f"""
-WITH per_doc_keys AS (
-  SELECT
-    document_id,
-    JSON_KEYS(PARSE_JSON(STRING(row))) AS keys
-  FROM {fq}
-  WHERE document_id IN UNNEST(@document_ids)
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY row_index) = 1
-)
-SELECT DISTINCT k AS col_name
-FROM per_doc_keys, UNNEST(keys) AS k
-ORDER BY col_name;
+SELECT
+  document_id,
+  JSON_KEYS(PARSE_JSON(STRING(row))) AS columns
+FROM {fq}
+WHERE document_id IN UNNEST(@document_ids)
+QUALIFY ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY row_index) = 1
+ORDER BY document_id;
 """.strip()
 
 
-def fetch_column_union(
+def fetch_doc_columns(
     *,
     bq: BqClient,
     project_id: str,
     dataset_raw: str,
     rows_table: str,
     document_ids: list[str],
-) -> list[str]:
-    """Run the column-union query for one package."""
-    sql = build_column_union_sql(
+) -> dict[str, list[str]]:
+    """Run the per-doc columns query for one package. Returns
+    `document_id -> column names`; documents with no rows are absent."""
+    sql = build_doc_columns_sql(
         project_id=project_id, dataset_raw=dataset_raw, rows_table=rows_table
     )
     params = [bigquery.ArrayQueryParameter("document_ids", "STRING", document_ids)]
-    return [r["col_name"] for r in bq.query_rows(sql, params=params)]
+    return {
+        str(r["document_id"]): [str(c) for c in (r.get("columns") or [])]
+        for r in bq.query_rows(sql, params=params)
+    }
+
+
+def column_union(columns_by_doc: dict[str, list[str]]) -> list[str]:
+    """Sorted distinct column names across a package's documents. Same
+    output the flattened SQL union produced (DISTINCT + ORDER BY)."""
+    seen: set[str] = set()
+    for cols in columns_by_doc.values():
+        seen.update(cols)
+    return sorted(seen)
 
 
 def truncate_columns(

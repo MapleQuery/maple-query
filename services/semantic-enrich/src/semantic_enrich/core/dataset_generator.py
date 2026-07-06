@@ -253,6 +253,7 @@ def run_generate(
                 generation_model=settings.generation_model,
                 generation_model_commit=gen_commit,
                 generation_run_id=request.run_id,
+                representative_document_id=pkg.representative_document_id,
                 dry_run=False,
             )
             writer.append(staged)
@@ -328,6 +329,7 @@ def _dry_run_placeholder(
         generation_model=settings.generation_model,
         generation_model_commit=gen_commit,
         generation_run_id=settings.run_id,
+        representative_document_id=pkg.representative_document_id,
         dry_run=True,
     )
 
