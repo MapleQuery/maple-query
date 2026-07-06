@@ -48,6 +48,16 @@ def test_latin1_fallback_when_utf8_fails() -> None:
     assert result.encoding != "utf-8"  # charset_normalizer picks something
 
 
+def test_semicolon_delimited_utf8() -> None:
+    head = b'"VILLE DE MONTR\xc3\x89AL  ";;;;;;col2;col3\n'
+    assert sniff_csv(head).delimiter == ";"
+
+
+def test_semicolon_wins_when_most_frequent() -> None:
+    head = b"col1;col2;col3\n1;2;3\n"
+    assert sniff_csv(head).delimiter == ";"
+
+
 def test_sniff_bytes_reflects_input_length() -> None:
     head = b"a,b\n1,2\n"
     assert sniff_csv(head).sniff_bytes == len(head)

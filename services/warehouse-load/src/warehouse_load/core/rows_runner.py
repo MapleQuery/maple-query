@@ -11,6 +11,12 @@ the orchestrator decides whether to flush staging into `raw.rows`
 (time-or-size cutoff per PRD §8.3); after the final batch, flushes
 unconditionally; then refreshes `raw.column_index` (unless
 disabled).
+
+JSONL encoding contract: `row` is written as a native JSON object
+(dict) so BigQuery ingests it directly into the `JSON`-typed column
+as an object tree, not a string scalar. Every downstream consumer
+can walk keys with `JSON_VALUE(row, '$.col')` without a
+`PARSE_JSON(STRING(row))` unwrap.
 """
 from __future__ import annotations
 
@@ -896,9 +902,7 @@ def _parse_one_pass(
                     {
                         "document_id": doc.document_id,
                         "row_index": staging_row.row_index,
-                        # `row` lands as a BQ JSON column — dump as a
-                        # JSON string and BQ parses it on load.
-                        "row": json.dumps(staging_row.row, ensure_ascii=False),
+                        "row": staging_row.row,
                         "loaded_at": loaded_at_iso,
                     },
                     out,

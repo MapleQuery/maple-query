@@ -10,9 +10,8 @@ the cap fires, `overflow_truncated=TRUE` signals to the agent that
 the doc-id list is incomplete and the full set is recoverable from
 a `raw.rows` scan.
 
-`JSON_KEYS` is BQ Preview as of 2026-Q1. The PRD §10.3 documents
-a one-PR fallback if it's withdrawn; we only implement that if it
-actually breaks.
+`JSON_KEYS` is BQ Preview as of 2026-Q1; `row` is a BQ JSON type so
+it can be passed directly without a STRING/PARSE_JSON round-trip.
 """
 from __future__ import annotations
 
