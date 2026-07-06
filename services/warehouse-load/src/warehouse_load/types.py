@@ -134,7 +134,7 @@ LOAD_STATUSES: frozenset[str] = frozenset(
 class SniffResult:
     """Result of the CSV header-sample sniff (`core/csv_sniff.py`)."""
 
-    delimiter: Literal[",", "\t"]
+    delimiter: Literal[",", "\t", ";"]
     encoding: str
     sniff_bytes: int
 

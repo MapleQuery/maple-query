@@ -68,10 +68,9 @@ def _detect_encoding(blob_head: bytes) -> str:
     return "latin-1"
 
 
-def _detect_delimiter(blob_head: bytes, *, encoding: str) -> Literal[",", "\t"]:
-    """Count `,` vs `\\t` in the first newline-terminated line; higher
-    count wins. Tie defaults to `,` (logged as `sniff_tie` by the
-    caller if it ever happens — empirically never in the corpus).
+def _detect_delimiter(blob_head: bytes, *, encoding: str) -> Literal[",", "\t", ";"]:
+    """Count `,` vs `\\t` vs `;` in the first newline-terminated line;
+    highest count wins. Ties default to `,`.
     """
     try:
         text = blob_head.decode(encoding, errors="replace")
@@ -85,8 +84,10 @@ def _detect_delimiter(blob_head: bytes, *, encoding: str) -> Literal[",", "\t"]:
     first_line, _, _ = text.partition("\n")
     comma_count = first_line.count(",")
     tab_count = first_line.count("\t")
-    if tab_count > comma_count:
+    semicolon_count = first_line.count(";")
+    best = max(comma_count, tab_count, semicolon_count)
+    if best == 0 or best == comma_count:
+        return ","
+    if tab_count == best:
         return "\t"
-    # Both zero → single-column file; default to comma (round-trips
-    # either way). Tie + non-zero → comma (deliberate; see PRD §5.1).
-    return ","
+    return ";"
