@@ -16,7 +16,14 @@ def load_embedding_model(
     cache_dir: str | None = None,
 ) -> EmbeddingModel:
     """Load once; caller owns lifetime."""
-    from sentence_transformers import SentenceTransformer
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError as exc:
+        raise RuntimeError(
+            "GPU dependencies not installed. "
+            "GPU box (conda): pip install -e '.[gpu]'  "
+            "GPU box (uv): uv sync --extra gpu"
+        ) from exc
 
     return SentenceTransformer(repo, device=device, cache_folder=cache_dir)
 
