@@ -41,6 +41,10 @@ class PackageCandidate:
     date_range_start: str | None
     date_range_end: str | None
     distance: float
+    # Human-readable dataset title; None for rows enriched before the
+    # column was backfilled. Display-only — not part of the SQL-gen
+    # prompt contract.
+    title: str | None = None
 
 
 @dataclass(frozen=True)
@@ -272,6 +276,7 @@ def _require_project(settings: Settings) -> str:
 def _package_from_row(row: dict[str, Any]) -> PackageCandidate:
     return PackageCandidate(
         package_id=str(row["package_id"]),
+        title=_optional_str(row.get("title")),
         summary=str(row.get("summary") or ""),
         grain=_optional_str(row.get("grain")),
         measures=tuple(_str_list(row.get("measures"))),
@@ -336,6 +341,7 @@ def _str_list(value: Any) -> list[str]:
 _PACKAGE_SEARCH_SQL = """
 SELECT
   base.package_id AS package_id,
+  base.title AS title,
   base.summary AS summary,
   base.grain AS grain,
   base.measures AS measures,

@@ -98,17 +98,19 @@ def test_backfill_merges_picked_representative(tmp_path: Path) -> None:
         {
             "package_id": "pkg-a",
             "representative_document_id": "doc-data-big",
+            "title": "T",
         }
     ]
 
-    # MERGE updates representative_document_id only — never the
-    # always-newer-wins generated_at clock.
+    # MERGE updates representative_document_id + title only — never
+    # the always-newer-wins generated_at clock.
     merge_calls = [
         c for c in bq.calls
         if c["kind"] == "execute" and "MERGE INTO" in c["sql"]
     ]
     assert len(merge_calls) == 1
     assert "representative_document_id" in merge_calls[0]["sql"]
+    assert "title = s.title" in merge_calls[0]["sql"]
     assert "generated_at" not in merge_calls[0]["sql"]
     assert bq.deleted_tables  # staging table cleaned up
 

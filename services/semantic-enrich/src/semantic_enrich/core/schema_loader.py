@@ -53,6 +53,15 @@ def assert_datasets_schema(schema: list[bigquery.SchemaField]) -> None:
             "semantic_datasets.json must declare representative_document_id "
             "STRING NULLABLE"
         )
+    if not any(
+        f.name == "title"
+        and f.field_type == "STRING"
+        and f.mode == "NULLABLE"
+        for f in schema
+    ):
+        raise AssertionError(
+            "semantic_datasets.json must declare title STRING NULLABLE"
+        )
 
 
 def assert_columns_schema(schema: list[bigquery.SchemaField]) -> None:

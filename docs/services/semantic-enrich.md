@@ -361,7 +361,7 @@ Both queries should return `n_wrong = 0`.
 
 Each package's enrichment (sample rows, column extraction) reads one *representative* resource: the median-row-count CSV, lexicographic `document_id` tiebreak. Resources whose headers are **dictionary-shaped** — ≤8 columns with ≥60% of names drawn from a schema-description vocabulary (`column_name`, `data_type`, `description`, …) — are demoted out of the pool first, so a package that publishes a data CSV plus a schema/dictionary CSV enriches from the data, not the metadata. If *every* resource is dictionary-shaped the full pool is restored (a dictionary-only package still gets a representative for browseability). Every pick emits a `representative_picked` event with `dictionary_candidates` and the chosen doc.
 
-The chosen `representative_document_id` is persisted on `semantic.datasets` (threaded extract → generate → load). For rows enriched before the column existed, or after a picker behaviour change:
+The chosen `representative_document_id` is persisted on `semantic.datasets` (threaded extract → generate → load), along with `title` — the representative resource's `raw.documents.title`, falling back to the first non-null resource title, NULL when no resource has one (the web UI then falls back to `package_id`; no title is ever invented). For rows enriched before the columns existed, or after a picker behaviour change:
 
 ```sh
 cd services/semantic-enrich
@@ -371,9 +371,9 @@ cd services/semantic-enrich
 # choice differs. That change list is the re-enrichment scope.
 uv run semantic-enrich datasets-backfill-representative --dry-run
 
-# Real run: stages picks and MERGEs representative_document_id only.
-# generated_at is untouched (it is the always-newer-wins clock for
-# datasets-load; a picker-only backfill must not advance it).
+# Real run: stages picks and MERGEs representative_document_id +
+# title only. generated_at is untouched (it is the always-newer-wins
+# clock for datasets-load; a picker-only backfill must not advance it).
 uv run semantic-enrich datasets-backfill-representative
 ```
 

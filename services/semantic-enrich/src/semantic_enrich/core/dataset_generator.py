@@ -254,6 +254,7 @@ def run_generate(
                 generation_model_commit=gen_commit,
                 generation_run_id=request.run_id,
                 representative_document_id=pkg.representative_document_id,
+                title=_resolve_title(pkg),
                 dry_run=False,
             )
             writer.append(staged)
@@ -293,6 +294,19 @@ def run_generate(
     return summary
 
 
+def _resolve_title(pkg: PackageInputs) -> str | None:
+    """Representative resource's title, falling back to the first
+    non-null resource title. Returns None when no resource carries a
+    title — the UI falls back to package_id; never invent one."""
+    for r in pkg.resources:
+        if r.document_id == pkg.representative_document_id and r.title:
+            return r.title
+    for r in pkg.resources:
+        if r.title:
+            return r.title
+    return None
+
+
 def _build_chat_prompt(*, tokenizer: Any, user_msg: str) -> str:
     """Wrap the system + user messages through Qwen's chat template."""
     messages = [
@@ -330,6 +344,7 @@ def _dry_run_placeholder(
         generation_model_commit=gen_commit,
         generation_run_id=settings.run_id,
         representative_document_id=pkg.representative_document_id,
+        title=_resolve_title(pkg),
         dry_run=True,
     )
 

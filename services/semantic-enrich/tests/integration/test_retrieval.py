@@ -28,14 +28,18 @@ def test_embed_question_asserts_dim() -> None:
 
 def test_package_search_sql_shape() -> None:
     bq = FakeBqClient()
-    bq.register_query("VECTOR_SEARCH", [{"package_id": "pkg-1"}])
+    bq.register_query(
+        "VECTOR_SEARCH", [{"package_id": "pkg-1", "title": "Housing"}]
+    )
     vec = [1.0 / math.sqrt(1536)] * 1536
     packages, _ = retrieve_packages(bq=bq, question_vec=vec, settings=_settings())
     assert len(packages) == 1
     assert packages[0].package_id == "pkg-1"
+    assert packages[0].title == "Housing"
 
     call = bq.calls[-1]
     assert "VECTOR_SEARCH(" in call["sql"]
+    assert "base.title AS title" in call["sql"]
     assert "COSINE" in call["sql"]
     assert "top_k => @k_packages" in call["sql"]
     # bound params

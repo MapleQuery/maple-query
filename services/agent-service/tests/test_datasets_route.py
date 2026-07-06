@@ -24,6 +24,7 @@ def test_list_datasets_scan(client: TestClient, fake_bq: FakeBqClient) -> None:
             [
                 {
                     "package_id": "pkg-a",
+                    "title": "Housing spending by province",
                     "summary": "housing spend",
                     "grain": "monthly",
                     "measures": ["amount"],
@@ -44,7 +45,11 @@ def test_list_datasets_scan(client: TestClient, fake_bq: FakeBqClient) -> None:
     assert len(body["datasets"]) == 1
     card = body["datasets"][0]
     assert card["package_id"] == "pkg-a"
+    assert card["title"] == "Housing spending by province"
     assert card["distance"] is None
+    # The scan SELECT must ask for title now that the column exists.
+    scan_sql = next(s for s in fake_bq.executed if "ORDER BY generated_at" in s)
+    assert "title" in scan_sql
 
 
 def test_list_datasets_vector_search(
@@ -57,6 +62,7 @@ def test_list_datasets_vector_search(
             [
                 {
                     "package_id": "pkg-b",
+                    "title": "GDP by province",
                     "summary": "match",
                     "grain": "yearly",
                     "measures": ["gdp"],
@@ -76,6 +82,7 @@ def test_list_datasets_vector_search(
     assert r.status_code == 200
     card = r.json()["datasets"][0]
     assert card["package_id"] == "pkg-b"
+    assert card["title"] == "GDP by province"
     assert card["distance"] == 0.12
 
 

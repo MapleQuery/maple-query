@@ -129,6 +129,9 @@ class StagedDatasetCard(pydantic.BaseModel):
     # Copied from PackageInputs by the generate pass (not LLM output).
     # Defaults None so pre-existing staged JSONL still parses.
     representative_document_id: str | None = None
+    # Representative resource's raw.documents.title (fallback: first
+    # non-null resource title). Not LLM output; same None default.
+    title: str | None = None
     # Dry-run marker; absent for real runs (default False keeps the
     # field opt-in at the writer level).
     dry_run: bool = False
