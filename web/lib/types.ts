@@ -203,6 +203,22 @@ export interface ColumnsResponse {
   columns: ColumnInfo[];
 }
 
+export interface DocumentInfo {
+  document_id: string;
+  title?: string | null;
+  source_url: string;
+  file_format: string;
+  language: string;
+  row_count?: number | null;
+  published_date?: string | null;
+  is_representative?: boolean;
+}
+
+export interface DocumentsResponse {
+  package_id: string;
+  documents: DocumentInfo[];
+}
+
 export type SqlRunStatus =
   | "ok"
   | "guard_rejected"

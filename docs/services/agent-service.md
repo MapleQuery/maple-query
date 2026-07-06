@@ -33,6 +33,7 @@ services/agent-service/
 | POST   | `/sql/run`                        | Bearer | Public wrap around the loop's `run_sql` tool. Identical guardrails. Powers the "edit this step" UI. |
 | GET    | `/datasets`                       | Bearer | With `q`: VECTOR_SEARCH over `semantic.datasets`. Without: straight scan by `generated_at DESC`.     |
 | GET    | `/datasets/{package_id}/columns`  | Bearer | Per-package column list from `semantic.columns`.                                                     |
+| GET    | `/datasets/{package_id}/documents`| Bearer | Loaded source files from `raw.documents` (title, `source_url` download link, format, rows, published date). `is_representative` marks the doc the enrichment pass described, read back from `semantic.datasets.representative_document_id`. Downloads link straight to open.canada.ca — never proxied through this service. |
 | GET    | `/healthz`                        | —      | Cloud Run liveness. Always 200.                                                                      |
 | GET    | `/readyz`                         | —      | OpenAI + BQ + snapshot canary. 503 if any fails. Cloud Run startup probe.                            |
 

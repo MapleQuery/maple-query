@@ -1,8 +1,11 @@
-"""`GET /datasets` and `GET /datasets/{package_id}/columns`.
+"""`GET /datasets`, `GET /datasets/{package_id}/columns`, and
+`GET /datasets/{package_id}/documents`.
 
 Serves the landing surface and explorer's dataset picker. When `q` is
 present, embeds the query via OpenAI and runs `VECTOR_SEARCH`; when
-absent, returns a straight scan ordered by `generated_at DESC`.
+absent, returns a straight scan ordered by `generated_at DESC`. The
+documents endpoint lists a package's loaded source files from
+`raw.documents` for the detail page's download links.
 """
 from __future__ import annotations
 
@@ -49,6 +52,26 @@ class ColumnCard(BaseModel):
 class ColumnsResponse(BaseModel):
     package_id: str
     columns: list[ColumnCard]
+
+
+class DocumentCard(BaseModel):
+    """One loaded `raw.documents` row for a package. `source_url` is
+    the open.canada.ca download link — raw CSVs are publicly
+    downloadable there, so no GCS signed URL is exposed."""
+
+    document_id: str
+    title: str | None = None
+    source_url: str
+    file_format: str
+    language: str
+    row_count: int | None = None
+    published_date: str | None = None
+    is_representative: bool = False
+
+
+class DocumentsResponse(BaseModel):
+    package_id: str
+    documents: list[DocumentCard]
 
 
 @router.get(
@@ -123,6 +146,52 @@ def list_columns(
     return ColumnsResponse(package_id=package_id, columns=columns)
 
 
+@router.get(
+    "/datasets/{package_id}/documents",
+    dependencies=[BearerAuth],
+    response_model=DocumentsResponse,
+)
+def list_source_documents(
+    package_id: str,
+    state: AppState = Depends(get_app_state),
+) -> DocumentsResponse:
+    project_id = state.loop_settings.gcp_project_id
+    dataset_raw = state.loop_settings.bq_dataset_raw
+    documents_table = state.loop_settings.bq_documents_table
+    sql = (
+        f"SELECT document_id, title, source_url, file_format, language, "
+        f"row_count, published_date "
+        f"FROM `{project_id}.{dataset_raw}.{documents_table}` "
+        f"WHERE package_id = @pkg AND load_status = 'loaded' "
+        # BQ sorts NULLs last under DESC, so unloaded-count rows (should
+        # not appear under load_status='loaded') can't shadow real docs.
+        f"ORDER BY row_count DESC, document_id"
+    )
+    params = [bigquery.ScalarQueryParameter("pkg", "STRING", package_id)]
+    rows = list(state.bq.query_rows(sql, params=params))
+    # Same 404 posture as the columns endpoint: distinguish "no loaded
+    # documents" from "unknown package_id" via semantic.datasets.
+    if not rows and not _package_exists(state, package_id):
+        raise HTTPException(status_code=404, detail="package_not_found")
+    rep_doc_id = _representative_document_id(state, package_id) if rows else None
+    documents = [
+        DocumentCard(
+            document_id=str(r.get("document_id") or ""),
+            title=_optional_str(r.get("title")),
+            source_url=str(r.get("source_url") or ""),
+            file_format=str(r.get("file_format") or ""),
+            language=str(r.get("language") or "unknown"),
+            row_count=int(r["row_count"]) if r.get("row_count") is not None else None,
+            published_date=_optional_str(r.get("published_date")),
+            is_representative=(
+                rep_doc_id is not None and r.get("document_id") == rep_doc_id
+            ),
+        )
+        for r in rows
+    ]
+    return DocumentsResponse(package_id=package_id, documents=documents)
+
+
 def _search_datasets(
     state: AppState, q: str, k: int
 ) -> list[DatasetCard]:
@@ -194,6 +263,26 @@ def _count_datasets(
     if not rows:
         return 0
     return int(rows[0].get("n") or 0)
+
+
+def _representative_document_id(
+    state: AppState, package_id: str
+) -> str | None:
+    """The document the enrichment pass described, stamped onto
+    `semantic.datasets` by the picker. None for packages enriched
+    before the column was backfilled — no badge is shown then."""
+    project_id = state.loop_settings.gcp_project_id
+    dataset = state.loop_settings.bq_dataset_semantic
+    table = state.loop_settings.bq_datasets_table
+    sql = (
+        f"SELECT representative_document_id "
+        f"FROM `{project_id}.{dataset}.{table}` "
+        f"WHERE package_id = @pkg LIMIT 1"
+    )
+    params = [bigquery.ScalarQueryParameter("pkg", "STRING", package_id)]
+    for row in state.bq.query_rows(sql, params=params):
+        return _optional_str(row.get("representative_document_id"))
+    return None
 
 
 def _package_exists(state: AppState, package_id: str) -> bool:

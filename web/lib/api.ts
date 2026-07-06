@@ -3,6 +3,7 @@ import type {
   ColumnsResponse,
   DatasetSummary,
   DatasetsResponse,
+  DocumentsResponse,
   SqlRunResponse,
 } from "./types";
 
@@ -55,6 +56,16 @@ export function getDatasetColumns(
 ): Promise<ColumnsResponse> {
   return jsonFetch<ColumnsResponse>(
     `/datasets/${encodeURIComponent(packageId)}/columns`,
+    { signal },
+  );
+}
+
+export function getDatasetDocuments(
+  packageId: string,
+  signal?: AbortSignal,
+): Promise<DocumentsResponse> {
+  return jsonFetch<DocumentsResponse>(
+    `/datasets/${encodeURIComponent(packageId)}/documents`,
     { signal },
   );
 }
