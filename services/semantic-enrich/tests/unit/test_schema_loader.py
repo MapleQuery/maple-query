@@ -44,6 +44,16 @@ def test_assert_datasets_schema_fails_without_representative() -> None:
         assert_datasets_schema(schema)
 
 
+def test_assert_datasets_schema_fails_without_title() -> None:
+    schema = [
+        f
+        for f in load_schema(_find_schemas_dir() / "semantic_datasets.json")
+        if f.name != "title"
+    ]
+    with pytest.raises(AssertionError, match="title"):
+        assert_datasets_schema(schema)
+
+
 def test_load_schema_rejects_non_list(tmp_path: Path) -> None:
     bad = tmp_path / "bad.json"
     bad.write_text('{"not": "a list"}')

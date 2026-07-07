@@ -30,6 +30,7 @@ from semantic_enrich.types import DatasetsLoadRunSummary, StagedDatasetCard
 # `generation_run_id`) are staging-only and projected away.
 TARGET_COLUMNS: tuple[str, ...] = (
     "package_id",
+    "title",
     "summary",
     "grain",
     "measures",
@@ -227,6 +228,7 @@ USING `{staging}` s
 
 WHEN MATCHED AND s.generated_at > t.generated_at
 THEN UPDATE SET
+  title                      = s.title,
   summary                    = s.summary,
   grain                      = s.grain,
   measures                   = s.measures,
@@ -238,12 +240,12 @@ THEN UPDATE SET
   generated_at               = s.generated_at
 
 WHEN NOT MATCHED THEN INSERT (
-  package_id, summary, grain, measures, dimensions,
+  package_id, title, summary, grain, measures, dimensions,
   date_range_start, date_range_end, representative_document_id,
   embedding, generated_at
 )
 VALUES (
-  s.package_id, s.summary, s.grain, s.measures, s.dimensions,
+  s.package_id, s.title, s.summary, s.grain, s.measures, s.dimensions,
   s.date_range_start, s.date_range_end, s.representative_document_id,
   s.embedding, s.generated_at
 );
@@ -257,6 +259,7 @@ def _write_load_payload(*, path: Path, rows: list[StagedDatasetCard]) -> None:
         for r in rows:
             obj = {
                 "package_id": r.package_id,
+                "title": r.title,
                 "summary": r.summary,
                 "grain": r.grain,
                 "measures": r.measures,

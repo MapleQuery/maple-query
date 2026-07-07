@@ -2,6 +2,9 @@
   {"name": "package_id", "type": "STRING", "mode": "REQUIRED",
    "description": "CKAN package UUID. Primary key. FK target for semantic.columns.package_id and raw.documents.package_id."},
 
+  {"name": "title", "type": "STRING", "mode": "NULLABLE",
+   "description": "Human-readable dataset title, sourced from the representative document's raw.documents.title (fallback: first non-null resource title). Displayed by the web UI as the primary identifier; NULL rows fall back to package_id there. Backfilled by `semantic-enrich datasets-backfill-representative`."},
+
   {"name": "summary", "type": "STRING", "mode": "REQUIRED",
    "description": "English LLM-generated summary, 2-4 sentences. Source text embedded into `embedding`."},
   {"name": "grain", "type": "STRING", "mode": "NULLABLE",

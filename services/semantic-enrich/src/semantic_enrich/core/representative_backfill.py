@@ -2,7 +2,8 @@
 
 Laptop-side, picker-only. Re-runs the representative picker for every
 package already present in `semantic.datasets` and MERGEs the chosen
-`representative_document_id` back onto the table. No GPU, no LLM.
+`representative_document_id` — plus the `title` derived from it —
+back onto the table. No GPU, no LLM.
 
 Two uses:
 - Populate the column for rows enriched before the picker persisted
@@ -48,6 +49,7 @@ class RepresentativeBackfillRequest:
 class _Pick:
     package_id: str
     representative_document_id: str
+    title: str | None
     previous_document_id: str | None
     dictionary_candidates: int
 
@@ -219,9 +221,14 @@ def _pick_one_package(
         chosen_document_id=rep.document_id,
         chosen_row_count=rep.row_count,
     )
+    # Title mirrors dataset_generator._resolve_title: representative's
+    # title, else first non-null resource title, else None (the UI
+    # falls back to package_id; never invent one).
+    title = rep.title or next((r.title for r in resources if r.title), None)
     return _Pick(
         package_id=package_id,
         representative_document_id=rep.document_id,
+        title=title,
         previous_document_id=previous_by_pkg.get(package_id),
         dictionary_candidates=dictionary_candidates,
     )
@@ -295,6 +302,7 @@ def _stage_and_merge(
         bigquery.SchemaField(
             "representative_document_id", "STRING", mode="REQUIRED"
         ),
+        bigquery.SchemaField("title", "STRING", mode="NULLABLE"),
     ]
 
     payload_path = (
@@ -326,7 +334,8 @@ MERGE INTO `{target}` t
 USING `{staging_table_id}` s
   ON t.package_id = s.package_id
 WHEN MATCHED THEN UPDATE SET
-  representative_document_id = s.representative_document_id
+  representative_document_id = s.representative_document_id,
+  title = s.title
 """.strip()
         m_started = time.monotonic()
         bq.execute(merge_sql)
@@ -352,6 +361,7 @@ def _write_payload(*, path: Path, picks: list[_Pick]) -> None:
                         "representative_document_id": (
                             p.representative_document_id
                         ),
+                        "title": p.title,
                     },
                     ensure_ascii=False,
                 )

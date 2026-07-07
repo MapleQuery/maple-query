@@ -138,6 +138,7 @@ def _search_datasets(
     return [
         DatasetCard(
             package_id=p.package_id,
+            title=p.title,
             summary=p.summary,
             grain=p.grain,
             measures=list(p.measures),
@@ -159,7 +160,7 @@ def _scan_datasets(
     offset: int,
 ) -> list[DatasetCard]:
     sql = (
-        f"SELECT package_id, summary, grain, measures, dimensions, "
+        f"SELECT package_id, title, summary, grain, measures, dimensions, "
         f"date_range_start, date_range_end "
         f"FROM `{project_id}.{dataset}.{table}` "
         f"ORDER BY generated_at DESC "
@@ -173,6 +174,7 @@ def _scan_datasets(
     return [
         DatasetCard(
             package_id=str(r["package_id"]),
+            title=_optional_str(r.get("title")),
             summary=str(r.get("summary") or ""),
             grain=_optional_str(r.get("grain")),
             measures=[str(v) for v in (r.get("measures") or [])],
