@@ -56,7 +56,7 @@ def test_extract_three_packages(tmp_path: Path) -> None:
     # secondary queries each = six canned responses.
     for doc in ("doc-a", "doc-b", "doc-c"):
         bq.register_query(
-            "JSON_KEYS(PARSE_JSON(STRING(row)))",
+            "JSON_KEYS(row)",
             [{"document_id": doc, "columns": ["x", "y"]}],
         )
         bq.register_query(
@@ -99,7 +99,7 @@ def test_extract_resume_skips_already_extracted(tmp_path: Path) -> None:
         [_candidate_row("pkg-b", "doc-b", 5)],
     )
     bq.register_query(
-        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        "JSON_KEYS(row)",
         [{"document_id": "doc-b", "columns": ["x"]}],
     )
     bq.register_query(
@@ -172,7 +172,7 @@ def test_extract_demotes_dictionary_resource(tmp_path: Path) -> None:
         [{"package_id": "pkg-a", "resources": resources}],
     )
     bq.register_query(
-        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        "JSON_KEYS(row)",
         [
             {"document_id": "doc-data-big", "columns": ["permit_id", "area_ha"]},
             {

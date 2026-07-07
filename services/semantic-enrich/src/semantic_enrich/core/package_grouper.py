@@ -125,17 +125,18 @@ def build_doc_columns_sql(*, project_id: str, dataset_raw: str, rows_table: str)
     each resource's headers; callers derive the package-wide union in
     Python via `column_union`.
 
-    `raw.rows.row` is declared JSON but the rows loader writes the
-    dict as a JSON-encoded string (double-encoding). `JSON_KEYS(row)`
-    therefore returns `[]` because the value is a JSON string
-    primitive, not an object. `PARSE_JSON(STRING(row))` unwraps the
-    outer string so `JSON_KEYS` sees the underlying object.
+    `raw.rows.row` is a native JSON object since the loader's
+    double-encoding fix + full reload, so the bare `JSON_KEYS(row)`
+    is the correct form. The old `PARSE_JSON(STRING(row))` unwrap
+    (still present in some sibling queries) *throws* against object
+    rows — `STRING()` requires a JSON string — and must not be used
+    here.
     """
     fq = f"`{project_id}.{dataset_raw}.{rows_table}`"
     return f"""
 SELECT
   document_id,
-  JSON_KEYS(PARSE_JSON(STRING(row))) AS columns
+  JSON_KEYS(row) AS columns
 FROM {fq}
 WHERE document_id IN UNNEST(@document_ids)
 QUALIFY ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY row_index) = 1

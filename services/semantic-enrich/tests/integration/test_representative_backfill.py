@@ -59,7 +59,7 @@ def _register_common(bq: FakeBqClient) -> None:
         ],
     )
     bq.register_query(
-        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        "JSON_KEYS(row)",
         [
             {"document_id": "doc-data-big", "columns": ["permit_id", "area_ha"]},
             {
@@ -150,7 +150,7 @@ def test_backfill_counts_unchanged_pick(tmp_path: Path) -> None:
         [{"package_id": "pkg-a", "resources": [_resource("doc-only", 10)]}],
     )
     bq.register_query(
-        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        "JSON_KEYS(row)",
         [{"document_id": "doc-only", "columns": ["year"]}],
     )
 

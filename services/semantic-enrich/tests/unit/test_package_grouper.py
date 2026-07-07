@@ -106,10 +106,11 @@ def test_build_doc_columns_sql_uses_json_keys() -> None:
     sql = build_doc_columns_sql(
         project_id="proj", dataset_raw="raw", rows_table="rows"
     )
-    # PARSE_JSON(STRING(row)) unwraps the double-encoded JSON the rows
-    # loader writes; JSON_KEYS(row) by itself returns [] for a JSON
-    # string primitive.
-    assert "JSON_KEYS(PARSE_JSON(STRING(row)))" in sql
+    # Bare JSON_KEYS(row): raw.rows.row is a native JSON object since
+    # the loader fix + reload. The legacy PARSE_JSON(STRING(row))
+    # unwrap throws on object rows and must not reappear here.
+    assert "JSON_KEYS(row)" in sql
+    assert "PARSE_JSON" not in sql
     assert "QUALIFY" in sql
     assert "@document_ids" in sql
     # One row per document — the picker needs per-doc headers, not a

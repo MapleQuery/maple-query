@@ -70,7 +70,7 @@ def test_extract_three_packages_with_summary_lookup(tmp_path: Path) -> None:
     # responses each = 6 canned responses.
     for doc in ("doc-a", "doc-b", "doc-c"):
         bq.register_query(
-            "JSON_KEYS(PARSE_JSON(STRING(row)))",
+            "JSON_KEYS(row)",
             [{"document_id": doc, "columns": ["year", "amt_cad"]}],
         )
         bq.register_query(
@@ -121,7 +121,7 @@ def test_extract_resume_skips_already_extracted(tmp_path: Path) -> None:
     )
     bq.register_query("FROM `proj.semantic.datasets`", [])
     bq.register_query(
-        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        "JSON_KEYS(row)",
         [{"document_id": "doc-b", "columns": ["x"]}],
     )
     bq.register_query("ranked AS", [{"col_name": "x", "v": "1"}])
@@ -156,7 +156,7 @@ def test_extract_filters_allowlist_violations(tmp_path: Path) -> None:
     )
     bq.register_query("FROM `proj.semantic.datasets`", [])
     bq.register_query(
-        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        "JSON_KEYS(row)",
         [
             {
                 "document_id": "doc-a",
@@ -192,7 +192,7 @@ def test_extract_empty_after_allowlist_skipped(tmp_path: Path) -> None:
     )
     bq.register_query("FROM `proj.semantic.datasets`", [])
     bq.register_query(
-        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        "JSON_KEYS(row)",
         [{"document_id": "doc-a", "columns": ['"all-bad"']}],
     )
 
@@ -230,7 +230,7 @@ def test_extract_summary_table_missing_falls_back(tmp_path: Path) -> None:
     bq.query_rows = query_rows_with_not_found  # type: ignore[assignment]
 
     bq.register_query(
-        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        "JSON_KEYS(row)",
         [{"document_id": "doc-a", "columns": ["year"]}],
     )
     bq.register_query(
