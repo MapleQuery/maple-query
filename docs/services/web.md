@@ -94,6 +94,10 @@ carry the visual distinction that separate serif / mono families would.
 - Static-ish surfaces built from `docs/UIUX/maplequery-concepts/concept-1-landing.html`
   and `data-viewer.html`.
 - `/datasets` hits `GET /datasets?q=` for semantic search.
+- `/datasets/[packageId]` also hits `GET /datasets/{id}/documents` for the
+  "Source files" table — per-file open.canada.ca download links, with an
+  "Enriched" badge on the representative document. The section hides
+  itself when the fetch fails or returns no files.
 
 ---
 

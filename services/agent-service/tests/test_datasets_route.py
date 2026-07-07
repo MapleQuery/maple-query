@@ -1,9 +1,11 @@
-"""`GET /datasets` and `/datasets/{package_id}/columns`.
+"""`GET /datasets`, `/datasets/{package_id}/columns`, and
+`/datasets/{package_id}/documents`.
 
 Covers:
   - straight scan when `q` is absent (ORDER BY generated_at DESC path).
   - VECTOR_SEARCH path when `q` is present.
   - column listing per package.
+  - source-document listing (representative flag, empty list, 404).
   - 404 on unknown package_id.
 """
 from __future__ import annotations
@@ -119,6 +121,121 @@ def test_list_columns_unknown_package(
     ]
     r = client.get(
         "/datasets/pkg-missing/columns",
+        headers={"Authorization": f"Bearer {FIXED_TOKEN}"},
+    )
+    assert r.status_code == 404
+    assert r.json()["detail"] == "package_not_found"
+
+
+def test_list_documents_marks_representative(
+    client: TestClient, fake_bq: FakeBqClient
+) -> None:
+    fake_bq.queries = [
+        (
+            "FROM `test-project.raw.documents`",
+            [
+                {
+                    "document_id": "doc-data",
+                    "title": "Prospecting Permits (Data)",
+                    "source_url": "https://open.canada.ca/data.csv",
+                    "file_format": "csv",
+                    "language": "en",
+                    "row_count": 12384,
+                    "published_date": "2024-11-01",
+                },
+                {
+                    "document_id": "doc-dict",
+                    "title": None,
+                    "source_url": "https://open.canada.ca/schema.csv",
+                    "file_format": "csv",
+                    "language": "en",
+                    "row_count": 24,
+                    "published_date": None,
+                },
+            ],
+        ),
+        (
+            "SELECT representative_document_id",
+            [{"representative_document_id": "doc-data"}],
+        ),
+    ]
+    r = client.get(
+        "/datasets/pkg-a/documents",
+        headers={"Authorization": f"Bearer {FIXED_TOKEN}"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["package_id"] == "pkg-a"
+    assert len(body["documents"]) == 2
+    data, dictionary = body["documents"]
+    assert data["document_id"] == "doc-data"
+    assert data["is_representative"] is True
+    assert data["source_url"] == "https://open.canada.ca/data.csv"
+    assert data["published_date"] == "2024-11-01"
+    assert dictionary["is_representative"] is False
+    assert dictionary["title"] is None
+    # Loaded-docs filter + biggest-first ordering.
+    docs_sql = next(
+        s for s in fake_bq.executed if "raw.documents" in s
+    )
+    assert "load_status = 'loaded'" in docs_sql
+    assert "ORDER BY row_count DESC" in docs_sql
+
+
+def test_list_documents_no_representative_stamped(
+    client: TestClient, fake_bq: FakeBqClient
+) -> None:
+    fake_bq.queries = [
+        (
+            "FROM `test-project.raw.documents`",
+            [
+                {
+                    "document_id": "doc-a",
+                    "title": "T",
+                    "source_url": "https://open.canada.ca/a.csv",
+                    "file_format": "csv",
+                    "language": "fr",
+                    "row_count": 10,
+                    "published_date": None,
+                }
+            ],
+        ),
+        ("SELECT representative_document_id", []),
+    ]
+    r = client.get(
+        "/datasets/pkg-a/documents",
+        headers={"Authorization": f"Bearer {FIXED_TOKEN}"},
+    )
+    assert r.status_code == 200
+    assert r.json()["documents"][0]["is_representative"] is False
+
+
+def test_list_documents_empty_for_known_package(
+    client: TestClient, fake_bq: FakeBqClient
+) -> None:
+    fake_bq.queries = [
+        ("FROM `test-project.raw.documents`", []),
+        # _package_exists peek: the package is enriched, just has no
+        # loaded documents (edge case) → 200 with an empty list.
+        ("FROM `test-project.semantic.datasets`", [{"1": 1}]),
+    ]
+    r = client.get(
+        "/datasets/pkg-a/documents",
+        headers={"Authorization": f"Bearer {FIXED_TOKEN}"},
+    )
+    assert r.status_code == 200
+    assert r.json()["documents"] == []
+
+
+def test_list_documents_unknown_package(
+    client: TestClient, fake_bq: FakeBqClient
+) -> None:
+    fake_bq.queries = [
+        ("FROM `test-project.raw.documents`", []),
+        ("FROM `test-project.semantic.datasets`", []),
+    ]
+    r = client.get(
+        "/datasets/pkg-missing/documents",
         headers={"Authorization": f"Bearer {FIXED_TOKEN}"},
     )
     assert r.status_code == 404

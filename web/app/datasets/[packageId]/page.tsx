@@ -3,9 +3,9 @@
 import * as React from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Copy, Check, Loader2 } from "lucide-react";
-import { getDatasetColumns, listDatasets } from "@/lib/api";
-import type { ColumnInfo, DatasetSummary } from "@/lib/types";
+import { ArrowLeft, Copy, Check, Download, Loader2 } from "lucide-react";
+import { getDatasetColumns, getDatasetDocuments, listDatasets } from "@/lib/api";
+import type { ColumnInfo, DatasetSummary, DocumentInfo } from "@/lib/types";
 
 export default function DatasetDetailPage() {
   const params = useParams<{ packageId: string }>();
@@ -13,6 +13,7 @@ export default function DatasetDetailPage() {
 
   const [summary, setSummary] = React.useState<DatasetSummary | null>(null);
   const [columns, setColumns] = React.useState<ColumnInfo[]>([]);
+  const [documents, setDocuments] = React.useState<DocumentInfo[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -32,9 +33,16 @@ export default function DatasetDetailPage() {
         limit: 5,
         signal: controller.signal,
       }).catch(() => ({ datasets: [], total: 0 })),
+      // Source files are additive; a failure hides the section rather
+      // than erroring the whole page.
+      getDatasetDocuments(packageId, controller.signal).catch(() => ({
+        package_id: packageId,
+        documents: [],
+      })),
     ])
-      .then(([cols, list]) => {
+      .then(([cols, list, docs]) => {
         setColumns(cols.columns);
+        setDocuments(docs.documents);
         setSummary(
           list.datasets.find((d) => d.package_id === packageId) ?? {
             package_id: packageId,
@@ -145,6 +153,73 @@ export default function DatasetDetailPage() {
               </table>
             </div>
           </section>
+
+          {documents.length > 0 && (
+            <section className="mt-8">
+              <h2 className="mb-3 font-display text-lg font-medium text-ink">
+                Source files
+                <span className="ml-2 font-sans text-xs text-muted">
+                  {documents.length} file{documents.length === 1 ? "" : "s"}
+                </span>
+              </h2>
+              <div className="overflow-hidden rounded-xl border border-hairline bg-white">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-hairline bg-surface-soft">
+                    <tr>
+                      <Th>Title</Th>
+                      <Th>Format</Th>
+                      <Th>Rows</Th>
+                      <Th>Published</Th>
+                      <Th>Download</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {documents.map((d) => (
+                      <tr
+                        key={d.document_id}
+                        className="border-b border-hairline/60 last:border-0 hover:bg-surface-soft/60"
+                      >
+                        <td className="max-w-md px-4 py-3 text-body">
+                          {d.title || `${d.document_id.slice(0, 8)}…`}
+                          {d.is_representative && (
+                            <span
+                              className="ml-2 rounded-full bg-coral/15 px-2 py-0.5 font-mono text-[10px] font-semibold text-navy"
+                              title="The columns and sample values above were extracted from this file"
+                            >
+                              Enriched
+                            </span>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 font-mono text-[11px] uppercase text-muted">
+                          {d.file_format}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 font-mono text-[12.5px] text-ink">
+                          {d.row_count != null ? d.row_count.toLocaleString() : ""}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 font-mono text-[12.5px] text-muted">
+                          {d.published_date ?? ""}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3">
+                          <a
+                            href={d.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            download
+                            className="inline-flex items-center gap-1 text-sm text-navy hover:text-ink"
+                          >
+                            <Download className="h-4 w-4" />
+                            <span className="sr-only">
+                              Download {d.title || d.document_id}
+                            </span>
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
 
           <section className="mt-8">
             <div className="flex items-center justify-between rounded-xl border border-hairline bg-white p-5">
