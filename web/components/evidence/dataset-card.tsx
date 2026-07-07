@@ -18,10 +18,10 @@ export function DatasetCard({
   isActive,
   onHighlight,
 }: DatasetCardProps) {
-  const title =
-    candidate.title?.trim() ||
-    candidate.summary?.split(/\.\s+/)[0]?.slice(0, 90) ||
-    candidate.package_id;
+  // Prefer the real title. Don't slice the summary into a pseudo-title —
+  // it truncated mid-word ("…across multiple o") and duplicated the
+  // summary shown just below. The summary still renders as its own line.
+  const title = candidate.title?.trim() || "Untitled dataset";
 
   return (
     <li

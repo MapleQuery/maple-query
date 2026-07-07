@@ -61,6 +61,7 @@ def test_search_datasets_populates_known_ids() -> None:
         [
             {
                 "package_id": "pkg-1",
+                "title": "Housing spending 2020",
                 "summary": "housing",
                 "grain": None,
                 "measures": [],
@@ -74,6 +75,8 @@ def test_search_datasets_populates_known_ids() -> None:
         ctx=ctx, args={"query": "housing", "k": 3}
     )
     assert result["candidates"][0]["package_id"] == "pkg-1"
+    # Title must reach the LLM so it can name datasets by title, not UUID.
+    assert result["candidates"][0]["title"] == "Housing spending 2020"
     assert "pkg-1" in ctx.state.known_package_ids
     kinds = [e.event_type for e in events]
     assert "retrieval_started" in kinds

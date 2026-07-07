@@ -110,6 +110,43 @@ def list_datasets(
 
 
 @router.get(
+    "/datasets/{package_id}",
+    dependencies=[BearerAuth],
+    response_model=DatasetCard,
+)
+def get_dataset(
+    package_id: str,
+    state: AppState = Depends(get_app_state),
+) -> DatasetCard:
+    """Single semantic row by exact package_id. The detail page uses this
+    for the title + measures/dimensions/coverage tiles; searching by the
+    UUID via `/datasets?q=` was unreliable (a UUID is not semantically
+    meaningful, so VECTOR_SEARCH rarely returned the row itself)."""
+    project_id = state.loop_settings.gcp_project_id
+    dataset = state.loop_settings.bq_dataset_semantic
+    table = state.loop_settings.bq_datasets_table
+    sql = (
+        f"SELECT package_id, title, summary, grain, measures, dimensions, "
+        f"date_range_start, date_range_end "
+        f"FROM `{project_id}.{dataset}.{table}` "
+        f"WHERE package_id = @pkg LIMIT 1"
+    )
+    params = [bigquery.ScalarQueryParameter("pkg", "STRING", package_id)]
+    for r in state.bq.query_rows(sql, params=params):
+        return DatasetCard(
+            package_id=str(r["package_id"]),
+            title=_optional_str(r.get("title")),
+            summary=str(r.get("summary") or ""),
+            grain=_optional_str(r.get("grain")),
+            measures=[str(v) for v in (r.get("measures") or [])],
+            dimensions=[str(v) for v in (r.get("dimensions") or [])],
+            date_range_start=_optional_str(r.get("date_range_start")),
+            date_range_end=_optional_str(r.get("date_range_end")),
+        )
+    raise HTTPException(status_code=404, detail="package_not_found")
+
+
+@router.get(
     "/datasets/{package_id}/columns",
     dependencies=[BearerAuth],
     response_model=ColumnsResponse,
