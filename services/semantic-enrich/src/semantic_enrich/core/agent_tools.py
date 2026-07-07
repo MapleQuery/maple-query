@@ -276,6 +276,7 @@ def run_search_datasets(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
     candidates: list[dict[str, Any]] = [
         {
             "package_id": p.package_id,
+            "title": p.title,
             "summary": p.summary,
             "grain": p.grain,
             "measures": list(p.measures),

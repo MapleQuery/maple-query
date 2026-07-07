@@ -50,6 +50,16 @@ export function listDatasets(params: {
   });
 }
 
+export function getDataset(
+  packageId: string,
+  signal?: AbortSignal,
+): Promise<DatasetSummary> {
+  return jsonFetch<DatasetSummary>(
+    `/datasets/${encodeURIComponent(packageId)}`,
+    { signal },
+  );
+}
+
 export function getDatasetColumns(
   packageId: string,
   signal?: AbortSignal,

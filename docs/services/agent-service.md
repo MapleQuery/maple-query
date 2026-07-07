@@ -20,7 +20,7 @@ services/agent-service/
 │   └── routes/
 │       ├── chat.py       # POST /chat (SSE)
 │       ├── sql.py        # POST /sql/run
-│       ├── datasets.py   # GET /datasets, /datasets/{id}/columns
+│       ├── datasets.py   # GET /datasets, /datasets/{id}, /datasets/{id}/columns
 │       └── health.py     # GET /healthz, /readyz
 └── tests/                # auth / cors / chat / sql / datasets / health / startup
 ```
@@ -32,6 +32,7 @@ services/agent-service/
 | POST   | `/chat`                           | Bearer | SSE stream of the 5.1 loop's typed events (`turn_start`…`done`). One request = one turn.             |
 | POST   | `/sql/run`                        | Bearer | Public wrap around the loop's `run_sql` tool. Identical guardrails. Powers the "edit this step" UI. |
 | GET    | `/datasets`                       | Bearer | With `q`: VECTOR_SEARCH over `semantic.datasets`. Without: straight scan by `generated_at DESC`.     |
+| GET    | `/datasets/{package_id}`          | Bearer | Single semantic row by exact `package_id` (title, summary, grain, measures, dimensions, coverage). The detail page uses this instead of searching its own UUID via `?q=`, which rarely returned the row. 404 when unknown. |
 | GET    | `/datasets/{package_id}/columns`  | Bearer | Per-package column list from `semantic.columns`.                                                     |
 | GET    | `/datasets/{package_id}/documents`| Bearer | Loaded source files from `raw.documents` (title, `source_url` download link, format, rows, published date). `is_representative` marks the doc the enrichment pass described, read back from `semantic.datasets.representative_document_id`. Downloads link straight to open.canada.ca — never proxied through this service. |
 | GET    | `/healthz`                        | —      | Cloud Run liveness. Always 200.                                                                      |

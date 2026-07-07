@@ -4,7 +4,7 @@ import * as React from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Copy, Check, Download, Loader2 } from "lucide-react";
-import { getDatasetColumns, getDatasetDocuments, listDatasets } from "@/lib/api";
+import { getDataset, getDatasetColumns, getDatasetDocuments } from "@/lib/api";
 import type { ColumnInfo, DatasetSummary, DocumentInfo } from "@/lib/types";
 
 export default function DatasetDetailPage() {
@@ -24,15 +24,14 @@ export default function DatasetDetailPage() {
     setError(null);
 
     Promise.all([
-      // The backend has no single-dataset endpoint; the columns response carries
-      // the package_id, and we lean on /datasets?q= for the human-readable
-      // summary.
       getDatasetColumns(packageId, controller.signal),
-      listDatasets({
-        q: packageId,
-        limit: 5,
-        signal: controller.signal,
-      }).catch(() => ({ datasets: [], total: 0 })),
+      // Exact by-id lookup for the title + measures/dimensions/coverage.
+      // Searching /datasets?q=<uuid> rarely returned the row itself, so
+      // the header and tiles fell back to the raw UUID / blanks.
+      getDataset(packageId, controller.signal).catch(
+        () =>
+          ({ package_id: packageId, title: "", summary: "" }) as DatasetSummary,
+      ),
       // Source files are additive; a failure hides the section rather
       // than erroring the whole page.
       getDatasetDocuments(packageId, controller.signal).catch(() => ({
@@ -40,16 +39,10 @@ export default function DatasetDetailPage() {
         documents: [],
       })),
     ])
-      .then(([cols, list, docs]) => {
+      .then(([cols, ds, docs]) => {
         setColumns(cols.columns);
         setDocuments(docs.documents);
-        setSummary(
-          list.datasets.find((d) => d.package_id === packageId) ?? {
-            package_id: packageId,
-            title: packageId,
-            summary: "",
-          },
-        );
+        setSummary(ds);
       })
       .catch((err) => {
         if ((err as Error).name === "AbortError") return;
@@ -95,7 +88,11 @@ export default function DatasetDetailPage() {
             {summary.summary && (
               <p className="mt-3 max-w-3xl text-body">{summary.summary}</p>
             )}
-            <MetaGrid summary={summary} columnCount={columns.length} />
+            <MetaGrid
+              summary={summary}
+              columnCount={columns.length}
+              fileCount={documents.length}
+            />
           </header>
 
           <section>
@@ -274,28 +271,70 @@ function Th({ children }: { children: React.ReactNode }) {
 function MetaGrid({
   summary,
   columnCount,
+  fileCount,
 }: {
   summary: DatasetSummary;
   columnCount: number;
+  fileCount: number;
 }) {
-  const entries: [string, string | number | null | undefined][] = [
-    ["Columns", columnCount],
-    ["Coverage", summary.date_range_start && summary.date_range_end
+  const coverage =
+    summary.date_range_start && summary.date_range_end
       ? `${summary.date_range_start} → ${summary.date_range_end}`
-      : summary.date_range_start ?? ""],
-    ["Measures", (summary.measures ?? []).slice(0, 3).join(", ")],
-    ["Dimensions", (summary.dimensions ?? []).slice(0, 3).join(", ")],
-  ];
+      : (summary.date_range_start ?? "");
+  const measures = summary.measures ?? [];
+  const dimensions = summary.dimensions ?? [];
+
+  // `always` tiles render even when empty (they describe the dataset's
+  // shape); the rest are hidden when blank so a first-time user never
+  // sees a labelled empty box. `hint` is plain-English microcopy — the
+  // raw terms (measures/dimensions/coverage) are data-warehouse jargon.
+  const tiles: {
+    label: string;
+    value: string;
+    hint: string;
+    always?: boolean;
+  }[] = [
+    {
+      label: "Columns",
+      value: String(columnCount),
+      hint: "Fields described in this dataset",
+      always: true,
+    },
+    {
+      label: "Files",
+      value: fileCount > 0 ? String(fileCount) : "",
+      hint: "Downloadable source files",
+    },
+    {
+      label: "Coverage",
+      value: coverage,
+      hint: "Time period the data spans",
+    },
+    {
+      label: "Measures",
+      value: measures.slice(0, 3).join(", "),
+      hint: "Numbers you can total or chart",
+    },
+    {
+      label: "Dimensions",
+      value: dimensions.slice(0, 3).join(", "),
+      hint: "Categories to group or filter by",
+    },
+  ].filter((t) => t.always || t.value !== "");
+
   return (
-    <dl className="mt-6 grid gap-px overflow-hidden rounded-xl border border-hairline bg-hairline sm:grid-cols-2 lg:grid-cols-4">
-      {entries.map(([k, v]) => (
-        <div key={k} className="bg-white px-4 py-3">
+    <dl className="mt-6 grid gap-px overflow-hidden rounded-xl border border-hairline bg-hairline sm:grid-cols-2 lg:grid-cols-3">
+      {tiles.map((t) => (
+        <div key={t.label} className="bg-white px-4 py-3">
           <dt className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-            {k}
+            {t.label}
           </dt>
           <dd className="mt-1 truncate font-mono text-sm text-ink">
-            {v == null || v === "" ? "" : String(v)}
+            {t.value || "—"}
           </dd>
+          <p className="mt-1 text-[11px] leading-tight text-muted/80">
+            {t.hint}
+          </p>
         </div>
       ))}
     </dl>

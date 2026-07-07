@@ -88,6 +88,48 @@ def test_list_datasets_vector_search(
     assert card["distance"] == 0.12
 
 
+def test_get_dataset_by_id(client: TestClient, fake_bq: FakeBqClient) -> None:
+    fake_bq.queries = [
+        (
+            "WHERE package_id = @pkg LIMIT 1",
+            [
+                {
+                    "package_id": "pkg-a",
+                    "title": "Housing spending by province",
+                    "summary": "housing spend",
+                    "grain": "monthly",
+                    "measures": ["amount"],
+                    "dimensions": ["province"],
+                    "date_range_start": "2019-01",
+                    "date_range_end": "2020-12",
+                }
+            ],
+        ),
+    ]
+    r = client.get(
+        "/datasets/pkg-a",
+        headers={"Authorization": f"Bearer {FIXED_TOKEN}"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["package_id"] == "pkg-a"
+    assert body["title"] == "Housing spending by province"
+    assert body["measures"] == ["amount"]
+    assert body["dimensions"] == ["province"]
+
+
+def test_get_dataset_by_id_unknown(
+    client: TestClient, fake_bq: FakeBqClient
+) -> None:
+    fake_bq.queries = [("WHERE package_id = @pkg LIMIT 1", [])]
+    r = client.get(
+        "/datasets/pkg-missing",
+        headers={"Authorization": f"Bearer {FIXED_TOKEN}"},
+    )
+    assert r.status_code == 404
+    assert r.json()["detail"] == "package_not_found"
+
+
 def test_list_columns(client: TestClient, fake_bq: FakeBqClient) -> None:
     fake_bq.queries = [
         (
