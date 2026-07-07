@@ -122,14 +122,6 @@ export default function DatasetDetailPage() {
                       >
                         <td className="max-w-md px-4 py-3 text-body">
                           {d.title || `${d.document_id.slice(0, 8)}…`}
-                          {d.is_representative && (
-                            <span
-                              className="ml-2 rounded-full bg-coral/15 px-2 py-0.5 font-mono text-[10px] font-semibold text-navy"
-                              title="The columns and sample values below were extracted from this file"
-                            >
-                              Enriched
-                            </span>
-                          )}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 font-mono text-[11px] uppercase text-muted">
                           {d.file_format}
