@@ -79,12 +79,18 @@ class Settings(BaseSettings):
     bq_datasets_table: str = "datasets"
     bq_columns_table: str = "columns"
 
-    # Generation tunables.
-    generation_max_tokens: int = 800
+    # Generation tunables. `generation_max_tokens` must fit a full
+    # `column_chunk_size` batch of ColumnOutput objects in one guided-JSON
+    # array; at 15 columns/chunk a completion is ~2.2k tokens, so 3000
+    # leaves headroom. Too small truncates the array mid-object and fails
+    # the whole package (a truncated chunk is not retried).
+    generation_max_tokens: int = 3000
     generation_temperature: float = 0.0
     generation_dtype: str = "bfloat16"
 
-    # Embedding tunables.
+    # Embedding tunables for the local backend. The columns/datasets
+    # subcommands embed via OpenAI and validate against the
+    # `openai_embedding_*` fields below, not these.
     embedding_dim: int = 1024
     embedding_batch_size: int = 64
 
@@ -99,13 +105,14 @@ class Settings(BaseSettings):
     # under BQ's per-user concurrent-jobs ceiling.
     extract_concurrency: int = 16
 
-    # ── 4.5 columns enrichment ──
-    # Per §7.3: 100 columns/chunk balances output-token budget against
-    # call count. A 1,383-column outlier becomes 14 chunks.
-    column_chunk_size: int = 100
-    # Wide-package safety belt (§7.4). 20 x 100 = 2,000 columns —
-    # ~45% headroom over the corpus's 1,383-column max.
-    column_chunk_max_chunks_per_package: int = 20
+    # ── columns enrichment ──
+    # 15 columns/chunk keeps one guided-JSON completion within
+    # `generation_max_tokens` (see above); larger chunks overflow the
+    # token budget and truncate the array, failing the package.
+    column_chunk_size: int = 15
+    # Wide-package safety belt. 140 x 15 = 2,100 columns — headroom over
+    # the corpus's 1,383-column max at the smaller chunk size.
+    column_chunk_max_chunks_per_package: int = 140
     # ≤10 distinct sample values per column (parent §10).
     column_sample_values_cap: int = 10
     # Column-name allowlist (§5.3). Admits identifier-ish, hyphens,

@@ -15,6 +15,10 @@ from semantic_enrich.core.columns_load import (
 
 from .conftest import FakeBqClient
 
+# Load validates staged embeddings against the OpenAI embedding dim;
+# fixtures must match it or pre-load validation rejects them.
+_DIM = Settings.model_fields["openai_embedding_dim"].default
+
 
 def _settings(tmp_path: Path) -> Settings:
     return Settings(
@@ -58,9 +62,9 @@ def _seed(tmp_path: Path, run_id: str, rows: list[dict]) -> None:
 
 def test_load_three_columns_inserts(tmp_path: Path) -> None:
     rows = [
-        _staged("pkg-a", "col_x", embedding=[0.1] * 1024),
-        _staged("pkg-a", "col_y", embedding=[0.2] * 1024),
-        _staged("pkg-b", "col_z", embedding=[0.3] * 1024),
+        _staged("pkg-a", "col_x", embedding=[0.1] * _DIM),
+        _staged("pkg-a", "col_y", embedding=[0.2] * _DIM),
+        _staged("pkg-b", "col_z", embedding=[0.3] * _DIM),
     ]
     _seed(tmp_path, "r1", rows)
     bq = FakeBqClient()
@@ -92,7 +96,7 @@ def test_load_three_columns_inserts(tmp_path: Path) -> None:
 
 def test_load_excludes_failure_markers_and_embedding_null(tmp_path: Path) -> None:
     rows = [
-        _staged("pkg-a", "col_x", embedding=[0.1] * 1024),
+        _staged("pkg-a", "col_x", embedding=[0.1] * _DIM),
         _staged("pkg-b", "col_y", embedding=None),  # embed pending
         _staged("pkg-c", "__failure_marker__", embedding=None,
                 generation_failed=True,
@@ -116,7 +120,7 @@ def test_load_excludes_failure_markers_and_embedding_null(tmp_path: Path) -> Non
 
 
 def test_load_dry_run_no_touches(tmp_path: Path) -> None:
-    _seed(tmp_path, "r1", [_staged("pkg-a", "x", embedding=[0.1] * 1024)])
+    _seed(tmp_path, "r1", [_staged("pkg-a", "x", embedding=[0.1] * _DIM)])
     bq = FakeBqClient()
     bq.register_query("SELECT 1 AS ok", [{"ok": 1}])
     bq.register_query("FROM `proj.semantic.columns`", [])
@@ -135,7 +139,7 @@ def test_load_rejects_short_description(tmp_path: Path) -> None:
     _seed(
         tmp_path,
         "r1",
-        [_staged("pkg-a", "x", embedding=[0.1] * 1024, description="short")],
+        [_staged("pkg-a", "x", embedding=[0.1] * _DIM, description="short")],
     )
     bq = FakeBqClient()
     bq.register_query("SELECT 1 AS ok", [{"ok": 1}])

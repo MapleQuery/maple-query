@@ -115,7 +115,7 @@ def run_load(
     if not request.dry_run:
         _preload_validate(
             rows=loadable_rows,
-            embedding_dim=settings.embedding_dim,
+            embedding_dim=settings.openai_embedding_dim,
             run_id=request.run_id,
             log=log,
         )
