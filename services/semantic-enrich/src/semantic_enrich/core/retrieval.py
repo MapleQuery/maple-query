@@ -232,12 +232,11 @@ def _fetch_doc_columns(
 ) -> dict[str, list[str]]:
     """Fetch the JSON key set of each doc's first row from `raw.rows`.
 
-    `raw.rows.row` is stored as a JSON-string scalar (loader
-    double-encodes via `json.dumps`), so a bare `JSON_KEYS(row)` returns
-    null; every consumer has to `PARSE_JSON(STRING(row))` first. That's
-    also why `raw.column_index` is currently empty — its rebuild uses
-    the broken bare form. Until 3.3.1 lands and the rows table is
-    reloaded, the harness pulls the keys directly per-doc.
+    `raw.rows.row` is a native JSON object (post loader-fix + reload),
+    so the bare `JSON_KEYS(row)` is the correct form — the legacy
+    `PARSE_JSON(STRING(row))` unwrap throws on object rows. Reading
+    directly from `raw.rows` (rather than `raw.column_index`) keeps
+    the answer exact per-doc and independent of index-rebuild cadence.
 
     Row bodies are typically identical in shape across a single doc, so
     reading just the `row_index=0` row per doc via a literal `IN`-list
@@ -385,7 +384,7 @@ ORDER BY package_id, rn
 _DOC_KEYS_SQL = """
 SELECT
   document_id,
-  JSON_KEYS(PARSE_JSON(STRING(row))) AS columns
+  JSON_KEYS(row) AS columns
 FROM `{project_id}.{dataset}.{rows_table}`
 WHERE document_id IN UNNEST(@document_ids)
 QUALIFY ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY row_index) = 1

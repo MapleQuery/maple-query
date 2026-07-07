@@ -400,10 +400,8 @@ def run_sample_rows(
             "sample_rows requires WHENRICH_GCP_PROJECT_ID to be set"
         )
 
-    # PARSE_JSON(STRING(row)) unwraps the double-encoded scalar so BQ
-    # hands back an actual JSON object (returned to Python as a dict by
-    # google-cloud-bigquery). The model can then reference keys
-    # verbatim rather than re-parsing an escaped string.
+    # `row` is a native JSON object; the SDK returns it to Python as a
+    # dict, so the model can reference keys verbatim.
     sql = _SAMPLE_ROWS_SQL.format(
         project_id=project_id,
         dataset=ctx.settings.bq_dataset_raw,
@@ -754,7 +752,7 @@ _SAMPLE_ROWS_SQL = """
 SELECT
   r.document_id,
   r.row_index,
-  PARSE_JSON(STRING(r.row)) AS row
+  r.row AS row
 FROM `{project_id}.{dataset}.{rows_table}` AS r
 JOIN `{project_id}.{dataset}.{documents_table}` AS d USING (document_id)
 WHERE d.package_id = @pkg

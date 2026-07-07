@@ -580,15 +580,15 @@ def _fetch_sample_values(
     (`$['name']`, `$["name"]` both fail). Field access on the `JSON`
     type via subscript (`json_expr[name]`) *does* accept runtime
     values and works for any key, including ones with hyphens, dots,
-    slashes, and spaces. So we `PARSE_JSON` in a CTE, cross-join with
-    `UNNEST(@names)`, and pull each field with `LAX_STRING(j[n])`.
+    slashes, and spaces. So we cross-join the native-JSON `row` with
+    `UNNEST(@names)` and pull each field with `LAX_STRING(j[n])`.
     """
     if not column_names:
         return {}
     fq = f"`{project_id}.{dataset_raw}.{rows_table}`"
     sql = f"""
 WITH parsed AS (
-  SELECT PARSE_JSON(STRING(row)) AS j
+  SELECT row AS j
   FROM {fq}
   WHERE document_id = @document_id
 ),

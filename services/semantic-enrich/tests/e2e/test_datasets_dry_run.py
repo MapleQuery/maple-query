@@ -48,8 +48,11 @@ def test_dry_run_chain(tmp_path: Path) -> None:
             for i in range(3)
         ],
     )
-    for _ in range(3):
-        bq.register_query("JSON_KEYS(row)", [{"col_name": "x"}])
+    for i in range(3):
+        bq.register_query(
+            "JSON_KEYS(row)",
+            [{"document_id": f"doc-{i}", "columns": ["x"]}],
+        )
         bq.register_query(
             "WHERE document_id = @document_id",
             [{"row_index": 0, "row": {"x": "1"}}, {"row_index": 1, "row": {"x": "2"}}],
