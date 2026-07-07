@@ -60,6 +60,23 @@ def load_generation_model(
     return outlines.from_transformers(tf_model, tokenizer)
 
 
+def _as_output_type(schema: Any) -> Any:
+    """Normalize a `schema` argument into an outlines 1.x output type.
+
+    outlines 1.x does not accept a bare JSON-Schema dict as an output
+    type — `python_types_to_terms` rejects it (and a top-level `array`
+    schema raises outright). A dict must be wrapped in
+    `outlines.types.JsonSchema`; pydantic model classes and typing
+    generics (`list[ColumnOutput]`) are already valid output types and
+    pass through untouched.
+    """
+    if isinstance(schema, dict):
+        from outlines.types import JsonSchema
+
+        return JsonSchema(schema)
+    return schema
+
+
 def generate_json(
     prompt: str,
     schema: dict[str, Any] | type[pydantic.BaseModel],
@@ -86,7 +103,7 @@ def generate_json(
         gen_kwargs["temperature"] = temperature
 
     try:
-        result = model(prompt, schema, **gen_kwargs)
+        result = model(prompt, _as_output_type(schema), **gen_kwargs)
     except (json.JSONDecodeError, pydantic.ValidationError) as exc:
         raise MaxTokensExceededError(
             f"constrained JSON generation produced malformed output; "
@@ -110,9 +127,10 @@ def generate_json_list(
     rather than a `dict`. Used by 4.5's columns generator where the
     prompt asks the model for one JSON array per chunk.
 
-    `schema` is forwarded to outlines unchanged; outlines 1.x supports
-    JSON-schema dicts (e.g. `COLUMNS_GUIDED_JSON_SCHEMA`) as well as
-    Python generics like `list[ColumnOutput]`.
+    `schema` may be a JSON-Schema dict (e.g. `COLUMNS_GUIDED_JSON_SCHEMA`)
+    or a Python generic like `list[ColumnOutput]`. A dict is wrapped via
+    `_as_output_type` into `outlines.types.JsonSchema`, since outlines 1.x
+    rejects a bare dict as an output type.
     """
     gen_kwargs: dict[str, Any] = {"max_new_tokens": max_tokens}
     if temperature == 0.0:
@@ -122,7 +140,7 @@ def generate_json_list(
         gen_kwargs["temperature"] = temperature
 
     try:
-        result = model(prompt, schema, **gen_kwargs)
+        result = model(prompt, _as_output_type(schema), **gen_kwargs)
     except (json.JSONDecodeError, pydantic.ValidationError) as exc:
         raise MaxTokensExceededError(
             f"constrained JSON-array generation produced malformed output; "
