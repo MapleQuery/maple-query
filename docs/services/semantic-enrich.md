@@ -357,6 +357,28 @@ Both queries should return `n_wrong = 0`.
 - A crash before the MERGE leaves the target table untouched. The staging table auto-expires in 24 h.
 - To roll back to Qwen vectors, rerun the pre-4.7 datasets-embed + columns-embed pipeline on the GPU box. Same operation, opposite direction.
 
+## Representative picker + backfill runbook
+
+Each package's enrichment (sample rows, column extraction) reads one *representative* resource: the median-row-count CSV, lexicographic `document_id` tiebreak. Resources whose headers are **dictionary-shaped** — ≤8 columns with ≥60% of names drawn from a schema-description vocabulary (`column_name`, `data_type`, `description`, …) — are demoted out of the pool first, so a package that publishes a data CSV plus a schema/dictionary CSV enriches from the data, not the metadata. If *every* resource is dictionary-shaped the full pool is restored (a dictionary-only package still gets a representative for browseability). Every pick emits a `representative_picked` event with `dictionary_candidates` and the chosen doc.
+
+The chosen `representative_document_id` is persisted on `semantic.datasets` (threaded extract → generate → load). For rows enriched before the column existed, or after a picker behaviour change:
+
+```sh
+cd services/semantic-enrich
+
+# Dry-run first: logs one representative_picked per package and a
+# representative_pick_changed event for each package whose stored
+# choice differs. That change list is the re-enrichment scope.
+uv run semantic-enrich datasets-backfill-representative --dry-run
+
+# Real run: stages picks and MERGEs representative_document_id only.
+# generated_at is untouched (it is the always-newer-wins clock for
+# datasets-load; a picker-only backfill must not advance it).
+uv run semantic-enrich datasets-backfill-representative
+```
+
+Laptop-only, no GPU. Idempotent — re-running merges the same picks. Packages that swap representatives still carry `semantic.columns` rows extracted from the old file; re-run the columns pipeline scoped to those package ids (`--limit-package-ids`) to refresh them.
+
 ## Retrieval-validation harness — operator runbook
 
 The `semantic-enrich eval` subcommand grades the semantic layer end-to-end against a committed 20-question fixture: embed the NL question, run `VECTOR_SEARCH` over `semantic.datasets` and `semantic.columns`, ask `gpt-4o` to emit one SQL statement via Structured Outputs, dry-run-validate the SQL under hard guardrails, execute it, and score the result. Laptop-side; no GPU box dependency.

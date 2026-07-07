@@ -36,6 +36,7 @@ TARGET_COLUMNS: tuple[str, ...] = (
     "dimensions",
     "date_range_start",
     "date_range_end",
+    "representative_document_id",
     "embedding",
     "generated_at",
 )
@@ -226,22 +227,25 @@ USING `{staging}` s
 
 WHEN MATCHED AND s.generated_at > t.generated_at
 THEN UPDATE SET
-  summary           = s.summary,
-  grain             = s.grain,
-  measures          = s.measures,
-  dimensions        = s.dimensions,
-  date_range_start  = s.date_range_start,
-  date_range_end    = s.date_range_end,
-  embedding         = s.embedding,
-  generated_at      = s.generated_at
+  summary                    = s.summary,
+  grain                      = s.grain,
+  measures                   = s.measures,
+  dimensions                 = s.dimensions,
+  date_range_start           = s.date_range_start,
+  date_range_end             = s.date_range_end,
+  representative_document_id = s.representative_document_id,
+  embedding                  = s.embedding,
+  generated_at               = s.generated_at
 
 WHEN NOT MATCHED THEN INSERT (
   package_id, summary, grain, measures, dimensions,
-  date_range_start, date_range_end, embedding, generated_at
+  date_range_start, date_range_end, representative_document_id,
+  embedding, generated_at
 )
 VALUES (
   s.package_id, s.summary, s.grain, s.measures, s.dimensions,
-  s.date_range_start, s.date_range_end, s.embedding, s.generated_at
+  s.date_range_start, s.date_range_end, s.representative_document_id,
+  s.embedding, s.generated_at
 );
 """.strip()
 
@@ -263,6 +267,7 @@ def _write_load_payload(*, path: Path, rows: list[StagedDatasetCard]) -> None:
                 "date_range_end": r.date_range_end.isoformat()
                 if r.date_range_end is not None
                 else None,
+                "representative_document_id": r.representative_document_id,
                 "embedding": r.embedding,
                 "generated_at": r.generated_at.isoformat(),
             }

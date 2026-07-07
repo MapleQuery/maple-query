@@ -52,11 +52,12 @@ def test_extract_three_packages(tmp_path: Path) -> None:
             _candidate_row("pkg-c", "doc-c", 5),
         ],
     )
-    # Per-package column union + sample rows. Three packages, two
+    # Per-package doc-columns + sample rows. Three packages, two
     # secondary queries each = six canned responses.
-    for _ in range(3):
+    for doc in ("doc-a", "doc-b", "doc-c"):
         bq.register_query(
-            "JSON_KEYS(row)", [{"col_name": "x"}, {"col_name": "y"}]
+            "JSON_KEYS(row)",
+            [{"document_id": doc, "columns": ["x", "y"]}],
         )
         bq.register_query(
             "WHERE document_id = @document_id",
@@ -85,6 +86,7 @@ def test_extract_three_packages(tmp_path: Path) -> None:
     lines = [json.loads(line) for line in out.read_text().splitlines() if line]
     assert {row["package_id"] for row in lines} == {"pkg-a", "pkg-b", "pkg-c"}
     assert all(row["representative_document_id"] for row in lines)
+    assert all(row["column_names"] == ["x", "y"] for row in lines)
 
 
 def test_extract_resume_skips_already_extracted(tmp_path: Path) -> None:
@@ -96,7 +98,10 @@ def test_extract_resume_skips_already_extracted(tmp_path: Path) -> None:
         # extraction count for the candidate-set total.
         [_candidate_row("pkg-b", "doc-b", 5)],
     )
-    bq.register_query("JSON_KEYS(row)", [{"col_name": "x"}])
+    bq.register_query(
+        "JSON_KEYS(row)",
+        [{"document_id": "doc-b", "columns": ["x"]}],
+    )
     bq.register_query(
         "WHERE document_id = @document_id",
         [{"row_index": 0, "row": {"x": "1"}}],
@@ -140,6 +145,64 @@ def test_extract_hard_fails_on_no_rows(tmp_path: Path) -> None:
     summary = run_extract(request=request, settings=_settings(tmp_path), bq=bq)
     assert summary.packages_failed == 1
     assert summary.packages_extracted == 0
+
+
+def test_extract_demotes_dictionary_resource(tmp_path: Path) -> None:
+    """Median-of-three lands on the dictionary CSV; the header check
+    must push the pick to a data resource instead."""
+    bq = FakeBqClient()
+    resources = [
+        {
+            "document_id": doc_id,
+            "title": "T",
+            "subjects": ["s1"],
+            "organization_code": "org",
+            "file_format": "csv",
+            "resource_last_modified": None,
+            "row_count": row_count,
+        }
+        for doc_id, row_count in (
+            ("doc-data-big", 100),
+            ("doc-dict", 24),
+            ("doc-data-small", 10),
+        )
+    ]
+    bq.register_query(
+        "load_status = 'loaded'",
+        [{"package_id": "pkg-a", "resources": resources}],
+    )
+    bq.register_query(
+        "JSON_KEYS(row)",
+        [
+            {"document_id": "doc-data-big", "columns": ["permit_id", "area_ha"]},
+            {
+                "document_id": "doc-dict",
+                "columns": ["COLUMN_NAME", "DATA_TYPE", "DESCRIPTION"],
+            },
+            {"document_id": "doc-data-small", "columns": ["permit_id", "area_ha"]},
+        ],
+    )
+    bq.register_query(
+        "WHERE document_id = @document_id",
+        [{"row_index": 0, "row": {"permit_id": "p1", "area_ha": "10"}}],
+    )
+
+    request = ExtractRequest(
+        run_id="r1",
+        dry_run=False,
+        limit_packages=None,
+        limit_package_ids=None,
+        limit_orgs=None,
+    )
+    summary = run_extract(request=request, settings=_settings(tmp_path), bq=bq)
+    assert summary.packages_extracted == 1
+
+    out = tmp_path / "r1" / "inputs" / "000.jsonl"
+    row = json.loads(out.read_text().splitlines()[0])
+    # Non-dict pool [doc-data-small(10), doc-data-big(100)]; median
+    # index 1 → doc-data-big. Without demotion the median of all three
+    # would have been doc-dict(24).
+    assert row["representative_document_id"] == "doc-data-big"
 
 
 def test_extract_preflight_missing_project_id(tmp_path: Path) -> None:

@@ -67,8 +67,8 @@ def test_retrieve_documents_scoped_and_filtered() -> None:
     prompt: only `load_status='loaded'` docs get inlined, scoped to
     the candidate packages, capped per-package. A second query pulls
     the per-doc column set from `raw.rows` (JSON-keys of the first row
-    per doc, PARSE_JSON-unwrapped) so the model can pair the right
-    column with the right doc."""
+    per doc) so the model can pair the right column with the right
+    doc."""
     bq = FakeBqClient()
     bq.register_query(
         "load_status = 'loaded'",
@@ -90,7 +90,7 @@ def test_retrieve_documents_scoped_and_filtered() -> None:
         ],
     )
     bq.register_query(
-        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        "JSON_KEYS(row)",
         [
             {"document_id": "doc-1", "columns": ["Amount", "Organization"]},
             {"document_id": "doc-2", "columns": []},
@@ -115,10 +115,11 @@ def test_retrieve_documents_scoped_and_filtered() -> None:
     }
 
     keys_call = bq.calls[-1]
-    # Per-doc keys are cluster-pruned by a literal IN-list on document_id
-    # and PARSE_JSON-unwrapped because raw.rows.row is a JSON-string scalar.
+    # Per-doc keys are cluster-pruned by a literal IN-list on document_id;
+    # bare JSON_KEYS because raw.rows.row is a native JSON object.
     assert "IN UNNEST(@document_ids)" in keys_call["sql"]
-    assert "JSON_KEYS(PARSE_JSON(STRING(row)))" in keys_call["sql"]
+    assert "JSON_KEYS(row)" in keys_call["sql"]
+    assert "PARSE_JSON" not in keys_call["sql"]
     assert {p.name for p in keys_call["params"]} == {"document_ids"}
 
 

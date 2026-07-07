@@ -98,6 +98,10 @@ def test_generate_three_packages_with_fake_model(tmp_path: Path) -> None:
     out = tmp_path / "r1" / "datasets" / "000.jsonl"
     lines = [json.loads(line) for line in out.read_text().splitlines() if line]
     assert {row["package_id"] for row in lines} == {"pkg-a", "pkg-b", "pkg-c"}
+    # The picker's choice rides through from the extract inputs.
+    assert {
+        row["representative_document_id"] for row in lines
+    } == {"doc-pkg-a", "doc-pkg-b", "doc-pkg-c"}
 
 
 def test_generate_resume_skips_already_staged(tmp_path: Path) -> None:

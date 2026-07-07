@@ -126,6 +126,9 @@ class StagedDatasetCard(pydantic.BaseModel):
     generation_model: str
     generation_model_commit: str | None
     generation_run_id: str
+    # Copied from PackageInputs by the generate pass (not LLM output).
+    # Defaults None so pre-existing staged JSONL still parses.
+    representative_document_id: str | None = None
     # Dry-run marker; absent for real runs (default False keeps the
     # field opt-in at the writer level).
     dry_run: bool = False
@@ -347,6 +350,22 @@ class ColumnsLoadRunSummary:
     rows_inserted: int
     rows_updated: int
     rows_unchanged: int
+    duration_ms: int
+
+
+# ── representative-backfill run summary ──
+
+
+@dataclass(frozen=True)
+class RepresentativeBackfillRunSummary:
+    run_id: str
+    dry_run: bool
+    packages_in_target: int
+    packages_picked: int
+    packages_no_resources: int
+    picks_changed: int
+    picks_unchanged: int
+    rows_merged: int
     duration_ms: int
 
 

@@ -163,7 +163,7 @@ def test_list_documents_returns_docs_and_columns() -> None:
         ],
     )
     bq.register_query(
-        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        "JSON_KEYS(row)",
         [{"document_id": "doc-1", "columns": ["Amount", "Organization"]}],
     )
     ctx, events = _ctx(bq=bq)
@@ -264,7 +264,7 @@ def test_list_documents_populates_doc_columns_for_pairing_check() -> None:
         ],
     )
     bq.register_query(
-        "JSON_KEYS(PARSE_JSON(STRING(row)))",
+        "JSON_KEYS(row)",
         [
             {"document_id": "doc-A", "columns": ["Amount", "Organization"]},
             {"document_id": "doc-B", "columns": ["Amount", "Description"]},
@@ -279,8 +279,8 @@ def test_list_documents_populates_doc_columns_for_pairing_check() -> None:
 
 def test_extract_json_path_columns_covers_bare_and_quoted() -> None:
     sql = (
-        "SELECT JSON_VALUE(PARSE_JSON(STRING(r.row)), '$.Organization') AS o, "
-        "JSON_VALUE(PARSE_JSON(STRING(r.row)), '$.\"2020-21_Expenditures\"') AS e "
+        "SELECT JSON_VALUE(r.row, '$.Organization') AS o, "
+        "JSON_VALUE(r.row, '$.\"2020-21_Expenditures\"') AS e "
         "FROM raw.rows AS r WHERE r.document_id IN ('doc-1') LIMIT 10"
     )
     keys = agent_tools._extract_json_path_columns(sql)
@@ -306,7 +306,7 @@ def test_check_doc_column_pairing_clean_when_columns_match() -> None:
     )
     state.doc_columns["doc-1"] = ["Organization", "2020-21_Expenditures"]
     sql = (
-        "SELECT JSON_VALUE(PARSE_JSON(STRING(r.row)), '$.Organization') AS o "
+        "SELECT JSON_VALUE(r.row, '$.Organization') AS o "
         "FROM raw.rows AS r WHERE r.document_id IN ('doc-1') LIMIT 10"
     )
     violations, msg = agent_tools.check_doc_column_pairing(
@@ -329,7 +329,7 @@ def test_check_doc_column_pairing_flags_missing_column() -> None:
     ]
     state.doc_columns["doc-other"] = ["Canada_Mortgage_and_Housing_Corporation"]
     sql = (
-        "SELECT JSON_VALUE(PARSE_JSON(STRING(r.row)), "
+        "SELECT JSON_VALUE(r.row, "
         "'$.Canada_Mortgage_and_Housing_Corporation') AS org "
         "FROM raw.rows AS r WHERE r.document_id IN ('doc-inlined') LIMIT 10"
     )
@@ -352,7 +352,7 @@ def test_check_doc_column_pairing_skips_when_no_docs_known() -> None:
         conversation_id="c", turn_id="t", question="q"
     )
     sql = (
-        "SELECT JSON_VALUE(PARSE_JSON(STRING(r.row)), '$.Something') AS x "
+        "SELECT JSON_VALUE(r.row, '$.Something') AS x "
         "FROM raw.rows AS r WHERE r.document_id IN ('doc-1') LIMIT 10"
     )
     violations, msg = agent_tools.check_doc_column_pairing(
@@ -373,7 +373,7 @@ def test_run_sql_returns_column_not_in_doc_when_pairing_fails() -> None:
         ctx=ctx,
         args={
             "sql": (
-                "SELECT JSON_VALUE(PARSE_JSON(STRING(r.row)), "
+                "SELECT JSON_VALUE(r.row, "
                 "'$.Canada_Mortgage_and_Housing_Corporation') AS o "
                 "FROM raw.rows AS r WHERE r.document_id IN ('doc-A') "
                 "LIMIT 10"

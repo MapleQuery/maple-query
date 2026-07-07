@@ -43,6 +43,16 @@ def assert_datasets_schema(schema: list[bigquery.SchemaField]) -> None:
         raise AssertionError(
             "semantic_datasets.json must declare embedding ARRAY<FLOAT64>"
         )
+    if not any(
+        f.name == "representative_document_id"
+        and f.field_type == "STRING"
+        and f.mode == "NULLABLE"
+        for f in schema
+    ):
+        raise AssertionError(
+            "semantic_datasets.json must declare representative_document_id "
+            "STRING NULLABLE"
+        )
 
 
 def assert_columns_schema(schema: list[bigquery.SchemaField]) -> None:

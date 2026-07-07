@@ -180,10 +180,11 @@ def test_merge_sql_shape() -> None:
     assert "WHEN NOT MATCHED THEN INSERT" in sql
     # No DELETE clause.
     assert "DELETE" not in sql
-    # The 8 non-key columns appear in the UPDATE SET.
+    # The 9 non-key columns appear in the UPDATE SET.
     for col in (
         "summary", "grain", "measures", "dimensions",
-        "date_range_start", "date_range_end", "embedding", "generated_at",
+        "date_range_start", "date_range_end",
+        "representative_document_id", "embedding", "generated_at",
     ):
         assert f"{col}" in sql
 

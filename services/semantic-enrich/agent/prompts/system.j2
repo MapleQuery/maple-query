@@ -49,13 +49,11 @@ crashes, so you can revise and retry — but retries burn budget.
   REJECTED as too expensive; a JOIN to `raw.documents` is likewise
   REJECTED. Inline the literals.
 - Row bodies live in `raw.rows(document_id, row_index, row JSON)`. The
-  `row` column is stored as a JSON-string scalar (double-encoded by
-  the loader), so you MUST unwrap it before extracting a field:
-      JSON_VALUE(PARSE_JSON(STRING(r.row)), '$.<column_name>')
-  Calling `JSON_VALUE(r.row, '$.<column>')` directly returns NULL for
-  every row — the path applies to the string scalar, not to the object
-  inside. This applies to `JSON_QUERY`, `JSON_EXTRACT`, and any other
-  JSON function that takes a path.
+  `row` column is a native JSON object — extract fields directly:
+      JSON_VALUE(r.row, '$.<column_name>')
+  Do NOT wrap it in `PARSE_JSON(STRING(r.row))` — `STRING()` on a JSON
+  object raises an error and the query fails. Same for `JSON_QUERY`,
+  `JSON_EXTRACT`, and any other JSON function that takes a path.
 - JSONPath keys are BARE only when they match `[A-Za-z_][A-Za-z0-9_]*`
   (start with a letter or underscore, contain only letters, digits,
   and underscores). ANY other shape — leading digit, hyphen, dot,
@@ -74,7 +72,7 @@ crashes, so you can revise and retry — but retries burn budget.
   hyphens or a leading digit will produce all-NULL results, not a
   guard rejection, so this failure mode is silent.
 - HARD RULE — doc/column pairing. Every column name you reference in a
-  `JSON_VALUE(PARSE_JSON(STRING(r.row)), '$.<col>')` expression MUST
+  `JSON_VALUE(r.row, '$.<col>')` expression MUST
   appear in the `columns` list of EVERY `document_id` you inline in
   the WHERE clause. If a column is not in a doc's `columns` list, that
   key does not exist in that doc's row bodies and JSON_VALUE returns
@@ -118,12 +116,12 @@ the key is all letters. `'$."2020-21_Expenditures"'` and
 digit / hyphen and parens respectively.
 
     SELECT
-      JSON_VALUE(PARSE_JSON(STRING(r.row)), '$.FISCAL_YEAR') AS fiscal_year,
+      JSON_VALUE(r.row, '$.FISCAL_YEAR') AS fiscal_year,
       SUM(SAFE_CAST(
-        JSON_VALUE(PARSE_JSON(STRING(r.row)), '$."2020-21_Expenditures"') AS FLOAT64
+        JSON_VALUE(r.row, '$."2020-21_Expenditures"') AS FLOAT64
       )) AS expenditures_2020_21,
       SUM(SAFE_CAST(
-        JSON_VALUE(PARSE_JSON(STRING(r.row)), '$."Quantity_(kgs)"') AS FLOAT64
+        JSON_VALUE(r.row, '$."Quantity_(kgs)"') AS FLOAT64
       )) AS total_quantity
     FROM {% if project_id %}`{{ project_id }}.raw.rows`{% else %}`raw.rows`{% endif %} AS r
     WHERE r.document_id IN (

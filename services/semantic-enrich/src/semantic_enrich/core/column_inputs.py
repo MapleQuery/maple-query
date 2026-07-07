@@ -34,7 +34,8 @@ from google.cloud import bigquery
 
 from semantic_enrich.clients.bq import BqClient
 from semantic_enrich.config.settings import Settings
-from semantic_enrich.core import stage_io
+from semantic_enrich.core import package_grouper, stage_io
+from semantic_enrich.core.sample_selector import looks_like_dictionary
 from semantic_enrich.providers.logging import get_logger
 from semantic_enrich.types import (
     ColumnInputs,
@@ -282,10 +283,31 @@ def _extract_one_package(
             summary_present=package_summary is not None,
         )
 
+    document_ids = [str(r["document_id"]) for r in resources]
+    columns_by_doc = package_grouper.fetch_doc_columns(
+        bq=bq,
+        project_id=project_id,
+        dataset_raw=settings.bq_dataset_raw,
+        rows_table=settings.bq_rows_table,
+        document_ids=document_ids,
+    )
+
     # Representative resource: mirror 4.4's sample_selector but with
     # the candidate-query's resource list already projected.
-    rep = _pick_representative(resources)
+    rep = _pick_representative(resources, columns_by_doc=columns_by_doc)
     rep_doc_id = str(rep["document_id"])
+    plog.info(
+        "representative_picked",
+        resource_count=len(resources),
+        dictionary_candidates=sum(
+            1 for r in resources
+            if looks_like_dictionary(
+                columns_by_doc.get(str(r["document_id"]), [])
+            )
+        ),
+        chosen_document_id=rep_doc_id,
+        chosen_row_count=rep.get("row_count"),
+    )
     package_title = _first_non_null(resources, "title")
     subjects: set[str] = set()
     for r in resources:
@@ -296,14 +318,7 @@ def _extract_one_package(
                     subjects.add(s)
     sorted_subjects = sorted(subjects)
 
-    document_ids = [str(r["document_id"]) for r in resources]
-    raw_columns = _fetch_column_union(
-        bq=bq,
-        project_id=project_id,
-        dataset_raw=settings.bq_dataset_raw,
-        rows_table=settings.bq_rows_table,
-        document_ids=document_ids,
-    )
+    raw_columns = package_grouper.column_union(columns_by_doc)
 
     kept: list[str] = []
     dropped: list[str] = []
@@ -383,13 +398,30 @@ def _extract_one_package(
     )
 
 
-def _pick_representative(resources: list[dict[str, object]]) -> dict[str, object]:
+def _pick_representative(
+    resources: list[dict[str, object]],
+    *,
+    columns_by_doc: dict[str, list[str]] | None = None,
+) -> dict[str, object]:
     """Median-row-count resource, lexicographic document_id tiebreak.
 
-    Resources with row_count == None sort last. Matches the spirit of
-    4.4's `sample_selector.pick_representative` while operating on the
+    Dictionary-shaped resources (per `looks_like_dictionary` over the
+    per-doc headers) are demoted out of the pool; they stay eligible
+    only when every resource is dictionary-shaped. Resources with
+    row_count == None sort last. Matches the semantics of 4.4's
+    `sample_selector.pick_representative` while operating on the
     candidate-query's projected dicts.
     """
+    pool = resources
+    if columns_by_doc:
+        non_dict = [
+            r for r in resources
+            if not looks_like_dictionary(
+                columns_by_doc.get(str(r.get("document_id", "")), [])
+            )
+        ]
+        pool = non_dict or resources
+
     def _key(r: dict[str, object]) -> tuple[int, int, str]:
         rc = r.get("row_count")
         doc = str(r.get("document_id", ""))
@@ -399,7 +431,7 @@ def _pick_representative(resources: list[dict[str, object]]) -> dict[str, object
             return (0, rc, doc)
         return (0, int(str(rc)), doc)
 
-    pool = sorted(resources, key=_key)
+    pool = sorted(pool, key=_key)
     return pool[len(pool) // 2]
 
 
@@ -529,40 +561,6 @@ WHERE package_id IN UNNEST(@package_ids);
     return out
 
 
-def _fetch_column_union(
-    *,
-    bq: BqClient,
-    project_id: str,
-    dataset_raw: str,
-    rows_table: str,
-    document_ids: list[str],
-) -> list[str]:
-    """Distinct column names across the package's resources via
-    `JSON_KEYS`.
-
-    Same `PARSE_JSON(STRING(row))` unwrap as 4.4 — `raw.rows.row` is
-    JSON-encoded-as-string by the loader (see 4.4 §5.1 commentary).
-    """
-    fq = f"`{project_id}.{dataset_raw}.{rows_table}`"
-    sql = f"""
-WITH per_doc_keys AS (
-  SELECT
-    document_id,
-    JSON_KEYS(PARSE_JSON(STRING(row))) AS keys
-  FROM {fq}
-  WHERE document_id IN UNNEST(@document_ids)
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY row_index) = 1
-)
-SELECT DISTINCT k AS col_name
-FROM per_doc_keys, UNNEST(keys) AS k
-ORDER BY col_name;
-""".strip()
-    params = [
-        bigquery.ArrayQueryParameter("document_ids", "STRING", document_ids)
-    ]
-    return [str(r["col_name"]) for r in bq.query_rows(sql, params=params)]
-
-
 def _fetch_sample_values(
     *,
     bq: BqClient,
@@ -582,15 +580,15 @@ def _fetch_sample_values(
     (`$['name']`, `$["name"]` both fail). Field access on the `JSON`
     type via subscript (`json_expr[name]`) *does* accept runtime
     values and works for any key, including ones with hyphens, dots,
-    slashes, and spaces. So we `PARSE_JSON` in a CTE, cross-join with
-    `UNNEST(@names)`, and pull each field with `LAX_STRING(j[n])`.
+    slashes, and spaces. So we cross-join the native-JSON `row` with
+    `UNNEST(@names)` and pull each field with `LAX_STRING(j[n])`.
     """
     if not column_names:
         return {}
     fq = f"`{project_id}.{dataset_raw}.{rows_table}`"
     sql = f"""
 WITH parsed AS (
-  SELECT PARSE_JSON(STRING(row)) AS j
+  SELECT row AS j
   FROM {fq}
   WHERE document_id = @document_id
 ),

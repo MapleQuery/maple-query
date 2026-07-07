@@ -110,9 +110,10 @@ def test_render_contains_documents() -> None:
     # with the right column.
     assert '"Amount"' in prompt
     assert '"Organization"' in prompt
-    # The row-body unwrap guidance must be present verbatim — without
-    # PARSE_JSON(STRING(row)), every JSON_VALUE returns null.
-    assert "PARSE_JSON(STRING(r.row))" in prompt
+    # Direct-access guidance: row is a native JSON object; the legacy
+    # PARSE_JSON(STRING(r.row)) unwrap throws and must not be taught.
+    assert "JSON_VALUE(r.row, '$.<column_name>')" in prompt
+    assert "JSON_VALUE(PARSE_JSON" not in prompt
 
 
 def test_render_missing_var_raises(tmp_path: Path) -> None:

@@ -61,10 +61,15 @@ def test_dry_run_chain(tmp_path: Path) -> None:
     bq.register_query("FROM `proj.semantic.datasets`", [])
     # Three packages: pkg-0 → 5 cols, pkg-1 → 5 cols, pkg-2 → 150 cols.
     pkg_col_counts = [5, 5, 150]
-    for col_count in pkg_col_counts:
+    for pkg_i, col_count in enumerate(pkg_col_counts):
         bq.register_query(
-            "JSON_KEYS(PARSE_JSON(STRING(row)))",
-            [{"col_name": f"c{i}"} for i in range(col_count)],
+            "JSON_KEYS(row)",
+            [
+                {
+                    "document_id": f"doc-{pkg_i}",
+                    "columns": [f"c{i}" for i in range(col_count)],
+                }
+            ],
         )
         bq.register_query(
             "ranked AS",
@@ -113,6 +118,10 @@ def test_dry_run_chain(tmp_path: Path) -> None:
     assert all(r["dry_run"] for r in column_rows)
     assert all(r["embedding"] is None for r in column_rows)
 
-    # Order is preserved across chunks for the wide package.
+    # Order is preserved across chunks for the wide package. The
+    # extract emits the column union sorted lexicographically (the
+    # fake BQ used to mask this by ignoring the SQL ORDER BY).
     pkg_2_rows = [r for r in column_rows if r["package_id"] == "pkg-2"]
-    assert [r["column_name"] for r in pkg_2_rows] == [f"c{i}" for i in range(150)]
+    assert [r["column_name"] for r in pkg_2_rows] == sorted(
+        f"c{i}" for i in range(150)
+    )
