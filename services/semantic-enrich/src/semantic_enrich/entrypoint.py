@@ -52,13 +52,22 @@ from semantic_enrich.clients.bq import RealBqClient
 from semantic_enrich.clients.openai import OpenAIClient, RealOpenAIClient
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core.agent_cache import ResponseCache
+from semantic_enrich.core.agent_eval import (
+    AgentEvalRequest,
+    AgentQuestionSetError,
+    run_agent_eval,
+)
 from semantic_enrich.core.agent_events import AgentEvent, Done, ErrorEvent
 from semantic_enrich.core.agent_loop import (
     ChatRequest,
     LoopDeps,
     load_system_prompt,
     make_snapshot_hash_provider,
-    run_turn,
+)
+from semantic_enrich.core.agent_tracing import (
+    log_prompt_gauge,
+    run_turn_traced,
+    session_span_map_from_settings,
 )
 from semantic_enrich.core.column_generator import (
     ColumnsGenerateRequest,
@@ -719,8 +728,18 @@ def eval_run(
         "--dry-run/--no-dry-run",
         help="Harness self-test — skips OpenAI + BQ, exercises fixture / template / report writers.",
     ),
+    agent_mode: bool = typer.Option(
+        False,
+        "--agent-mode/--no-agent-mode",
+        help=(
+            "Run the fixture through the live agent loop (one fresh "
+            "single-turn conversation per question) instead of the "
+            "retrieval harness. Expects the agent-traces fixture schema."
+        ),
+    ),
 ) -> None:
-    """Run the 4.6 retrieval-validation harness against the fixture."""
+    """Run the retrieval-validation harness — or, with --agent-mode,
+    the agent-loop baseline capture — against the fixture."""
     configure_logging()
     log = get_logger("semantic_enrich.entrypoint")
 
@@ -734,6 +753,16 @@ def eval_run(
     settings = Settings()
     if overrides:
         settings = settings.model_copy(update=overrides)
+
+    if agent_mode:
+        _run_agent_eval_cli(
+            settings=settings,
+            log=log,
+            dry_run=dry_run,
+            limit=limit,
+            output=output,
+        )
+        return
 
     if not dry_run:
         if not settings.gcp_project_id:
@@ -804,6 +833,88 @@ def eval_run(
         raise typer.Exit(1) from exc
 
     typer.echo(json.dumps(asdict(summary), indent=2, default=str))
+
+
+def _run_agent_eval_cli(
+    *,
+    settings: Settings,
+    log: Any,
+    dry_run: bool,
+    limit: int | None,
+    output: Path | None,
+) -> None:
+    """`eval --agent-mode` body: build loop deps the same way `chat`
+    does, then replay the labeled fixture through the loop."""
+    if dry_run:
+        bq_client: Any = _StubBqClient()
+        openai_client: Any = _CannedChatClient()
+    else:
+        if not settings.gcp_project_id:
+            log.error("missing_project_id", subcommand="eval --agent-mode")
+            raise typer.Exit(3)
+        try:
+            bq_client = RealBqClient.for_project(settings.gcp_project_id)
+        except Exception as exc:
+            log.error("bq_auth_failed", error=str(exc))
+            raise typer.Exit(3) from exc
+        openai_client = _build_openai_client(
+            settings=settings, log=log, dry_run=False
+        )
+
+    try:
+        prompt, prompt_hash = load_system_prompt(
+            settings.agent_system_prompt_path, settings
+        )
+    except RuntimeError as exc:
+        log.error("prompt_load_failed", error=str(exc))
+        raise typer.Exit(3) from exc
+
+    deps = LoopDeps(
+        bq=bq_client,
+        openai_client=openai_client,
+        settings=settings,
+        system_prompt=prompt,
+        prompt_hash=prompt_hash,
+        cache=ResponseCache(
+            max_entries=settings.agent_cache_max_entries,
+            max_value_bytes=settings.agent_cache_max_value_bytes,
+            ttl_seconds=settings.agent_cache_ttl_seconds,
+        ),
+        snapshot_hash_provider=(
+            (lambda: "dry-run") if dry_run
+            else make_snapshot_hash_provider(bq_client, settings)
+        ),
+        system_prompt_tokens=log_prompt_gauge(
+            prompt=prompt, prompt_hash=prompt_hash, settings=settings
+        ),
+    )
+
+    request = AgentEvalRequest(
+        run_id=settings.eval_run_id,
+        limit=limit,
+        output_override=output,
+    )
+    try:
+        report = run_agent_eval(
+            request=request, settings=settings, deps=deps
+        )
+    except AgentQuestionSetError as exc:
+        log.error("agent_fixture_invalid", error=str(exc))
+        typer.echo(
+            json.dumps({"ok": False, "fixture_error": str(exc)}, indent=2),
+            err=True,
+        )
+        raise typer.Exit(3) from exc
+    except Exception as exc:
+        log.error("agent_eval_internal_error", error=str(exc), exc_info=True)
+        typer.echo(
+            json.dumps({"ok": False, "internal_error": str(exc)}, indent=2),
+            err=True,
+        )
+        raise typer.Exit(1) from exc
+
+    summary = {k: v for k, v in report.items() if k != "questions"}
+    typer.echo(json.dumps(summary, indent=2, default=str))
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -879,7 +990,11 @@ def chat(
             (lambda: "dry-run") if dry_run
             else make_snapshot_hash_provider(bq_client, settings)
         ),
+        system_prompt_tokens=log_prompt_gauge(
+            prompt=prompt, prompt_hash=prompt_hash, settings=settings
+        ),
     )
+    session_spans = session_span_map_from_settings(settings)
 
     cid = conversation_id or str(_uuid4())
     history: list[dict[str, Any]] = []
@@ -903,7 +1018,11 @@ def chat(
         )
         assistant_message = ""
         try:
-            for event in run_turn(request=request, deps=deps):
+            for event in run_turn_traced(
+                request=request,
+                deps=deps,
+                session_parent=session_spans.get_or_create(cid),
+            ):
                 _print_event(event)
                 assistant_message = _consume_delta(event, assistant_message)
                 if isinstance(event, ErrorEvent):

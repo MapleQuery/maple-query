@@ -440,6 +440,41 @@ Each question grades into exactly one terminal state:
 
 Every question grade is appended to `<run_id>.partial.jsonl` before the next question starts. A mid-run crash leaves the partial file for review; the final JSON + MD are written only on clean completion. Re-run against the same warehouse; determinism (temperature 0.0, BQ query cache on, sequential order) yields byte-identical per-question grades modulo `run_id` and timestamps.
 
+### Agent-mode baseline capture
+
+`eval --agent-mode` replays a labeled question fixture through the live agent loop instead of the retrieval harness — one fresh single-turn conversation per question, tracing on when configured:
+
+```sh
+# Full baseline capture (writes eval/reports/agent-traces-<run_id>.json).
+uv run semantic-enrich eval --agent-mode --questions eval/questions-agent-traces.yaml
+
+# Pin the output name for a committed baseline.
+uv run semantic-enrich eval --agent-mode --questions eval/questions-agent-traces.yaml \
+  --output eval/reports/agent-traces-baseline-v1.json
+
+# Self-test without OpenAI/BQ (canned client, no network).
+uv run semantic-enrich eval --agent-mode --dry-run --limit 3 --output /tmp/agent-dry.json
+```
+
+The fixture (`eval/questions-agent-traces.yaml`) is derived from real agent traffic: every entry carries the verbatim user question, `expected.triage` (`in_scope | off_scope | meta | clarify`) and `expected.outcome` (`answered | no_data | deflected | clarify`) labels, optional `packages_any_of` / `must_caveat`, and an `observed_v1` record of what the loop actually did in the source traces. The report records terminal state, final message, tool-call count, dollars, and per-call token series per question — no automatic grading; it is the denominator for before/after comparisons of loop changes. This is a manual, occasional capture (14 questions, well under $1) — do not schedule repeated runs.
+
+## Agent span tracing
+
+With a Braintrust key configured, the agent loop emits a full span tree per conversation instead of disconnected per-call roots:
+
+```text
+session:<conversation_id>            one root per conversation (created once,
+└── agent.run_turn                   exported, closed; turns attach by export string)
+    ├── openai.chat / embeddings     wrap_openai auto-instrumentation
+    └── tool.<name>                  per tool call, digest-only payloads
+```
+
+- **Turn spans** (`core/agent_tracing.run_turn_traced`) wrap the loop generator; they carry the question, `prompt_hash`, `snapshot_hash`, `loop_impl`, `system_prompt_tokens`, and log final message, terminal state (`done | error | timeout | abandoned`), tool-call count, dollars, and per-call `tokens_in/out` arrays (the series that shows history bloat across loop iterations).
+- **Session spans** are stateless parents: `SessionSpanMap` keeps a per-process LRU (`WHENRICH_AGENT_TRACE_SESSION_MAP_ENTRIES`, TTL `WHENRICH_AGENT_TRACE_SESSION_TTL_SECONDS`) of `conversation_id → span export string`. An instance restart mid-conversation starts a second session root — accepted; the map is best-effort by design.
+- **Tool spans** parent to the turn span by export string (robust across pool threads) and log digests only: full SQL + rationale for `run_sql`, first-3-rows samples, candidate lists reduced to ids + distance. Never full row payloads.
+- **Prompt gauge**: `system_prompt_gauge` is logged at startup with the tiktoken count of the rendered system prompt; a unit test bounds it under 3.0K tokens so silent prompt growth fails CI.
+- **Kill switch**: `WHENRICH_AGENT_TRACE_SESSIONS=false` (or simply no Braintrust key) turns every wrapper into a passthrough; the loop's event stream is identical either way.
+
 ## How the library API is used
 
 ```py

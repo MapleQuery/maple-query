@@ -37,6 +37,9 @@ dependencies = [
   # client and logs every chat/embedding call as a span. Import-only
   # when no API key is configured, so no-op in dev / tests.
   "braintrust>=0.0.200,<1",
+  # System-prompt token gauge. The OpenAI usage field only reports
+  # tokens after a call; the startup gauge needs a local tokenizer.
+  "tiktoken>=0.7,<1",
 ]
 
 [project.scripts]
