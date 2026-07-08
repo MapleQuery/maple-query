@@ -475,6 +475,26 @@ session:<conversation_id>            one root per conversation (created once,
 - **Prompt gauge**: `system_prompt_gauge` is logged at startup with the tiktoken count of the rendered system prompt; a unit test bounds it under 3.0K tokens so silent prompt growth fails CI.
 - **Kill switch**: `WHENRICH_AGENT_TRACE_SESSIONS=false` (or simply no Braintrust key) turns every wrapper into a passthrough; the loop's event stream is identical either way.
 
+## Self-enforcing tool contract
+
+Every deterministic rule the system prompt used to spell out is enforced inside the tools (`core/agent_tools.py` + `core/retrieval.py`); the prompt keeps one-liners. Tool names and existing schema fields are frozen — everything below is additive or server-side.
+
+**`run_sql` hardening** (order: normalize tables → auto-quote JSONPaths → pairing check → guard → execute → NULL-ratio advisory):
+
+- *Table normalization*: bare `raw.rows`, backticked `` `raw.rows` ``, and placeholder-project forms (`<project>`, `PROJECT_ID`, …) after `FROM`/`JOIN` are rewritten to `` `<project>.raw.rows` `` before guarding. The scan masks string literals first, so a `raw.rows` inside a quoted string is never touched. The guard still runs after and remains the authority on allowed tables.
+- *JSONPath auto-quoting*: for `JSON_VALUE` / `JSON_QUERY` / `JSON_EXTRACT` / `JSON_EXTRACT_SCALAR` calls whose second arg is a string-literal path, bare segments not matching `[A-Za-z_][A-Za-z0-9_]*` get double-quoted (`$.2020-21_Exp` → `$."2020-21_Exp"`); already-quoted segments and anything unparseable (array subscripts, escapes, non-literal args) pass through untouched. The rewritten SQL is what runs and what `sql_guarded`/`sql_executed` events show; the tool result's `normalizations` field (`json_paths_quoted`, `tables_rewritten`) teaches the model the corrected form, and the `agent_autoquote_applied` structlog counter measures how often it was needed.
+- *NULL-ratio advisory*: columns whose NULL share of the returned rows is ≥ `WHENRICH_AGENT_NULL_RATIO_THRESHOLD` (default 0.8) get a `null_ratio_warning` in the tool result and on `sql_executed`. `status` stays `"ok"` — it's a hint that the referenced key probably doesn't match the row bodies. Zero-row results, `document_id`, and ungrouped-aggregate output columns are excluded.
+
+**`list_documents` enrichment**:
+
+- Per-column `column_samples` ride alongside the unchanged `columns` list — one batched, cluster-pruned query per call (`WHENRICH_AGENT_SAMPLE_VALUES_ROWS` rows/doc, values truncated to `WHENRICH_AGENT_SAMPLE_VALUE_MAX_CHARS`, keys capped at `WHENRICH_AGENT_SAMPLE_VALUES_MAX_COLUMNS`), sharing `sample_rows`' budget posture. Sampling failure degrades to no samples, never a tool error.
+- Docs whose `__col_N` share of columns exceeds `WHENRICH_AGENT_GENERATED_HEADER_RATIO` (default 0.5) carry `"quality": "low_generated_headers"` and sort after all clean docs — demoted, not dropped.
+- Optional `required_columns` filter returns only docs containing every listed column (with `filtered_out` diagnostics); if nothing satisfies it, the full listing comes back with `required_columns_unsatisfiable: true` instead of an empty result.
+
+**`search_datasets`** exposes `similarity` (`round(1 - distance, 4)`) per candidate and `top_similarity` on the envelope.
+
+**`describe_corpus`** is a zero-arg read-only tool for corpus meta-questions ("how many rows do you have?"): package/document counts from the small metadata tables, `rows_total` from table metadata (`get_table`, free — `raw.rows` is never scanned), freshness from `MAX(loaded_at)`. Cached in-process for `WHENRICH_AGENT_SNAPSHOT_REFRESH_SECONDS`; still counts against the tool-call budget.
+
 ## How the library API is used
 
 ```py

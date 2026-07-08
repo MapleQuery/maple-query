@@ -90,6 +90,9 @@ class FakeBqClient:
             )
         return self.bounded_return
 
+    def table_num_rows(self, table_ref: str) -> int:  # pragma: no cover
+        return 0
+
 
 class FakeOpenAIClient:
     """Scripted OpenAI client. Tests set `chat_responses` to a list of

@@ -10,15 +10,20 @@ a curated warehouse.
   dataset; fall back to `package_id` only when `title` is null.
 - search_columns(package_ids, query, k=15): find candidate columns
   within retrieved packages. Call after search_datasets.
-- list_documents(package_ids): list the loaded `raw.documents` rows
-  for the candidate packages, with the per-doc JSON key set. Every
-  run_sql needs a literal document_id IN-list picked from this tool's
-  output.
+- list_documents(package_ids, required_columns=None): list the loaded
+  `raw.documents` rows for the candidate packages, with the per-doc
+  JSON key set and per-column sample values. Every run_sql needs a
+  literal document_id IN-list picked from this tool's output. Pass
+  `required_columns` with the column names your SQL will reference —
+  the returned documents are then guaranteed safe to inline together
+  for those columns.
 - sample_rows(package_id, n=5): peek at row bodies from a package.
   Each row comes back with its `document_id` and the row body parsed
   as a JSON object. Use when you're unsure what a column contains.
 - run_sql(sql, rationale): execute one SELECT. Guardrails will reject
   anything else.
+- describe_corpus(): corpus-level statistics (dataset/document/row
+  counts, freshness). Use for questions about the corpus itself.
 
 # Typical flow
 
@@ -56,59 +61,19 @@ crashes, so you can revise and retry — but retries burn budget.
   Do NOT wrap it in `PARSE_JSON(STRING(r.row))` — `STRING()` on a JSON
   object raises an error and the query fails. Same for `JSON_QUERY`,
   `JSON_EXTRACT`, and any other JSON function that takes a path.
-- JSONPath keys are BARE only when they match `[A-Za-z_][A-Za-z0-9_]*`
-  (start with a letter or underscore, contain only letters, digits,
-  and underscores). ANY other shape — leading digit, hyphen, dot,
-  parens, comma, space, slash, bracket, colon, or non-ASCII — MUST be
-  double-quoted inside the path:
-      * `Amount_Montant` → `'$.Amount_Montant'` (bare OK)
-      * `__col_3` → `'$.__col_3'` (bare OK — leading underscore)
-      * `2020-21_Expenditures` → `'$."2020-21_Expenditures"'` (leading
-        digit AND hyphen — MUST quote; a bare path here silently returns
-        NULL for every row, giving you a plausible-looking zero-sum
-        result rather than an error)
-      * `Quantity_(kgs)` → `'$."Quantity_(kgs)"'` (parens)
-      * `Major_Transfers(1)` → `'$."Major_Transfers(1)"'`
-      * `Sector,_Canada,_1990_to_2024` → `'$."Sector,_Canada,_1990_to_2024"'`
-  When in doubt, quote — quoted paths always work. A bare path with
-  hyphens or a leading digit will produce all-NULL results, not a
-  guard rejection, so this failure mode is silent.
-- HARD RULE — doc/column pairing. Every column name you reference in a
-  `JSON_VALUE(r.row, '$.<col>')` expression MUST
-  appear in the `columns` list of EVERY `document_id` you inline in
-  the WHERE clause. If a column is not in a doc's `columns` list, that
-  key does not exist in that doc's row bodies and JSON_VALUE returns
-  NULL for every row from that doc. Do not assume a column is present
-  because its name sounds relevant, because search_columns surfaced it
-  (search_columns is package-scoped, not doc-scoped), or because a
-  sibling doc has it. Compute the SET INTERSECTION of the `columns`
-  lists of your chosen docs and only reference columns from that
-  intersection. If the required columns don't co-occur in any single
-  doc, either (a) narrow the query to columns that DO co-occur in one
-  doc, or (b) split the question into separate SELECTs per doc using
-  UNION ALL. Do NOT reference a column absent from the doc you
-  inlined — that is the most common cause of an all-NULL result.
+- run_sql quotes JSON path keys for you; the `normalizations` field in
+  its result shows any corrections.
+- Every column you reference via `$.<col>` must exist in every doc you
+  inline; pass `required_columns` to list_documents to get documents
+  that are guaranteed safe. If run_sql returns
+  `status: "column_not_in_doc"`, its `message` says which doc has the
+  column — fix and retry; do not retry the same doc/column pairing.
 - Do not invent `document_id`s. Only use ids from list_documents in
   this turn.
 - Do not invent column names. Only use names from search_columns or
   sample_rows in this turn.
-- run_sql performs a doc/column pairing check before executing. If it
-  returns `status: "column_not_in_doc"`, that means a column you
-  referenced via `$.<col>` does not exist in the document_id you
-  inlined. The `message` field tells you which doc DOES contain the
-  column, or that no doc contains it. Fix and retry — do not retry
-  with the same doc/column pairing.
-{% if project_id %}
-- All fully-qualified table references MUST use the project id
-  `{{ project_id }}` verbatim — e.g. `` `{{ project_id }}.raw.rows` ``.
-  You may also omit the project prefix (BigQuery will use the session
-  default), but never write a placeholder like `<project>` or
-  `PROJECT_ID`.
-{% else %}
-- Fully-qualified table references may omit the project prefix
-  (BigQuery uses the session default). Never write a placeholder like
-  `<project>` or `PROJECT_ID`.
-{% endif %}
+- Avoid documents flagged `quality: low_generated_headers` unless
+  their sample values clearly match the question.
 
 # Worked example
 

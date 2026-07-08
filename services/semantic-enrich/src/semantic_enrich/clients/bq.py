@@ -124,6 +124,10 @@ class BqClient(Protocol):
         other BQ errors return `error` populated with the raw message.
         """
 
+    def table_num_rows(self, table_ref: str) -> int:
+        """Row count from table metadata (`get_table`). Free — no query
+        job, no bytes scanned. `table_ref` is `project.dataset.table`."""
+
 
 class RealBqClient:
     """Concrete BqClient backed by `google.cloud.bigquery`.
@@ -311,3 +315,10 @@ class RealBqClient:
                 timed_out=False,
                 error=str(exc),
             )
+
+    def table_num_rows(self, table_ref: str) -> int:
+        num_rows = 0
+        for attempt in self._retry:
+            with attempt:
+                num_rows = int(self._client.get_table(table_ref).num_rows or 0)
+        return num_rows

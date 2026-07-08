@@ -58,9 +58,10 @@ def test_prompt_template_renders_and_hashes() -> None:
     prompt, digest = _prompt_bits(settings)
     assert "MapleQuery" in prompt
     assert "raw.rows" in prompt
-    # The doc/column pairing HARD RULE is the load-bearing prompt rule
-    # ported from 4.6 — regressing it re-opens the all-NULL failure mode.
-    assert "HARD RULE" in prompt
+    # The pairing rule is enforced tool-side now (run_sql pairing check
+    # + list_documents required_columns); the prompt keeps a one-liner
+    # pointing at required_columns instead of the old HARD RULE prose.
+    assert "required_columns" in prompt
     assert "document_id" in prompt
     assert len(digest) == 64
 

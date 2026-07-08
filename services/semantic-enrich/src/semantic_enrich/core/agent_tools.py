@@ -17,12 +17,16 @@ per-turn mutable state.
 from __future__ import annotations
 
 import re
+import threading
 import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
+import sqlglot
+import sqlglot.expressions as exp
 from google.cloud import bigquery
 
 from semantic_enrich.clients.bq import BqClient
@@ -31,6 +35,7 @@ from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import agent_events
 from semantic_enrich.core.retrieval import (
     embed_question,
+    fetch_document_samples,
     retrieve_columns,
     retrieve_documents,
     retrieve_packages,
@@ -38,6 +43,7 @@ from semantic_enrich.core.retrieval import (
 from semantic_enrich.core.sql_executor import execute as execute_sql
 from semantic_enrich.core.sql_guard import guard
 from semantic_enrich.providers import braintrust_tracing
+from semantic_enrich.providers.logging import get_logger
 
 TOOL_NAMES = (
     "search_datasets",
@@ -45,7 +51,10 @@ TOOL_NAMES = (
     "list_documents",
     "sample_rows",
     "run_sql",
+    "describe_corpus",
 )
+
+_LOG = get_logger("semantic_enrich.agent_tools")
 
 
 # ── OpenAI tool schemas (frozen) ──
@@ -63,6 +72,7 @@ def tool_schemas() -> list[dict[str, Any]]:
         {"type": "function", "function": _LIST_DOCUMENTS},
         {"type": "function", "function": _SAMPLE_ROWS},
         {"type": "function", "function": _RUN_SQL},
+        {"type": "function", "function": _DESCRIBE_CORPUS},
     ]
 
 
@@ -152,6 +162,17 @@ _LIST_DOCUMENTS: dict[str, Any] = {
                 "minItems": 1,
                 "maxItems": 10,
             },
+            "required_columns": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Only return documents whose columns contain every "
+                    "listed name. Use when you already know which "
+                    "columns your SQL will reference — the returned "
+                    "documents are then guaranteed safe to inline "
+                    "together for those columns."
+                ),
+            },
         },
     },
 }
@@ -205,6 +226,22 @@ _RUN_SQL: dict[str, Any] = {
                 ),
             },
         },
+    },
+}
+
+
+_DESCRIBE_CORPUS: dict[str, Any] = {
+    "name": "describe_corpus",
+    "description": (
+        "Statistics about the MapleQuery corpus: dataset, document, "
+        "and row counts, and data freshness. Use for questions about "
+        "the corpus itself rather than about the data content."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [],
+        "properties": {},
     },
 }
 
@@ -288,17 +325,27 @@ def run_search_datasets(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
             "date_range_start": p.date_range_start,
             "date_range_end": p.date_range_end,
             "distance": p.distance,
+            # Normalized cosine similarity — the form the prompt (and
+            # the weak-retrieval policy) can reason about directly.
+            "similarity": round(1 - p.distance, 4),
         }
         for p in packages
     ]
+    top_similarity = max(
+        (float(c["similarity"]) for c in candidates), default=None
+    )
 
     # Track known package IDs so search_columns can enforce the
     # whitelist at runtime.
     for c in candidates:
         ctx.state.known_package_ids.add(str(c["package_id"]))
 
-    ctx.emit(agent_events.DatasetsRanked(candidates=candidates))
-    return {"candidates": candidates}
+    ctx.emit(
+        agent_events.DatasetsRanked(
+            candidates=candidates, top_similarity=top_similarity
+        )
+    )
+    return {"candidates": candidates, "top_similarity": top_similarity}
 
 
 def run_search_columns(
@@ -354,6 +401,9 @@ def run_list_documents(
         raise InvalidToolArgsError("package_ids must be non-empty")
     if len(package_ids) > 10:
         raise InvalidToolArgsError("package_ids must have at most 10 entries")
+    required_columns: list[str] | None = None
+    if args.get("required_columns") is not None:
+        required_columns = _require_str_list(args, "required_columns")
 
     unknown = [p for p in package_ids if p not in ctx.state.known_package_ids]
     if unknown:
@@ -365,8 +415,14 @@ def run_list_documents(
     documents, _latency = retrieve_documents(
         bq=ctx.bq, package_ids=list(package_ids), settings=ctx.settings
     )
-    payload: list[dict[str, Any]] = [
-        {
+    samples_by_doc = fetch_document_samples(
+        bq=ctx.bq,
+        doc_ids=[d.document_id for d in documents],
+        settings=ctx.settings,
+    )
+    payload: list[dict[str, Any]] = []
+    for d in documents:
+        entry: dict[str, Any] = {
             "document_id": d.document_id,
             "package_id": d.package_id,
             "title": d.title,
@@ -378,19 +434,66 @@ def run_list_documents(
             ),
             "columns": list(d.columns),
         }
-        for d in documents
-    ]
-    for d in payload:
-        doc_id = str(d["document_id"])
+        samples = samples_by_doc.get(d.document_id)
+        if samples:
+            entry["column_samples"] = samples
+        if (
+            _generated_header_ratio(d.columns)
+            > ctx.settings.agent_generated_header_ratio
+        ):
+            entry["quality"] = "low_generated_headers"
+        payload.append(entry)
+    # Garbage-header docs sort after every clean doc — demoted, not
+    # dropped, so their sample values can still rescue them.
+    payload.sort(key=lambda e: "quality" in e)
+
+    # State tracks every doc listed (including any the filter below
+    # excludes) so the run_sql pairing check can still validate a doc
+    # the model insists on using.
+    for entry in payload:
+        doc_id = str(entry["document_id"])
         ctx.state.known_document_ids.add(doc_id)
-        cols = d.get("columns") or []
+        cols = entry.get("columns") or []
         ctx.state.doc_columns[doc_id] = [str(c) for c in cols]
+
+    result: dict[str, Any] = {"documents": payload}
+    filtered_out: list[dict[str, Any]] = []
+    if required_columns:
+        kept: list[dict[str, Any]] = []
+        for entry in payload:
+            missing = [
+                c for c in required_columns if c not in set(entry["columns"])
+            ]
+            if missing:
+                filtered_out.append(
+                    {
+                        "document_id": entry["document_id"],
+                        "missing_columns": missing,
+                    }
+                )
+            else:
+                kept.append(entry)
+        if kept:
+            result["documents"] = kept
+            if filtered_out:
+                result["filtered_out"] = filtered_out
+        else:
+            # An empty listing would push the model toward surrender;
+            # return everything and flag the filter as unsatisfiable.
+            filtered_out = []
+            result["required_columns_unsatisfiable"] = True
+
     ctx.emit(
         agent_events.DocumentsListed(
-            package_ids=list(package_ids), documents=payload
+            package_ids=list(package_ids),
+            documents=result["documents"],
+            filtered_out=filtered_out or None,
+            required_columns_unsatisfiable=bool(
+                result.get("required_columns_unsatisfiable", False)
+            ),
         )
     )
-    return {"documents": payload}
+    return result
 
 
 def run_sample_rows(
@@ -444,6 +547,35 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
             ),
         }
 
+    # Deterministic server-side fixes the prompt used to beg for. The
+    # rewritten SQL is what gets pairing-checked, guarded, executed,
+    # and shown on the evidence rail; the `normalizations` field in the
+    # tool result teaches the model the corrected form.
+    sql, tables_rewritten = normalize_table_references(
+        sql, settings=ctx.settings
+    )
+    sql, json_paths_quoted = autoquote_json_paths(sql)
+    normalizations: dict[str, Any] = {}
+    if json_paths_quoted:
+        normalizations["json_paths_quoted"] = json_paths_quoted
+        _LOG.info(
+            "agent_autoquote_applied",
+            json_paths=json_paths_quoted,
+            count=len(json_paths_quoted),
+        )
+    if tables_rewritten:
+        normalizations["tables_rewritten"] = tables_rewritten
+        _LOG.info(
+            "agent_table_ref_normalized",
+            tables=tables_rewritten,
+            count=len(tables_rewritten),
+        )
+
+    def _result(payload: dict[str, Any]) -> dict[str, Any]:
+        if normalizations:
+            payload["normalizations"] = normalizations
+        return payload
+
     # Doc/column pairing check. If every JSON_VALUE(..., '$.<col>')
     # reference doesn't line up with the `columns` list of every doc in
     # the WHERE IN, refuse before hitting the SQL guard so the model
@@ -465,12 +597,14 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
                 dry_run_bytes=None,
             )
         )
-        return {
-            "status": "column_not_in_doc",
-            "reason": short_reason,
-            "message": pairing_msg,
-            "violations": violations,
-        }
+        return _result(
+            {
+                "status": "column_not_in_doc",
+                "reason": short_reason,
+                "message": pairing_msg,
+                "violations": violations,
+            }
+        )
 
     guard_result = guard(sql=sql, bq=ctx.bq, settings=ctx.settings)
     ctx.emit(
@@ -485,11 +619,13 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         # Guard rejections come back to the model as tool results so it
         # can correct hallucinated identifiers and retry. Cost is one
         # dry-run.
-        return {
-            "status": "guard_rejected",
-            "reason": guard_result.reason,
-            "sql_final": guard_result.sql_final,
-        }
+        return _result(
+            {
+                "status": "guard_rejected",
+                "reason": guard_result.reason,
+                "sql_final": guard_result.sql_final,
+            }
+        )
 
     execution = execute_sql(
         sql=guard_result.sql_final, bq=ctx.bq, settings=ctx.settings
@@ -497,6 +633,11 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     ctx.state.sql_execution_count += 1
 
     normalized_rows = [_jsonable(r) for r in execution.rows]
+    null_ratio_warning = compute_null_ratio_warning(
+        sql=guard_result.sql_final,
+        rows=normalized_rows,
+        settings=ctx.settings,
+    )
     sample_for_model = normalized_rows[:20]
     call_id = uuid.uuid4().hex
     ctx.emit(
@@ -505,6 +646,7 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
             bytes_billed=execution.bytes_billed,
             elapsed_ms=execution.elapsed_ms,
             sample_rows=normalized_rows[:3],
+            null_ratio_warning=null_ratio_warning,
         )
     )
     ctx.emit(
@@ -513,14 +655,16 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         )
     )
     if execution.timed_out or execution.error:
-        return {
-            "status": "execution_error",
-            "reason": execution.error or "timed_out",
-            "row_count": 0,
-            "bytes_billed": execution.bytes_billed,
-            "elapsed_ms": execution.elapsed_ms,
-        }
-    return {
+        return _result(
+            {
+                "status": "execution_error",
+                "reason": execution.error or "timed_out",
+                "row_count": 0,
+                "bytes_billed": execution.bytes_billed,
+                "elapsed_ms": execution.elapsed_ms,
+            }
+        )
+    payload: dict[str, Any] = {
         "status": "ok",
         "row_count": execution.row_count,
         "bytes_billed": execution.bytes_billed,
@@ -528,6 +672,90 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         "rows": sample_for_model,
         "truncated": execution.row_count > len(sample_for_model),
     }
+    if null_ratio_warning is not None:
+        payload["null_ratio_warning"] = null_ratio_warning
+    return _result(payload)
+
+
+def run_describe_corpus(
+    *, ctx: ToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
+    project_id = ctx.settings.gcp_project_id
+    if not project_id:
+        raise InvalidToolArgsError(
+            "describe_corpus requires WHENRICH_GCP_PROJECT_ID to be set"
+        )
+    ttl = ctx.settings.agent_snapshot_refresh_seconds
+    with _CORPUS_STATS_LOCK:
+        cached = _CORPUS_STATS_CACHE.get(project_id)
+        if cached is not None and time.monotonic() - cached[0] < ttl:
+            return dict(cached[1])
+    stats = _fetch_corpus_stats(ctx=ctx, project_id=project_id)
+    with _CORPUS_STATS_LOCK:
+        _CORPUS_STATS_CACHE[project_id] = (time.monotonic(), stats)
+    return dict(stats)
+
+
+_CORPUS_DESCRIPTION = (
+    "Canadian federal open-data CSVs from open.canada.ca, loaded into "
+    "a BigQuery warehouse."
+)
+
+# In-process TTL cache, keyed by project id. Corpus stats change on
+# warehouse loads, not per turn; repeated calls within the snapshot
+# refresh window are free.
+_CORPUS_STATS_LOCK = threading.Lock()
+_CORPUS_STATS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+
+
+def reset_corpus_stats_cache() -> None:
+    """Test seam — clears the in-process describe_corpus cache."""
+    with _CORPUS_STATS_LOCK:
+        _CORPUS_STATS_CACHE.clear()
+
+
+def _fetch_corpus_stats(
+    *, ctx: ToolContext, project_id: str
+) -> dict[str, Any]:
+    s = ctx.settings
+    # Row count comes from table metadata — free, no bytes scanned.
+    # `raw.rows` is never queried here.
+    rows_total = ctx.bq.table_num_rows(
+        f"{project_id}.{s.bq_dataset_raw}.{s.bq_rows_table}"
+    )
+    sql = _CORPUS_STATS_SQL.format(
+        project_id=project_id,
+        semantic_dataset=s.bq_dataset_semantic,
+        datasets_table=s.bq_datasets_table,
+        raw_dataset=s.bq_dataset_raw,
+        documents_table=s.bq_documents_table,
+    )
+    rows = list(ctx.bq.query_rows(sql))
+    row = rows[0] if rows else {}
+    latest = row.get("latest_load_at")
+    if isinstance(latest, datetime):
+        latest = latest.isoformat()
+    return {
+        "packages": int(row.get("packages") or 0),
+        "documents_loaded": int(row.get("documents_loaded") or 0),
+        "rows_total": rows_total,
+        "latest_load_at": str(latest) if latest is not None else None,
+        "corpus_description": _CORPUS_DESCRIPTION,
+    }
+
+
+# COUNTs over the small metadata tables only; the MAX(loaded_at) mirrors
+# the snapshot-hash provider's freshness query.
+_CORPUS_STATS_SQL = """
+SELECT
+  (SELECT COUNT(*)
+   FROM `{project_id}.{semantic_dataset}.{datasets_table}`) AS packages,
+  (SELECT COUNT(*)
+   FROM `{project_id}.{raw_dataset}.{documents_table}`
+   WHERE load_status = 'loaded') AS documents_loaded,
+  (SELECT CAST(MAX(loaded_at) AS STRING)
+   FROM `{project_id}.{semantic_dataset}.{datasets_table}`) AS latest_load_at
+""".strip()
 
 
 _IMPLS: dict[str, Callable[..., dict[str, Any]]] = {
@@ -536,6 +764,7 @@ _IMPLS: dict[str, Callable[..., dict[str, Any]]] = {
     "list_documents": run_list_documents,
     "sample_rows": run_sample_rows,
     "run_sql": run_run_sql,
+    "describe_corpus": run_describe_corpus,
 }
 
 
@@ -628,14 +857,325 @@ def _result_digest(tool_name: str, result: dict[str, Any]) -> dict[str, Any]:
     if tool_name == "run_sql":
         digest = {
             k: result.get(k)
-            for k in ("row_count", "bytes_billed", "elapsed_ms", "reason")
+            for k in (
+                "row_count",
+                "bytes_billed",
+                "elapsed_ms",
+                "reason",
+                "normalizations",
+                "null_ratio_warning",
+            )
             if k in result
         }
         rows = result.get("rows")
         if isinstance(rows, list):
             digest["rows"] = rows[:_SPAN_ROWS_CAP]
         return digest
+    if tool_name == "describe_corpus":
+        return {
+            k: result.get(k)
+            for k in (
+                "packages",
+                "documents_loaded",
+                "rows_total",
+                "latest_load_at",
+            )
+            if k in result
+        }
     return {}
+
+
+# ── run_sql normalization: table refs + JSONPath auto-quoting ──
+
+
+def _mask_string_literals(sql: str) -> str:
+    """Blank the contents of quoted string literals, preserving length.
+
+    Positions line up 1:1 with the original, so regex spans found on the
+    masked text can be applied back to the original. Keeps a `raw.rows`
+    inside a string literal from ever being rewritten."""
+    out = list(sql)
+    i = 0
+    n = len(sql)
+    while i < n:
+        ch = sql[i]
+        if ch in ("'", '"'):
+            quote = ch
+            i += 1
+            while i < n and sql[i] != quote:
+                if sql[i] == "\\" and i + 1 < n:
+                    out[i] = " "
+                    i += 1
+                out[i] = " "
+                i += 1
+        i += 1
+    return "".join(out)
+
+
+def _table_ref_pattern(settings: Settings) -> re.Pattern[str]:
+    raw = re.escape(settings.bq_dataset_raw)
+    rows = re.escape(settings.bq_rows_table)
+    placeholder = r"(?i:<project(?:_id)?>|PROJECT_ID)"
+    ref = (
+        # `<project>.raw.rows` / PROJECT_ID.raw.rows — any backtick mix.
+        rf"`?{placeholder}`?\.`?{raw}`?\.`?{rows}`?"
+        # `raw.rows` (backticked, no project).
+        rf"|`{raw}\.{rows}`"
+        # bare raw.rows (no project; FROM/JOIN anchor below rules out a
+        # project-qualified reference matching here).
+        rf"|{raw}\.{rows}\b"
+    )
+    return re.compile(rf"(?i:\b(FROM|JOIN))\s+({ref})")
+
+
+def normalize_table_references(
+    sql: str, *, settings: Settings
+) -> tuple[str, list[str]]:
+    """Rewrite bare / placeholder `raw.rows` references after FROM and
+    JOIN to the fully-qualified form. Returns `(sql, rewritten_refs)`.
+
+    Scans a literal-masked copy so string literals are never touched.
+    The guard still runs after this and stays the authority on which
+    tables are allowed — normalization never widens what it accepts."""
+    project_id = settings.gcp_project_id
+    if not project_id:
+        return sql, []
+    canonical = (
+        f"`{project_id}.{settings.bq_dataset_raw}.{settings.bq_rows_table}`"
+    )
+    masked = _mask_string_literals(sql)
+    pieces: list[str] = []
+    rewritten: list[str] = []
+    last = 0
+    for m in _table_ref_pattern(settings).finditer(masked):
+        start, end = m.span(2)
+        pieces.append(sql[last:start])
+        pieces.append(canonical)
+        rewritten.append(sql[start:end])
+        last = end
+    pieces.append(sql[last:])
+    return "".join(pieces), rewritten
+
+
+_JSON_FUNC_RE = re.compile(
+    r"(?i)\b(?:JSON_VALUE|JSON_QUERY|JSON_EXTRACT|JSON_EXTRACT_SCALAR)\s*\("
+)
+_BARE_SEGMENT_OK_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+
+
+def autoquote_json_paths(sql: str) -> tuple[str, list[str]]:
+    """Double-quote non-identifier segments in literal JSONPath args of
+    JSON function calls. Returns `(sql, original_paths_that_changed)`.
+
+    Bare segments like `2020-21_Expenditures` silently return NULL for
+    every row; the correct rewrite is unambiguous, so the tool applies
+    it rather than bouncing the call back to the model. Anything the
+    scanner can't parse confidently is left untouched — the guard
+    remains the rejection path for exotic shapes."""
+    masked = _mask_string_literals(sql)
+    replacements: list[tuple[int, int, str, str]] = []
+    for m in _JSON_FUNC_RE.finditer(masked):
+        span = _second_arg_span(sql, m.end() - 1)
+        if span is None:
+            continue
+        start, end = span
+        arg = sql[start:end]
+        stripped = arg.strip()
+        if (
+            len(stripped) < 2
+            or not stripped.startswith("'")
+            or not stripped.endswith("'")
+        ):
+            continue  # not a string literal (parameter, concatenation)
+        path = stripped[1:-1]
+        if "'" in path or "\\" in path:
+            continue  # escapes — not confidently parseable
+        quoted = _quote_json_path(path)
+        if quoted is None:
+            continue
+        lead = start + arg.index(stripped)
+        replacements.append(
+            (lead, lead + len(stripped), f"'{quoted}'", path)
+        )
+    if not replacements:
+        return sql, []
+    # A nested JSON call's path arg can sit before its enclosing call's
+    # second arg — apply replacements in position order.
+    replacements.sort(key=lambda r: r[0])
+    pieces = []
+    changed_paths = []
+    last = 0
+    for start, end, text, path in replacements:
+        pieces.append(sql[last:start])
+        pieces.append(text)
+        changed_paths.append(path)
+        last = end
+    pieces.append(sql[last:])
+    return "".join(pieces), changed_paths
+
+
+def _second_arg_span(sql: str, open_paren: int) -> tuple[int, int] | None:
+    """Span of a call's second top-level argument, or None when the call
+    has fewer or more than exactly two arguments (the JSON functions we
+    rewrite take exactly two) or runs off the end. Tracks paren depth
+    and skips string literals."""
+    i = open_paren + 1
+    n = len(sql)
+    depth = 1
+    arg_index = 0
+    arg_start = i
+    while i < n:
+        ch = sql[i]
+        if ch == "'" or ch == '"':
+            quote = ch
+            i += 1
+            while i < n and sql[i] != quote:
+                if sql[i] == "\\":
+                    i += 1
+                i += 1
+            if i >= n:
+                return None
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return (arg_start, i) if arg_index == 1 else None
+        elif ch == "," and depth == 1:
+            if arg_index == 1:
+                return None  # a third argument — leave it to the guard
+            arg_index += 1
+            arg_start = i + 1
+        i += 1
+    return None
+
+
+def _quote_json_path(path: str) -> str | None:
+    """Rewrite a JSONPath so every non-identifier segment is quoted.
+
+    Returns None when nothing changed or the path can't be parsed
+    confidently (array subscripts, embedded quotes, empty segments)."""
+    if not path.startswith("$") or "[" in path:
+        return None
+    segments: list[str] = []
+    changed = False
+    i = 1
+    n = len(path)
+    while i < n:
+        if path[i] != ".":
+            return None
+        i += 1
+        if i < n and path[i] == '"':
+            close = path.find('"', i + 1)
+            if close == -1:
+                return None
+            segments.append(path[i : close + 1])
+            i = close + 1
+        else:
+            j = i
+            while j < n and path[j] != ".":
+                if path[j] == '"':
+                    return None
+                j += 1
+            segment = path[i:j]
+            if not segment:
+                return None
+            if _BARE_SEGMENT_OK_RE.fullmatch(segment):
+                segments.append(segment)
+            else:
+                segments.append(f'"{segment}"')
+                changed = True
+            i = j
+    if not changed:
+        return None
+    return "$" + "".join(f".{s}" for s in segments)
+
+
+# ── run_sql NULL-ratio advisory ──
+
+
+_NULL_RATIO_MESSAGE = (
+    "These columns are mostly NULL in the result. This usually means "
+    "the referenced key does not semantically match the row bodies of "
+    "the inlined documents — a mislabeled or wrong column, or the "
+    "wrong document. Reconsider the column and document choice "
+    "(list_documents sample_values help) before treating this as "
+    "'no data'."
+)
+
+
+def compute_null_ratio_warning(
+    *, sql: str, rows: list[dict[str, Any]], settings: Settings
+) -> dict[str, Any] | None:
+    """Advisory when result columns are mostly NULL. None when clean.
+
+    Zero-row results never warn (that is a different signal), and
+    neither do `document_id` nor the outputs of ungrouped aggregate
+    functions — a NULL SUM over zero matching rows is visible to the
+    model already."""
+    if not rows:
+        return None
+    excluded = {"document_id"} | _scalar_aggregate_columns(sql)
+    all_columns: dict[str, None] = {}
+    for row in rows:
+        for col in row:
+            all_columns.setdefault(col, None)
+    flagged: dict[str, float] = {}
+    for col in all_columns:
+        if col in excluded:
+            continue
+        nulls = sum(1 for row in rows if row.get(col) is None)
+        ratio = nulls / len(rows)
+        if ratio >= settings.agent_null_ratio_threshold:
+            flagged[col] = round(ratio, 4)
+    if not flagged:
+        return None
+    _LOG.info(
+        "agent_null_ratio_warning_emitted",
+        columns=sorted(flagged),
+        row_count=len(rows),
+    )
+    return {"columns": flagged, "message": _NULL_RATIO_MESSAGE}
+
+
+def _scalar_aggregate_columns(sql: str) -> set[str]:
+    """Output names of aggregate expressions in GROUP-BY-less SELECTs.
+
+    Only ungrouped aggregates can produce rows from zero inputs, so
+    those are the columns the advisory must not flag. Grouped
+    aggregates over zero rows produce zero rows — already excluded."""
+    try:
+        tree = sqlglot.parse_one(sql, dialect="bigquery")
+    except Exception:
+        return set()
+    if tree is None:
+        return set()
+    names: set[str] = set()
+    for select in tree.find_all(exp.Select):
+        if select.args.get("group") is not None:
+            continue
+        for projection in select.expressions:
+            if projection.find(exp.AggFunc) is None:
+                continue
+            name = projection.alias_or_name
+            if name:
+                names.add(name)
+    return names
+
+
+# ── list_documents quality flag ──
+
+
+_GENERATED_COL_RE = re.compile(r"__col_\d+")
+
+
+def _generated_header_ratio(columns: tuple[str, ...] | list[str]) -> float:
+    if not columns:
+        return 0.0
+    generated = sum(
+        1 for c in columns if _GENERATED_COL_RE.fullmatch(c) is not None
+    )
+    return generated / len(columns)
 
 
 # ── Doc/column pairing check ──

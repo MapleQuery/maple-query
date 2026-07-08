@@ -77,10 +77,17 @@ def test_search_datasets_populates_known_ids() -> None:
     assert result["candidates"][0]["package_id"] == "pkg-1"
     # Title must reach the LLM so it can name datasets by title, not UUID.
     assert result["candidates"][0]["title"] == "Housing spending 2020"
+    # Normalized similarity rides alongside distance; the envelope
+    # carries the max for the weak-retrieval policy.
+    assert result["candidates"][0]["similarity"] == 0.9
+    assert result["top_similarity"] == 0.9
     assert "pkg-1" in ctx.state.known_package_ids
     kinds = [e.event_type for e in events]
     assert "retrieval_started" in kinds
     assert "datasets_ranked" in kinds
+    ranked = [e for e in events if e.event_type == "datasets_ranked"]
+    assert isinstance(ranked[0], agent_events.DatasetsRanked)
+    assert ranked[0].top_similarity == 0.9
 
 
 def test_search_columns_rejects_unknown_package_id() -> None:
@@ -415,4 +422,4 @@ def test_dispatch_routes_to_impl() -> None:
         tool_name="search_datasets",
         args={"query": "housing"},
     )
-    assert result == {"candidates": []}
+    assert result == {"candidates": [], "top_similarity": None}
