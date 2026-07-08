@@ -57,7 +57,8 @@ Two settings layers:
 
 ### Observability
 
-- **Braintrust** — when `BRAINTRUST_API_KEY` (or `MQAGENT_BRAINTRUST_API_KEY`) is set at startup, the OpenAI client is wrapped with `braintrust.wrap_openai` and every chat / embedding / tool call flows to the `MQAGENT_BRAINTRUST_PROJECT` (default `maplequery`). Missing key → no-op wrap, no traces.
+- **Braintrust** — when `BRAINTRUST_API_KEY` (or `MQAGENT_BRAINTRUST_API_KEY`) is set at startup, the OpenAI client is wrapped with `braintrust.wrap_openai` and every chat / embedding call flows to the `MQAGENT_BRAINTRUST_PROJECT` (default `maplequery`). On top of the auto-instrumentation, every `/chat` turn is wrapped in an `agent.run_turn` span parented to a per-conversation `session` root (see the semantic-enrich doc, "Agent span tracing"): `AppState.session_spans` maps `conversation_id → exported session-span string` (in-process LRU, best-effort — an instance restart mid-conversation starts a second session root). Missing key → no-op wrap, no traces, and the turn driver degrades to a plain `run_turn` passthrough. `WHENRICH_AGENT_TRACE_SESSIONS=false` disables the turn/session/tool spans while keeping the raw client wrap.
+- **Prompt gauge** — startup logs `system_prompt_gauge` with the tiktoken count of the rendered system prompt (`system_prompt_tokens`, `prompt_hash`); the same count rides on every turn span's metadata.
 - **PostHog (server-side)** — when `POSTHOG_API_KEY` (or `MQAGENT_POSTHOG_API_KEY`) is set, the service fires `chat_turn_finished` (per drained SSE stream) and `sql_run_finished` (per `POST /sql/run`) events. Host defaults to `https://us.i.posthog.com`; override via `MQAGENT_POSTHOG_HOST`. Missing key → capture calls no-op.
 
 ## Deployment

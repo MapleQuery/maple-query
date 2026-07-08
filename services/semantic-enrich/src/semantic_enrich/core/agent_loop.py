@@ -12,6 +12,7 @@ the codebase's execution model.
 """
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
 import time
@@ -19,6 +20,7 @@ import uuid
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +66,15 @@ class LoopDeps:
     prompt_hash: str
     cache: ResponseCache
     snapshot_hash_provider: Callable[[], str]
+    # Rendered system-prompt token count, measured once at startup by
+    # the caller. 0 means "not measured" (tokenizer unavailable or the
+    # caller predates the gauge); turn spans record it as metadata.
+    system_prompt_tokens: int = 0
+    # Exported turn-span string, set per-turn by `run_turn_traced` on
+    # its private copy of the deps. Tool spans parent to it explicitly
+    # so they attach even when tool calls run on pool threads that
+    # don't inherit the ambient current-span contextvar.
+    trace_parent: str | None = None
 
 
 @dataclass
@@ -240,6 +251,7 @@ def run_turn(
         settings=deps.settings,
         state=state,
         emit=emit,
+        trace_parent=deps.trace_parent,
     )
 
     messages: list[dict[str, Any]] = [
@@ -470,8 +482,17 @@ def _execute_batch(
         return results
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         # Each call gets its own event buffer so events stay grouped
-        # by tool call in the output stream.
-        futures = [pool.submit(_run_one, tc=tc, ctx=ctx) for tc in batch]
+        # by tool call in the output stream. Each call also gets its
+        # own contextvars copy so tracing's current-span state (set by
+        # the turn driver) is visible on the pool thread — pool threads
+        # don't inherit the submitter's context by default.
+        futures = [
+            pool.submit(
+                contextvars.copy_context().run,
+                partial(_run_one, tc=tc, ctx=ctx),
+            )
+            for tc in batch
+        ]
         for fut in futures:
             results.append(fut.result())
     return results
@@ -498,6 +519,7 @@ def _run_one(
         settings=ctx.settings,
         state=ctx.state,
         emit=local_emit,
+        trace_parent=ctx.trace_parent,
     )
     try:
         result = agent_tools.dispatch(

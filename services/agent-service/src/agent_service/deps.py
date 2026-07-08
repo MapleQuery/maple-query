@@ -8,7 +8,7 @@ runs a request.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 import structlog
@@ -21,6 +21,11 @@ from semantic_enrich.core.agent_loop import (
     LoopDeps,
     load_system_prompt,
     make_snapshot_hash_provider,
+)
+from semantic_enrich.core.agent_tracing import (
+    SessionSpanMap,
+    log_prompt_gauge,
+    session_span_map_from_settings,
 )
 from semantic_enrich.providers.braintrust_tracing import configure_braintrust
 
@@ -50,6 +55,14 @@ class AppState:
     # Optional PostHog client. `None` when no key is configured — every
     # capture call site null-checks before firing.
     posthog: object | None = None
+    # conversation_id → exported Braintrust session-span parent. Inert
+    # (get_or_create returns None) when tracing is unconfigured, so
+    # tests constructing AppState directly can rely on the default.
+    session_spans: SessionSpanMap = field(
+        default_factory=lambda: SessionSpanMap(
+            max_entries=1000, ttl_seconds=86_400
+        )
+    )
 
 
 def build_loop_settings(service_settings: AgentServiceSettings) -> Settings:
@@ -131,6 +144,9 @@ def build_app_state(service_settings: AgentServiceSettings) -> AppState:
         prompt_hash=prompt_hash,
         cache=cache,
         snapshot_hash_provider=make_snapshot_hash_provider(bq, loop_settings),
+        system_prompt_tokens=log_prompt_gauge(
+            prompt=prompt, prompt_hash=prompt_hash, settings=loop_settings
+        ),
     )
     posthog_client = build_posthog_client(service_settings)
     _log.info("posthog_configured", active=posthog_client is not None)
@@ -141,6 +157,7 @@ def build_app_state(service_settings: AgentServiceSettings) -> AppState:
         bq=bq,
         openai_client=openai_client,
         posthog=posthog_client,
+        session_spans=session_span_map_from_settings(loop_settings),
     )
 
 

@@ -37,6 +37,7 @@ from semantic_enrich.core.retrieval import (
 )
 from semantic_enrich.core.sql_executor import execute as execute_sql
 from semantic_enrich.core.sql_guard import guard
+from semantic_enrich.providers import braintrust_tracing
 
 TOOL_NAMES = (
     "search_datasets",
@@ -250,6 +251,9 @@ class ToolContext:
     settings: Settings
     state: LoopState
     emit: EmitFn
+    # Exported turn-span string for explicit tool-span parenting. None
+    # when tracing is off or the caller drives `run_turn` untraced.
+    trace_parent: str | None = None
 
 
 class InvalidToolArgsError(ValueError):
@@ -526,25 +530,112 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_IMPLS: dict[str, Callable[..., dict[str, Any]]] = {
+    "search_datasets": run_search_datasets,
+    "search_columns": run_search_columns,
+    "list_documents": run_list_documents,
+    "sample_rows": run_sample_rows,
+    "run_sql": run_run_sql,
+}
+
+
 def dispatch(
     *, ctx: ToolContext, tool_name: str, args: dict[str, Any]
 ) -> dict[str, Any]:
-    """Route a tool call to the matching implementation.
+    """Route a tool call to the matching implementation, wrapped in a
+    `tool.<name>` Braintrust span when tracing is on.
 
     Callers pass the parsed `arguments` JSON from OpenAI. Runtime
-    validation lives inside each tool.
+    validation lives inside each tool. Span inputs/outputs are digests,
+    never full row payloads — spans carry topology, cost, and decisions;
+    the row evidence stays in the loop's own event stream.
     """
-    if tool_name == "search_datasets":
-        return run_search_datasets(ctx=ctx, args=args)
-    if tool_name == "search_columns":
-        return run_search_columns(ctx=ctx, args=args)
-    if tool_name == "list_documents":
-        return run_list_documents(ctx=ctx, args=args)
-    if tool_name == "sample_rows":
-        return run_sample_rows(ctx=ctx, args=args)
+    impl = _IMPLS.get(tool_name)
+    if impl is None:
+        raise InvalidToolArgsError(f"unknown_tool: {tool_name!r}")
+    if not (
+        ctx.settings.agent_trace_sessions and braintrust_tracing.is_enabled()
+    ):
+        return impl(ctx=ctx, args=args)
+    with braintrust_tracing.trace_span(
+        name=f"tool.{tool_name}",
+        parent=ctx.trace_parent,
+        input_=_args_digest(tool_name, args),
+    ) as span:
+        try:
+            result = impl(ctx=ctx, args=args)
+        except Exception as exc:
+            # The span must close with an error status even when the
+            # tool blows up — the loop upstream converts the exception
+            # into a tool_error message for the model.
+            span.log(output={"status": "tool_error", "message": str(exc)})
+            raise
+        span.log(
+            output={
+                "status": str(result.get("status", "ok")),
+                **_result_digest(tool_name, result),
+            }
+        )
+        return result
+
+
+# ── Span digests ──
+#
+# Keep spans small: full SQL text and rationale are worth logging for
+# run_sql; row payloads truncate to the first few rows; candidate lists
+# reduce to identifiers + distance.
+
+_SPAN_ROWS_CAP = 3
+
+
+def _args_digest(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     if tool_name == "run_sql":
-        return run_run_sql(ctx=ctx, args=args)
-    raise InvalidToolArgsError(f"unknown_tool: {tool_name!r}")
+        return {"sql": args.get("sql"), "rationale": args.get("rationale")}
+    # The remaining tools take short queries and id lists only.
+    return dict(args)
+
+
+def _result_digest(tool_name: str, result: dict[str, Any]) -> dict[str, Any]:
+    if tool_name in ("search_datasets", "search_columns"):
+        candidates = result.get("candidates") or []
+        keep = ("package_id", "column_name", "distance")
+        return {
+            "candidates": [
+                {k: c.get(k) for k in keep if k in c}
+                for c in candidates
+                if isinstance(c, dict)
+            ],
+            "candidate_count": len(candidates),
+        }
+    if tool_name == "list_documents":
+        documents = result.get("documents") or []
+        return {
+            "documents": [
+                {
+                    "document_id": d.get("document_id"),
+                    "package_id": d.get("package_id"),
+                    "row_count": d.get("row_count"),
+                    "column_count": len(d.get("columns") or []),
+                }
+                for d in documents
+                if isinstance(d, dict)
+            ],
+            "document_count": len(documents),
+        }
+    if tool_name == "sample_rows":
+        rows = result.get("rows") or []
+        return {"rows": rows[:_SPAN_ROWS_CAP], "row_count": len(rows)}
+    if tool_name == "run_sql":
+        digest = {
+            k: result.get(k)
+            for k in ("row_count", "bytes_billed", "elapsed_ms", "reason")
+            if k in result
+        }
+        rows = result.get("rows")
+        if isinstance(rows, list):
+            digest["rows"] = rows[:_SPAN_ROWS_CAP]
+        return digest
+    return {}
 
 
 # ── Doc/column pairing check ──

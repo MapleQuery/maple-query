@@ -14,7 +14,9 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from semantic_enrich.core.agent_events import Done, ErrorEvent
-from semantic_enrich.core.agent_loop import ChatRequest, run_turn
+from semantic_enrich.core.agent_loop import ChatRequest
+from semantic_enrich.core.agent_tracing import run_turn_traced
+from starlette.concurrency import run_in_threadpool
 
 from agent_service.auth import BearerAuth
 from agent_service.deps import AppState, get_app_state
@@ -50,7 +52,20 @@ async def chat(
         question=body.question,
     )
 
-    events = run_turn(request=chat_request, deps=state.loop_deps)
+    # Session-span parent lookup is a no-op (None) when tracing is off;
+    # the traced driver then degrades to a plain `run_turn` passthrough.
+    # On a cache miss the lookup can make a blocking Braintrust
+    # project-id resolution, so it runs on a worker thread rather than
+    # the event loop — the same off-loop treatment the turn-span export
+    # already gets through `sse_stream`.
+    session_parent = await run_in_threadpool(
+        state.session_spans.get_or_create, body.conversation_id
+    )
+    events = run_turn_traced(
+        request=chat_request,
+        deps=state.loop_deps,
+        session_parent=session_parent,
+    )
 
     started = time.monotonic()
     tool_calls_total = 0

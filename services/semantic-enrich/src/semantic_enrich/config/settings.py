@@ -264,3 +264,17 @@ class Settings(BaseSettings):
         ),
     )
     braintrust_project: str = "maplequery"
+
+    # ── agent loop span tracing ──
+    # Master switch for the turn/session/tool span wrappers around the
+    # agent loop. With this False (or no Braintrust key), every wrapper
+    # is a no-op passthrough — zero overhead beyond a boolean check —
+    # and only the raw `wrap_openai` auto-instrumentation (also keyed
+    # off the API key) remains.
+    agent_trace_sessions: bool = True
+    # In-process conversation_id → exported-session-span map. Sized for
+    # demo-scale traffic; an instance restart mid-conversation starts a
+    # second session root for that conversation, which is accepted —
+    # the map is best-effort, not a durability layer.
+    agent_trace_session_map_entries: int = 1000
+    agent_trace_session_ttl_seconds: int = 86_400
