@@ -287,3 +287,27 @@ def test_generated_header_ratio_empty_columns() -> None:
     assert agent_tools._generated_header_ratio([]) == 0.0
     assert agent_tools._generated_header_ratio(["__col_1", "__col_2"]) == 1.0
     assert agent_tools._generated_header_ratio(["__col_1x"]) == 0.0
+
+
+def test_null_columns_do_not_consume_sample_cap() -> None:
+    """Sparse wide row: NULL-valued keys must not eat the column cap
+    and evict the value-bearing columns behind them."""
+    bq = FakeBqClient()
+    sparse = {"a": None, "b": None, "c": None, "d": "val-d", "e": "val-e"}
+    bq.register_bounded_query(
+        "TO_JSON_STRING(row)",
+        _sample_result(
+            [
+                {
+                    "document_id": "doc-1",
+                    "row_index": 0,
+                    "row_json": json.dumps(sparse),
+                }
+            ]
+        ),
+    )
+    settings = _settings(agent_sample_values_max_columns=3)
+    samples = fetch_document_samples(
+        bq=bq, doc_ids=["doc-1"], settings=settings
+    )
+    assert samples["doc-1"] == {"d": ["val-d"], "e": ["val-e"]}

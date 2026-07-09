@@ -225,3 +225,110 @@ def test_run_sql_clean_result_has_no_warning_key() -> None:
     )
     assert result["status"] == "ok"
     assert "null_ratio_warning" not in result
+
+
+def test_unaliased_ungrouped_aggregate_not_flagged() -> None:
+    """BigQuery names an unaliased aggregate f0_; the exclusion must
+    cover the auto-name, not just explicit aliases."""
+    sql = (
+        "SELECT SUM(SAFE_CAST(JSON_VALUE(r.row, '$.amt') AS FLOAT64)) "
+        "FROM `proj.raw.rows` AS r "
+        "WHERE r.document_id IN ('d') LIMIT 100"
+    )
+    warning = compute_null_ratio_warning(
+        sql=sql, rows=[{"f0_": None}], settings=_settings()
+    )
+    assert warning is None
+
+
+def test_windowed_aggregate_still_warns() -> None:
+    """SUM(...) OVER () produces one value per input row — an all-NULL
+    windowed column is the silent mismatch the advisory exists for."""
+    sql = (
+        "SELECT JSON_VALUE(r.row, '$.fy') AS fy, "
+        "SUM(SAFE_CAST(JSON_VALUE(r.row, '$.exp') AS FLOAT64)) "
+        "OVER () AS running_total "
+        "FROM `proj.raw.rows` AS r WHERE r.document_id IN ('d') LIMIT 100"
+    )
+    rows: list[dict[str, Any]] = [
+        {"fy": str(2000 + i), "running_total": None} for i in range(10)
+    ]
+    warning = compute_null_ratio_warning(
+        sql=sql, rows=rows, settings=_settings()
+    )
+    assert warning is not None
+    assert warning["columns"] == {"running_total": 1.0}
+
+
+def test_aggregate_null_note_on_all_null_sum() -> None:
+    """An ungrouped SUM that comes back NULL is ambiguous between zero
+    matching rows and a semantically wrong column — the note asks the
+    model to disambiguate instead of answering 'no data'."""
+    note = agent_tools.compute_aggregate_null_note(
+        rows=[{"total": None}], aggregate_columns={"total"}
+    )
+    assert note is not None
+    assert note["columns"] == ["total"]
+    assert "COUNT(*)" in note["message"]
+
+
+def test_aggregate_null_note_absent_when_value_present() -> None:
+    assert (
+        agent_tools.compute_aggregate_null_note(
+            rows=[{"total": 5}], aggregate_columns={"total"}
+        )
+        is None
+    )
+    assert (
+        agent_tools.compute_aggregate_null_note(
+            rows=[], aggregate_columns={"total"}
+        )
+        is None
+    )
+    # Column not in the result rows at all -> nothing to note.
+    assert (
+        agent_tools.compute_aggregate_null_note(
+            rows=[{"other": None}], aggregate_columns={"total"}
+        )
+        is None
+    )
+
+
+def test_run_sql_carries_aggregate_null_note() -> None:
+    bq = FakeBqClient()
+    bq.bounded_default = BoundedQueryResult(
+        rows=[{"total": None}],
+        total_bytes_billed=1024,
+        slot_ms=1,
+        elapsed_ms=5,
+        timed_out=False,
+        error=None,
+    )
+    state = agent_tools.LoopState(
+        conversation_id="c1", turn_id="t1", question="q"
+    )
+    ctx = agent_tools.ToolContext(
+        bq=bq,
+        openai_client=FakeOpenAIClient(
+            vector_factory=lambda _t: [1.0 / math.sqrt(1536)] * 1536
+        ),
+        settings=_settings(),
+        state=state,
+        emit=lambda _e: None,
+    )
+    result = agent_tools.run_run_sql(
+        ctx=ctx,
+        args={
+            "sql": (
+                "SELECT SUM(SAFE_CAST(JSON_VALUE(r.row, '$.amt') "
+                "AS FLOAT64)) AS total FROM `proj.raw.rows` AS r "
+                "WHERE r.document_id IN ('d') LIMIT 100"
+            ),
+            "rationale": "test",
+        },
+    )
+    assert result["status"] == "ok"
+    # The NULL-ratio warning stays quiet for the aggregate...
+    assert "null_ratio_warning" not in result
+    # ...but the disambiguation note rides along.
+    assert result["aggregate_null_note"]["columns"] == ["total"]

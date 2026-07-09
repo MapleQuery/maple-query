@@ -1268,6 +1268,7 @@ class _StubBqClient:
     delete_table = _refuse
     dry_run_bytes = _refuse
     run_bounded_query = _refuse
+    table_num_rows = _refuse
 
 
 def _dispatch(runner: Callable[[], Any]) -> None:

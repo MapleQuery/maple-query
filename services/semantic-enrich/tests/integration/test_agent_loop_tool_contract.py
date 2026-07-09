@@ -1,4 +1,4 @@
-"""End-to-end 6.2 contract through `run_turn`: a scripted FakeOpenAI
+"""End-to-end tool-contract check through `run_turn`: a scripted FakeOpenAI
 turn replays the turn-5 housing failure — a bare hyphenated JSONPath
 over a mostly-NULL column — and asserts the model-facing tool message
 carries the auto-quote correction and the NULL-ratio advisory."""

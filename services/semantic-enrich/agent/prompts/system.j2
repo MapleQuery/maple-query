@@ -62,12 +62,17 @@ crashes, so you can revise and retry — but retries burn budget.
   object raises an error and the query fails. Same for `JSON_QUERY`,
   `JSON_EXTRACT`, and any other JSON function that takes a path.
 - run_sql quotes JSON path keys for you; the `normalizations` field in
-  its result shows any corrections.
+  its result shows any corrections. Exception: keys containing `[` or
+  `]` you must quote yourself — `'$."Amount[CAD]"'`.
 - Every column you reference via `$.<col>` must exist in every doc you
   inline; pass `required_columns` to list_documents to get documents
   that are guaranteed safe. If run_sql returns
   `status: "column_not_in_doc"`, its `message` says which doc has the
   column — fix and retry; do not retry the same doc/column pairing.
+- If the columns you need do not co-occur in any single doc
+  (`required_columns_unsatisfiable: true`), split into one SELECT per
+  doc combined with UNION ALL, each arm referencing only its own doc's
+  columns.
 - Do not invent `document_id`s. Only use ids from list_documents in
   this turn.
 - Do not invent column names. Only use names from search_columns or

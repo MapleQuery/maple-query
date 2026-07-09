@@ -42,6 +42,25 @@ from semantic_enrich.core.retrieval import (
 )
 from semantic_enrich.core.sql_executor import execute as execute_sql
 from semantic_enrich.core.sql_guard import guard
+
+# Normalization lives in `sql_normalize` so the eval runner shares it;
+# the `as` re-exports keep this module the import surface for tests
+# and callers that predate the split.
+from semantic_enrich.core.sql_normalize import (
+    _mask_string_literals as _mask_string_literals,
+)
+from semantic_enrich.core.sql_normalize import (
+    _quote_json_path as _quote_json_path,
+)
+from semantic_enrich.core.sql_normalize import (
+    autoquote_json_paths as autoquote_json_paths,
+)
+from semantic_enrich.core.sql_normalize import (
+    normalize_sql as normalize_sql,
+)
+from semantic_enrich.core.sql_normalize import (
+    normalize_table_references as normalize_table_references,
+)
 from semantic_enrich.providers import braintrust_tracing
 from semantic_enrich.providers.logging import get_logger
 
@@ -551,25 +570,7 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     # rewritten SQL is what gets pairing-checked, guarded, executed,
     # and shown on the evidence rail; the `normalizations` field in the
     # tool result teaches the model the corrected form.
-    sql, tables_rewritten = normalize_table_references(
-        sql, settings=ctx.settings
-    )
-    sql, json_paths_quoted = autoquote_json_paths(sql)
-    normalizations: dict[str, Any] = {}
-    if json_paths_quoted:
-        normalizations["json_paths_quoted"] = json_paths_quoted
-        _LOG.info(
-            "agent_autoquote_applied",
-            json_paths=json_paths_quoted,
-            count=len(json_paths_quoted),
-        )
-    if tables_rewritten:
-        normalizations["tables_rewritten"] = tables_rewritten
-        _LOG.info(
-            "agent_table_ref_normalized",
-            tables=tables_rewritten,
-            count=len(tables_rewritten),
-        )
+    sql, normalizations = normalize_sql(sql, settings=ctx.settings)
 
     def _result(payload: dict[str, Any]) -> dict[str, Any]:
         if normalizations:
@@ -633,10 +634,15 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     ctx.state.sql_execution_count += 1
 
     normalized_rows = [_jsonable(r) for r in execution.rows]
+    aggregate_columns = _scalar_aggregate_columns(guard_result.sql_final)
     null_ratio_warning = compute_null_ratio_warning(
         sql=guard_result.sql_final,
         rows=normalized_rows,
         settings=ctx.settings,
+        aggregate_columns=aggregate_columns,
+    )
+    aggregate_null_note = compute_aggregate_null_note(
+        rows=normalized_rows, aggregate_columns=aggregate_columns
     )
     sample_for_model = normalized_rows[:20]
     call_id = uuid.uuid4().hex
@@ -674,6 +680,8 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     }
     if null_ratio_warning is not None:
         payload["null_ratio_warning"] = null_ratio_warning
+    if aggregate_null_note is not None:
+        payload["aggregate_null_note"] = aggregate_null_note
     return _result(payload)
 
 
@@ -864,6 +872,7 @@ def _result_digest(tool_name: str, result: dict[str, Any]) -> dict[str, Any]:
                 "reason",
                 "normalizations",
                 "null_ratio_warning",
+                "aggregate_null_note",
             )
             if k in result
         }
@@ -885,212 +894,6 @@ def _result_digest(tool_name: str, result: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-# ── run_sql normalization: table refs + JSONPath auto-quoting ──
-
-
-def _mask_string_literals(sql: str) -> str:
-    """Blank the contents of quoted string literals, preserving length.
-
-    Positions line up 1:1 with the original, so regex spans found on the
-    masked text can be applied back to the original. Keeps a `raw.rows`
-    inside a string literal from ever being rewritten."""
-    out = list(sql)
-    i = 0
-    n = len(sql)
-    while i < n:
-        ch = sql[i]
-        if ch in ("'", '"'):
-            quote = ch
-            i += 1
-            while i < n and sql[i] != quote:
-                if sql[i] == "\\" and i + 1 < n:
-                    out[i] = " "
-                    i += 1
-                out[i] = " "
-                i += 1
-        i += 1
-    return "".join(out)
-
-
-def _table_ref_pattern(settings: Settings) -> re.Pattern[str]:
-    raw = re.escape(settings.bq_dataset_raw)
-    rows = re.escape(settings.bq_rows_table)
-    placeholder = r"(?i:<project(?:_id)?>|PROJECT_ID)"
-    ref = (
-        # `<project>.raw.rows` / PROJECT_ID.raw.rows — any backtick mix.
-        rf"`?{placeholder}`?\.`?{raw}`?\.`?{rows}`?"
-        # `raw.rows` (backticked, no project).
-        rf"|`{raw}\.{rows}`"
-        # bare raw.rows (no project; FROM/JOIN anchor below rules out a
-        # project-qualified reference matching here).
-        rf"|{raw}\.{rows}\b"
-    )
-    return re.compile(rf"(?i:\b(FROM|JOIN))\s+({ref})")
-
-
-def normalize_table_references(
-    sql: str, *, settings: Settings
-) -> tuple[str, list[str]]:
-    """Rewrite bare / placeholder `raw.rows` references after FROM and
-    JOIN to the fully-qualified form. Returns `(sql, rewritten_refs)`.
-
-    Scans a literal-masked copy so string literals are never touched.
-    The guard still runs after this and stays the authority on which
-    tables are allowed — normalization never widens what it accepts."""
-    project_id = settings.gcp_project_id
-    if not project_id:
-        return sql, []
-    canonical = (
-        f"`{project_id}.{settings.bq_dataset_raw}.{settings.bq_rows_table}`"
-    )
-    masked = _mask_string_literals(sql)
-    pieces: list[str] = []
-    rewritten: list[str] = []
-    last = 0
-    for m in _table_ref_pattern(settings).finditer(masked):
-        start, end = m.span(2)
-        pieces.append(sql[last:start])
-        pieces.append(canonical)
-        rewritten.append(sql[start:end])
-        last = end
-    pieces.append(sql[last:])
-    return "".join(pieces), rewritten
-
-
-_JSON_FUNC_RE = re.compile(
-    r"(?i)\b(?:JSON_VALUE|JSON_QUERY|JSON_EXTRACT|JSON_EXTRACT_SCALAR)\s*\("
-)
-_BARE_SEGMENT_OK_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
-
-
-def autoquote_json_paths(sql: str) -> tuple[str, list[str]]:
-    """Double-quote non-identifier segments in literal JSONPath args of
-    JSON function calls. Returns `(sql, original_paths_that_changed)`.
-
-    Bare segments like `2020-21_Expenditures` silently return NULL for
-    every row; the correct rewrite is unambiguous, so the tool applies
-    it rather than bouncing the call back to the model. Anything the
-    scanner can't parse confidently is left untouched — the guard
-    remains the rejection path for exotic shapes."""
-    masked = _mask_string_literals(sql)
-    replacements: list[tuple[int, int, str, str]] = []
-    for m in _JSON_FUNC_RE.finditer(masked):
-        span = _second_arg_span(sql, m.end() - 1)
-        if span is None:
-            continue
-        start, end = span
-        arg = sql[start:end]
-        stripped = arg.strip()
-        if (
-            len(stripped) < 2
-            or not stripped.startswith("'")
-            or not stripped.endswith("'")
-        ):
-            continue  # not a string literal (parameter, concatenation)
-        path = stripped[1:-1]
-        if "'" in path or "\\" in path:
-            continue  # escapes — not confidently parseable
-        quoted = _quote_json_path(path)
-        if quoted is None:
-            continue
-        lead = start + arg.index(stripped)
-        replacements.append(
-            (lead, lead + len(stripped), f"'{quoted}'", path)
-        )
-    if not replacements:
-        return sql, []
-    # A nested JSON call's path arg can sit before its enclosing call's
-    # second arg — apply replacements in position order.
-    replacements.sort(key=lambda r: r[0])
-    pieces = []
-    changed_paths = []
-    last = 0
-    for start, end, text, path in replacements:
-        pieces.append(sql[last:start])
-        pieces.append(text)
-        changed_paths.append(path)
-        last = end
-    pieces.append(sql[last:])
-    return "".join(pieces), changed_paths
-
-
-def _second_arg_span(sql: str, open_paren: int) -> tuple[int, int] | None:
-    """Span of a call's second top-level argument, or None when the call
-    has fewer or more than exactly two arguments (the JSON functions we
-    rewrite take exactly two) or runs off the end. Tracks paren depth
-    and skips string literals."""
-    i = open_paren + 1
-    n = len(sql)
-    depth = 1
-    arg_index = 0
-    arg_start = i
-    while i < n:
-        ch = sql[i]
-        if ch == "'" or ch == '"':
-            quote = ch
-            i += 1
-            while i < n and sql[i] != quote:
-                if sql[i] == "\\":
-                    i += 1
-                i += 1
-            if i >= n:
-                return None
-        elif ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-            if depth == 0:
-                return (arg_start, i) if arg_index == 1 else None
-        elif ch == "," and depth == 1:
-            if arg_index == 1:
-                return None  # a third argument — leave it to the guard
-            arg_index += 1
-            arg_start = i + 1
-        i += 1
-    return None
-
-
-def _quote_json_path(path: str) -> str | None:
-    """Rewrite a JSONPath so every non-identifier segment is quoted.
-
-    Returns None when nothing changed or the path can't be parsed
-    confidently (array subscripts, embedded quotes, empty segments)."""
-    if not path.startswith("$") or "[" in path:
-        return None
-    segments: list[str] = []
-    changed = False
-    i = 1
-    n = len(path)
-    while i < n:
-        if path[i] != ".":
-            return None
-        i += 1
-        if i < n and path[i] == '"':
-            close = path.find('"', i + 1)
-            if close == -1:
-                return None
-            segments.append(path[i : close + 1])
-            i = close + 1
-        else:
-            j = i
-            while j < n and path[j] != ".":
-                if path[j] == '"':
-                    return None
-                j += 1
-            segment = path[i:j]
-            if not segment:
-                return None
-            if _BARE_SEGMENT_OK_RE.fullmatch(segment):
-                segments.append(segment)
-            else:
-                segments.append(f'"{segment}"')
-                changed = True
-            i = j
-    if not changed:
-        return None
-    return "$" + "".join(f".{s}" for s in segments)
-
-
 # ── run_sql NULL-ratio advisory ──
 
 
@@ -1105,17 +908,25 @@ _NULL_RATIO_MESSAGE = (
 
 
 def compute_null_ratio_warning(
-    *, sql: str, rows: list[dict[str, Any]], settings: Settings
+    *,
+    sql: str,
+    rows: list[dict[str, Any]],
+    settings: Settings,
+    aggregate_columns: set[str] | None = None,
 ) -> dict[str, Any] | None:
     """Advisory when result columns are mostly NULL. None when clean.
 
     Zero-row results never warn (that is a different signal), and
     neither do `document_id` nor the outputs of ungrouped aggregate
-    functions — a NULL SUM over zero matching rows is visible to the
-    model already."""
+    functions — those get the separate `aggregate_null_note` when they
+    come back all-NULL. Pass `aggregate_columns` when the caller has
+    already computed `_scalar_aggregate_columns(sql)` to avoid a second
+    parse."""
     if not rows:
         return None
-    excluded = {"document_id"} | _scalar_aggregate_columns(sql)
+    if aggregate_columns is None:
+        aggregate_columns = _scalar_aggregate_columns(sql)
+    excluded = {"document_id"} | aggregate_columns
     all_columns: dict[str, None] = {}
     for row in rows:
         for col in row:
@@ -1138,12 +949,49 @@ def compute_null_ratio_warning(
     return {"columns": flagged, "message": _NULL_RATIO_MESSAGE}
 
 
+_AGGREGATE_NULL_MESSAGE = (
+    "These aggregate columns are NULL. That can mean zero matching "
+    "rows OR that the referenced key exists but holds no "
+    "numeric/parseable values in the inlined documents. Before "
+    "answering 'no data', verify with a COUNT(*) over the same WHERE "
+    "clause and check the column's sample values in list_documents."
+)
+
+
+def compute_aggregate_null_note(
+    *, rows: list[dict[str, Any]], aggregate_columns: set[str]
+) -> dict[str, Any] | None:
+    """Advisory when an ungrouped-aggregate output column is entirely
+    NULL. None when clean.
+
+    The NULL-ratio warning deliberately skips these columns (a NULL
+    SUM is a legitimate zero-match result), but an all-NULL aggregate
+    is also exactly how a semantically wrong column reads — so the
+    model gets a neutral disambiguation nudge instead of silence."""
+    if not rows or not aggregate_columns:
+        return None
+    all_null = sorted(
+        col
+        for col in aggregate_columns
+        if any(col in row for row in rows)
+        and all(row.get(col) is None for row in rows)
+    )
+    if not all_null:
+        return None
+    _LOG.info("agent_aggregate_null_note_emitted", columns=all_null)
+    return {"columns": all_null, "message": _AGGREGATE_NULL_MESSAGE}
+
+
 def _scalar_aggregate_columns(sql: str) -> set[str]:
     """Output names of aggregate expressions in GROUP-BY-less SELECTs.
 
     Only ungrouped aggregates can produce rows from zero inputs, so
-    those are the columns the advisory must not flag. Grouped
-    aggregates over zero rows produce zero rows — already excluded."""
+    those are the columns the NULL-ratio advisory must not flag.
+    Grouped aggregates over zero rows produce zero rows — already
+    excluded. Window functions (`SUM(...) OVER (...)`) produce one
+    value per input row and stay in the advisory's scope. Unaliased
+    projections get BigQuery's positional auto-names (`f0_`, `f1_`, …
+    counted over the anonymous projections only)."""
     try:
         tree = sqlglot.parse_one(sql, dialect="bigquery")
     except Exception:
@@ -1154,11 +1002,17 @@ def _scalar_aggregate_columns(sql: str) -> set[str]:
     for select in tree.find_all(exp.Select):
         if select.args.get("group") is not None:
             continue
+        anonymous_index = 0
         for projection in select.expressions:
-            if projection.find(exp.AggFunc) is None:
-                continue
             name = projection.alias_or_name
-            if name:
+            if not name:
+                name = f"f{anonymous_index}_"
+                anonymous_index += 1
+            has_scalar_agg = any(
+                agg.find_ancestor(exp.Window) is None
+                for agg in projection.find_all(exp.AggFunc)
+            )
+            if has_scalar_agg:
                 names.add(name)
     return names
 
@@ -1218,12 +1072,44 @@ def _extract_inlined_document_ids(sql: str) -> set[str]:
     return ids
 
 
+def _pairing_scopes(sql: str) -> list[str]:
+    """Split a set-operation query into its arms so each SELECT is
+    pairing-checked only against the documents it inlines.
+
+    A per-doc `UNION ALL` split is the sanctioned way to combine
+    columns that don't co-occur in one document; checking the whole
+    SQL cross-products every column against every doc and falsely
+    rejects it. Anything that isn't a top-level set operation — or
+    doesn't parse — is checked whole, as before."""
+    try:
+        tree = sqlglot.parse_one(sql, dialect="bigquery")
+    except Exception:
+        return [sql]
+    set_op = getattr(exp, "SetOperation", exp.Union)
+    if not isinstance(tree, set_op):
+        return [sql]
+    arms: list[str] = []
+
+    def _collect(node: exp.Expression) -> None:
+        if isinstance(node, set_op):
+            _collect(node.this)
+            _collect(node.expression)
+        else:
+            arms.append(node.sql(dialect="bigquery"))
+
+    _collect(tree)
+    return arms or [sql]
+
+
 def check_doc_column_pairing(
     *, sql: str, state: LoopState
 ) -> tuple[list[dict[str, Any]], str | None]:
     """Verify every JSONPath column reference exists in every inlined doc.
 
     Returns `(violations, formatted_message)`. Empty violations = clean.
+
+    Set-operation arms are checked independently (see
+    `_pairing_scopes`) so a per-doc UNION ALL split passes.
 
     Skips the check when the model hasn't populated `doc_columns` this
     turn (e.g. an inline retry that reuses a prior turn's known doc_id
@@ -1234,32 +1120,35 @@ def check_doc_column_pairing(
     if not state.doc_columns:
         return [], None
 
-    columns_referenced = _extract_json_path_columns(sql)
-    doc_ids_referenced = _extract_inlined_document_ids(sql)
-
-    if not columns_referenced or not doc_ids_referenced:
-        return [], None
-
     violations: list[dict[str, Any]] = []
-    for doc_id in sorted(doc_ids_referenced):
-        available = state.doc_columns.get(doc_id)
-        if available is None:
+    seen: set[tuple[str, str]] = set()
+    for scope_sql in _pairing_scopes(sql):
+        columns_referenced = _extract_json_path_columns(scope_sql)
+        doc_ids_referenced = _extract_inlined_document_ids(scope_sql)
+
+        if not columns_referenced or not doc_ids_referenced:
             continue
-        available_set = set(available)
-        for col in sorted(columns_referenced):
-            if col in available_set:
+
+        for doc_id in sorted(doc_ids_referenced):
+            available = state.doc_columns.get(doc_id)
+            if available is None:
                 continue
-            other_docs = sorted(
-                d for d, cols in state.doc_columns.items() if col in cols
-            )
-            violations.append(
-                {
-                    "column": col,
-                    "doc_id": doc_id,
-                    "available_columns": list(available),
-                    "other_docs_with_column": other_docs,
-                }
-            )
+            available_set = set(available)
+            for col in sorted(columns_referenced):
+                if col in available_set or (col, doc_id) in seen:
+                    continue
+                seen.add((col, doc_id))
+                other_docs = sorted(
+                    d for d, cols in state.doc_columns.items() if col in cols
+                )
+                violations.append(
+                    {
+                        "column": col,
+                        "doc_id": doc_id,
+                        "available_columns": list(available),
+                        "other_docs_with_column": other_docs,
+                    }
+                )
     if not violations:
         return [], None
 

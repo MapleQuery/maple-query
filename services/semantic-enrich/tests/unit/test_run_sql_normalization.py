@@ -175,3 +175,72 @@ def test_masking_handles_escaped_quotes() -> None:
     )
     assert "FROM raw.rows" in masked
     assert "it" not in masked.split("FROM")[0]
+
+
+def test_comment_apostrophe_does_not_corrupt_string_literal() -> None:
+    """An apostrophe inside a `--` comment must not flip the masker's
+    quote parity: the string literal after it stays untouched."""
+    sql = (
+        "SELECT 1 AS n FROM `proj.raw.rows` -- don't scan too much\n"
+        "WHERE JSON_VALUE(row, '$.note') = 'FROM raw.rows' "
+        "AND document_id IN ('d') LIMIT 10"
+    )
+    out, rewritten = normalize_table_references(sql, settings=_settings())
+    assert out == sql
+    assert rewritten == []
+
+
+def test_bare_ref_after_comment_apostrophe_still_rewritten() -> None:
+    sql = (
+        "SELECT 1 AS n -- what's the total\n"
+        "FROM raw.rows WHERE document_id IN ('d') LIMIT 10"
+    )
+    out, rewritten = normalize_table_references(sql, settings=_settings())
+    assert "FROM `proj.raw.rows`" in out
+    assert rewritten == ["raw.rows"]
+    # The comment itself is preserved verbatim.
+    assert "-- what's the total" in out
+
+
+def test_ref_inside_comments_untouched() -> None:
+    for sql in (
+        "SELECT 1 AS n FROM `proj.raw.rows` "
+        "/* was: FROM raw.rows */ WHERE document_id IN ('d') LIMIT 10",
+        "SELECT 1 AS n FROM `proj.raw.rows` -- was: FROM raw.rows\n"
+        "WHERE document_id IN ('d') LIMIT 10",
+        "SELECT 1 AS n FROM `proj.raw.rows` # was: FROM raw.rows\n"
+        "WHERE document_id IN ('d') LIMIT 10",
+    ):
+        out, rewritten = normalize_table_references(sql, settings=_settings())
+        assert out == sql, sql
+        assert rewritten == [], sql
+
+
+def test_masking_blanks_comment_contents() -> None:
+    masked = agent_tools._mask_string_literals(
+        "SELECT 1 -- it's a note\nFROM raw.rows /* don't */ WHERE x = 'y'"
+    )
+    assert "it" not in masked
+    assert "don" not in masked
+    assert "FROM raw.rows" in masked
+    # Length-preserving so spans map back to the original.
+    assert len(masked) == len(
+        "SELECT 1 -- it's a note\nFROM raw.rows /* don't */ WHERE x = 'y'"
+    )
+
+
+def test_backtick_identifier_with_apostrophe_does_not_break_scan() -> None:
+    """A quote inside a backtick identifier must not open a phantom
+    string literal; refs after it are still rewritten and backticked
+    table refs stay matchable in the masked text."""
+    masked = agent_tools._mask_string_literals(
+        "SELECT `it's odd` FROM `raw.rows` WHERE x = 'y'"
+    )
+    assert "`raw.rows`" in masked
+    sql = (
+        "SELECT `it's odd` AS o FROM raw.rows "
+        "WHERE document_id IN ('d') LIMIT 10"
+    )
+    out, rewritten = normalize_table_references(sql, settings=_settings())
+    assert "FROM `proj.raw.rows`" in out
+    assert rewritten == ["raw.rows"]

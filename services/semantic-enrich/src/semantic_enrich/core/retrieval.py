@@ -323,21 +323,19 @@ def fetch_document_samples(
             continue
         doc_samples = samples.setdefault(doc_id, {})
         for key, value in body.items():
+            # All-NULL columns carry no signal; skipping them here also
+            # keeps them from eating the column cap — in a sparse wide
+            # row the value-bearing columns are exactly the ones the
+            # payload must keep.
+            if value is None:
+                continue
             column = str(key)
             if column not in doc_samples and len(doc_samples) >= max_columns:
-                continue
-            if value is None:
-                doc_samples.setdefault(column, [])
                 continue
             doc_samples.setdefault(column, []).append(
                 str(value)[:max_chars]
             )
-    # All-NULL columns carry no signal — drop their empty lists so the
-    # payload only shows columns with real values.
-    return {
-        doc_id: {c: vals for c, vals in cols.items() if vals}
-        for doc_id, cols in samples.items()
-    }
+    return samples
 
 
 def _require_project(settings: Settings) -> str:

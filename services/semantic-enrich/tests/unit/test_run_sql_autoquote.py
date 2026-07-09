@@ -204,3 +204,53 @@ def test_run_sql_without_corrections_omits_normalizations() -> None:
     )
     assert result["status"] == "ok"
     assert "normalizations" not in result
+
+
+def test_autoquote_survives_comment_with_apostrophe() -> None:
+    sql = (
+        "SELECT JSON_VALUE(r.row, '$.2020-21_Exp') AS e -- year's exp\n"
+        "FROM `proj.raw.rows` r WHERE r.document_id IN ('d') LIMIT 10"
+    )
+    out, changed = autoquote_json_paths(sql)
+    assert "'$.\"2020-21_Exp\"'" in out
+    assert changed == ["$.2020-21_Exp"]
+
+
+def test_autoquote_ignores_path_shape_inside_comment() -> None:
+    sql = (
+        "SELECT JSON_VALUE(r.row, '$.Amount') AS a "
+        "-- old: JSON_VALUE(r.row, '$.2020-21_Exp')\n"
+        "FROM `proj.raw.rows` r WHERE r.document_id IN ('d') LIMIT 10"
+    )
+    out, changed = autoquote_json_paths(sql)
+    assert out == sql
+    assert changed == []
+
+
+def test_double_quoted_path_literal_rewritten() -> None:
+    """BigQuery accepts double-quoted string literals; the rewrite
+    normalizes to a single-quoted literal with the segment quoted."""
+    sql = 'SELECT JSON_VALUE(r.row, "$.2020-21_Exp") AS e FROM t'
+    out, changed = autoquote_json_paths(sql)
+    assert "JSON_VALUE(r.row, '$.\"2020-21_Exp\"')" in out
+    assert changed == ["$.2020-21_Exp"]
+
+
+def test_double_quoted_clean_path_untouched() -> None:
+    sql = 'SELECT JSON_VALUE(r.row, "$.Amount") AS a FROM t'
+    out, changed = autoquote_json_paths(sql)
+    assert out == sql
+    assert changed == []
+
+
+def test_autoquote_rewrites_array_json_functions() -> None:
+    for func in (
+        "JSON_VALUE_ARRAY",
+        "JSON_QUERY_ARRAY",
+        "JSON_EXTRACT_ARRAY",
+        "JSON_EXTRACT_STRING_ARRAY",
+    ):
+        sql = f"SELECT {func}(r.row, '$.2020-21_Amts') AS a FROM t"
+        out, changed = autoquote_json_paths(sql)
+        assert f"{func}(r.row, '$.\"2020-21_Amts\"')" in out, func
+        assert changed == ["$.2020-21_Amts"], func

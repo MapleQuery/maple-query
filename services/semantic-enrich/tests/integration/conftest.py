@@ -44,7 +44,7 @@ class FakeBqClient:
             elapsed_ms=0, timed_out=False, error=None,
         )
         self.bounded_calls: list[str] = []
-        # 6.2 describe_corpus surface: table_ref → num_rows metadata.
+        # describe_corpus surface: table_ref → num_rows metadata.
         self.table_num_rows_by_ref: dict[str, int] = {}
         self.table_num_rows_calls: list[str] = []
 
