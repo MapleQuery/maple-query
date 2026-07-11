@@ -452,8 +452,10 @@ uv run semantic-enrich eval --agent-mode --questions eval/questions-agent-traces
 uv run semantic-enrich eval --agent-mode --questions eval/questions-agent-traces.yaml \
   --output eval/reports/agent-traces-baseline-v1.json
 
-# Self-test without OpenAI/BQ (canned client, no network).
-uv run semantic-enrich eval --agent-mode --dry-run --limit 3 --output /tmp/agent-dry.json
+# Self-test without OpenAI/BQ (canned client, no network). --questions is
+# required here too — the default fixture is the retrieval harness's.
+uv run semantic-enrich eval --agent-mode --dry-run --limit 3 \
+  --questions eval/questions-agent-traces.yaml --output /tmp/agent-dry.json
 ```
 
 The fixture (`eval/questions-agent-traces.yaml`) is derived from real agent traffic: every entry carries the verbatim user question, `expected.triage` (`in_scope | off_scope | meta | clarify`) and `expected.outcome` (`answered | no_data | deflected | clarify`) labels, optional `packages_any_of` / `must_caveat`, and an `observed_v1` record of what the loop actually did in the source traces. The report records terminal state, final message, tool-call count, dollars, and per-call token series per question — no automatic grading; it is the denominator for before/after comparisons of loop changes. This is a manual, occasional capture (14 questions, well under $1) — do not schedule repeated runs.
