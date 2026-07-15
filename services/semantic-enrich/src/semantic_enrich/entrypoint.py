@@ -51,22 +51,18 @@ import typer
 from semantic_enrich.clients.bq import RealBqClient
 from semantic_enrich.clients.openai import OpenAIClient, RealOpenAIClient
 from semantic_enrich.config.settings import Settings
-from semantic_enrich.core.agent_cache import ResponseCache
+from semantic_enrich.core.agent_dispatch import (
+    LoopHandle,
+    build_loop_handle,
+)
 from semantic_enrich.core.agent_eval import (
     AgentEvalRequest,
     AgentQuestionSetError,
     run_agent_eval,
 )
 from semantic_enrich.core.agent_events import AgentEvent, Done, ErrorEvent
-from semantic_enrich.core.agent_loop import (
-    ChatRequest,
-    LoopDeps,
-    load_system_prompt,
-    make_snapshot_hash_provider,
-)
+from semantic_enrich.core.agent_request import ChatRequest
 from semantic_enrich.core.agent_tracing import (
-    log_prompt_gauge,
-    run_turn_traced,
     session_span_map_from_settings,
 )
 from semantic_enrich.core.column_generator import (
@@ -737,6 +733,14 @@ def eval_run(
             "retrieval harness. Expects the agent-traces fixture schema."
         ),
     ),
+    loop_impl: str | None = typer.Option(
+        None,
+        "--loop-impl",
+        help=(
+            "Agent-mode only: which loop serves the turns (v1 or v2). "
+            "Default: settings.agent_loop_impl (WHENRICH_AGENT_LOOP_IMPL)."
+        ),
+    ),
 ) -> None:
     """Run the retrieval-validation harness — or, with --agent-mode,
     the agent-loop baseline capture — against the fixture."""
@@ -762,8 +766,12 @@ def eval_run(
             limit=limit,
             output=output,
             question_ids=question_ids,
+            loop_impl=_validated_loop_impl(loop_impl, log=log),
         )
         return
+    if loop_impl is not None:
+        log.error("loop_impl_requires_agent_mode")
+        raise typer.Exit(3)
 
     if not dry_run:
         if not settings.gcp_project_id:
@@ -836,6 +844,17 @@ def eval_run(
     typer.echo(json.dumps(asdict(summary), indent=2, default=str))
 
 
+def _validated_loop_impl(
+    loop_impl: str | None, *, log: Any
+) -> Any:
+    if loop_impl is None:
+        return None
+    if loop_impl not in ("v1", "v2"):
+        log.error("invalid_loop_impl", loop_impl=loop_impl)
+        raise typer.Exit(3)
+    return loop_impl
+
+
 def _run_agent_eval_cli(
     *,
     settings: Settings,
@@ -844,51 +863,16 @@ def _run_agent_eval_cli(
     limit: int | None,
     output: Path | None,
     question_ids: list[str] | None = None,
+    loop_impl: Any = None,
 ) -> None:
-    """`eval --agent-mode` body: build loop deps the same way `chat`
-    does, then replay the labeled fixture through the loop."""
-    if dry_run:
-        bq_client: Any = _StubBqClient()
-        openai_client: Any = _CannedChatClient()
-    else:
-        if not settings.gcp_project_id:
-            log.error("missing_project_id", subcommand="eval --agent-mode")
-            raise typer.Exit(3)
-        try:
-            bq_client = RealBqClient.for_project(settings.gcp_project_id)
-        except Exception as exc:
-            log.error("bq_auth_failed", error=str(exc))
-            raise typer.Exit(3) from exc
-        openai_client = _build_openai_client(
-            settings=settings, log=log, dry_run=False
-        )
-
-    try:
-        prompt, prompt_hash = load_system_prompt(
-            settings.agent_system_prompt_path, settings
-        )
-    except RuntimeError as exc:
-        log.error("prompt_load_failed", error=str(exc))
-        raise typer.Exit(3) from exc
-
-    deps = LoopDeps(
-        bq=bq_client,
-        openai_client=openai_client,
+    """`eval --agent-mode` body: build the flag-selected loop the same
+    way `chat` does, then replay the labeled fixture through it."""
+    handle = _build_loop_handle_cli(
         settings=settings,
-        system_prompt=prompt,
-        prompt_hash=prompt_hash,
-        cache=ResponseCache(
-            max_entries=settings.agent_cache_max_entries,
-            max_value_bytes=settings.agent_cache_max_value_bytes,
-            ttl_seconds=settings.agent_cache_ttl_seconds,
-        ),
-        snapshot_hash_provider=(
-            (lambda: "dry-run") if dry_run
-            else make_snapshot_hash_provider(bq_client, settings)
-        ),
-        system_prompt_tokens=log_prompt_gauge(
-            prompt=prompt, prompt_hash=prompt_hash, settings=settings
-        ),
+        log=log,
+        dry_run=dry_run,
+        subcommand="eval --agent-mode",
+        loop_impl=loop_impl,
     )
 
     request = AgentEvalRequest(
@@ -899,7 +883,10 @@ def _run_agent_eval_cli(
     )
     try:
         report = run_agent_eval(
-            request=request, settings=settings, deps=deps
+            request=request,
+            settings=settings,
+            deps=handle.deps,
+            loop_impl=handle.loop_impl,
         )
     except AgentQuestionSetError as exc:
         log.error("agent_fixture_invalid", error=str(exc))
@@ -921,8 +908,46 @@ def _run_agent_eval_cli(
 
 
 # ──────────────────────────────────────────────────────────────────
-# chat  (laptop, 5.1 agent loop demo)
+# chat  (laptop agent loop demo)
 # ──────────────────────────────────────────────────────────────────
+
+
+def _build_loop_handle_cli(
+    *,
+    settings: Settings,
+    log: Any,
+    dry_run: bool,
+    subcommand: str,
+    loop_impl: Any = None,
+) -> LoopHandle:
+    """Shared `chat` / `eval --agent-mode` construction: clients,
+    prompt, cache, and the flag-selected loop, with CLI exit codes."""
+    if dry_run:
+        bq_client: Any = _StubBqClient()
+        openai_client: Any = _CannedChatClient()
+    else:
+        if not settings.gcp_project_id:
+            log.error("missing_project_id", subcommand=subcommand)
+            raise typer.Exit(3)
+        try:
+            bq_client = RealBqClient.for_project(settings.gcp_project_id)
+        except Exception as exc:
+            log.error("bq_auth_failed", error=str(exc))
+            raise typer.Exit(3) from exc
+        openai_client = _build_openai_client(
+            settings=settings, log=log, dry_run=False
+        )
+    try:
+        return build_loop_handle(
+            settings=settings,
+            bq=bq_client,
+            openai_client=openai_client,
+            snapshot_hash_provider=(lambda: "dry-run") if dry_run else None,
+            loop_impl=loop_impl,
+        )
+    except RuntimeError as exc:
+        log.error("prompt_load_failed", error=str(exc))
+        raise typer.Exit(3) from exc
 
 
 @app.command("chat")
@@ -943,59 +968,31 @@ def chat(
         "--dry-run/--no-dry-run",
         help="Skip openai/bq; smoke the loop with a fixed canned response.",
     ),
+    loop_impl: str | None = typer.Option(
+        None,
+        "--loop-impl",
+        help=(
+            "Which loop serves the turns (v1 or v2). Default: "
+            "settings.agent_loop_impl (WHENRICH_AGENT_LOOP_IMPL)."
+        ),
+    ),
 ) -> None:
-    """REPL wrapper around the 5.1 agent loop. Terminal demo surface.
+    """REPL wrapper around the agent loop. Terminal demo surface.
 
     Reads a line, streams events as pretty-printed structured logs,
     prints the final answer, prompts again. Not a shipping product
-    surface — 5.2 wraps the loop in an HTTP handler for the web app.
+    surface — agent-service wraps the loop in HTTP for the web app.
     """
     configure_logging()
     log = get_logger("semantic_enrich.entrypoint")
     settings = Settings()
 
-    if dry_run:
-        bq_client: Any = _StubBqClient()
-        openai_client: Any = _CannedChatClient()
-    else:
-        if not settings.gcp_project_id:
-            log.error("missing_project_id", subcommand="chat")
-            raise typer.Exit(3)
-        try:
-            bq_client = RealBqClient.for_project(settings.gcp_project_id)
-        except Exception as exc:
-            log.error("bq_auth_failed", error=str(exc))
-            raise typer.Exit(3) from exc
-        openai_client = _build_openai_client(
-            settings=settings, log=log, dry_run=False
-        )
-
-    try:
-        prompt, prompt_hash = load_system_prompt(
-            settings.agent_system_prompt_path, settings
-        )
-    except RuntimeError as exc:
-        log.error("prompt_load_failed", error=str(exc))
-        raise typer.Exit(3) from exc
-
-    deps = LoopDeps(
-        bq=bq_client,
-        openai_client=openai_client,
+    handle = _build_loop_handle_cli(
         settings=settings,
-        system_prompt=prompt,
-        prompt_hash=prompt_hash,
-        cache=ResponseCache(
-            max_entries=settings.agent_cache_max_entries,
-            max_value_bytes=settings.agent_cache_max_value_bytes,
-            ttl_seconds=settings.agent_cache_ttl_seconds,
-        ),
-        snapshot_hash_provider=(
-            (lambda: "dry-run") if dry_run
-            else make_snapshot_hash_provider(bq_client, settings)
-        ),
-        system_prompt_tokens=log_prompt_gauge(
-            prompt=prompt, prompt_hash=prompt_hash, settings=settings
-        ),
+        log=log,
+        dry_run=dry_run,
+        subcommand="chat",
+        loop_impl=_validated_loop_impl(loop_impl, log=log),
     )
     session_spans = session_span_map_from_settings(settings)
 
@@ -1004,7 +1001,10 @@ def chat(
     if history_file is not None and history_file.exists():
         history = _read_history(history_file)
 
-    typer.echo(f"# MapleQuery chat (conversation_id={cid}, dry_run={dry_run})")
+    typer.echo(
+        f"# MapleQuery chat (conversation_id={cid}, dry_run={dry_run}, "
+        f"loop_impl={handle.loop_impl})"
+    )
     typer.echo("# Type an empty line to exit.")
     while True:
         try:
@@ -1021,9 +1021,8 @@ def chat(
         )
         assistant_message = ""
         try:
-            for event in run_turn_traced(
-                request=request,
-                deps=deps,
+            for event in handle.run_turn(
+                request,
                 session_parent=session_spans.get_or_create(cid),
             ):
                 _print_event(event)

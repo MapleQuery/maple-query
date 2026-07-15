@@ -422,7 +422,11 @@ def test_dispatch_routes_to_impl() -> None:
         tool_name="search_datasets",
         args={"query": "housing"},
     )
-    assert result == {"candidates": [], "top_similarity": None}
+    assert result == {
+        "candidates": [],
+        "top_similarity": None,
+        "reformulation_threshold": 0.5,
+    }
 
 
 def test_check_doc_column_pairing_union_all_split_passes() -> None:

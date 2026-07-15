@@ -164,3 +164,15 @@ layers = [
   "semantic_enrich.config",
   "semantic_enrich.types",
 ]
+
+[[tool.importlinter.contracts]]
+# The two turn orchestrators must stay independent until the v1 loop
+# is deleted: shared code lives in neutral modules (agent_request,
+# agent_events, agent_tools, agent_history, agent_cache); only the
+# dispatch/tracing layer may import both.
+name = "Loop v1 and v2 do not import each other"
+type = "independence"
+modules = [
+  "semantic_enrich.core.agent_loop",
+  "semantic_enrich.core.agent",
+]

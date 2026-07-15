@@ -13,6 +13,7 @@ from pathlib import Path
 
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core.agent_cache import ResponseCache
+from semantic_enrich.core.agent_dispatch import build_loop_handle
 from semantic_enrich.core.agent_events import Done, MessageDelta, TurnStart
 from semantic_enrich.core.agent_loop import (
     ChatRequest,
@@ -70,3 +71,46 @@ def test_scripted_conversation_streams_expected_events() -> None:
     assert any(
         isinstance(e, MessageDelta) and "[canned]" in e.delta for e in events
     )
+
+
+def test_scripted_conversation_through_the_v2_pipeline() -> None:
+    """Same scripted turn served by `build_loop_handle` with the flag
+    set to v2 — the dry-run smoke behind `chat --loop-impl v2`."""
+    settings = Settings(
+        gcp_project_id="proj",
+        openai_api_key="sk-test",  # type: ignore[arg-type]
+        agent_cache_replay_delay_ms=0,
+        agent_loop_impl="v2",
+        agent_prompt_v2_path=(
+            _SERVICE_ROOT / "agent" / "prompts" / "v2" / "system.j2"
+        ),
+    )
+    bq = FakeBqClient()
+    bq.register_query("VECTOR_SEARCH", [])
+    openai = FakeOpenAIClient(
+        vector_factory=lambda _t: [1.0 / math.sqrt(1536)] * 1536,
+        chat_script=[{"content": "[canned] no data available."}],
+    )
+    handle = build_loop_handle(
+        settings=settings,
+        bq=bq,
+        openai_client=openai,
+        snapshot_hash_provider=lambda: "dry-run",
+    )
+    assert handle.loop_impl == "v2"
+    events = list(
+        handle.run_turn(
+            ChatRequest(
+                conversation_id="test-conv",
+                history=[],
+                question="hello agent",
+            )
+        )
+    )
+    assert isinstance(events[-1], Done)
+    assert any(isinstance(e, TurnStart) for e in events)
+    assert any(
+        isinstance(e, MessageDelta) and "[canned]" in e.delta for e in events
+    )
+    # The v2 prompt actually rendered (identity line included).
+    assert "You are MapleQuery" in handle.deps.system_prompt

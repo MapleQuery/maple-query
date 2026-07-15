@@ -19,6 +19,9 @@ from semantic_enrich.core.agent_events import (
     Done,
     ErrorEvent,
     MessageDelta,
+    PhaseStart,
+    PlanHint,
+    Reformulation,
     RetrievalStarted,
     Rows,
     SampleRows,
@@ -26,8 +29,11 @@ from semantic_enrich.core.agent_events import (
     SqlGenerated,
     SqlGuarded,
     ToolError,
+    TriageResult,
+    TurnRecordEvent,
     TurnStart,
     TurnTimeout,
+    Verification,
     from_sse_frame,
 )
 
@@ -56,6 +62,30 @@ CASES = [
     ToolError(tool="run_sql", message="bad sql"),
     Done(turn_id="t1", total_tool_calls=3, total_dollars=0.01, elapsed_ms=1200),
     ErrorEvent(message="boom", retryable=False, reason="test"),
+    PhaseStart(phase="triage"),
+    TriageResult(
+        category="in_scope", confidence=0.9, elapsed_ms=12, enforced=False
+    ),
+    Reformulation(
+        original_query="housing",
+        reformulated_query="federal housing spending",
+        top_similarity_before=0.31,
+    ),
+    Verification(
+        fits=True,
+        action="accept",
+        confidence=0.8,
+        reason="answer grounded in rows",
+        enforced=False,
+    ),
+    PlanHint(
+        records_used=[
+            {"question_gist": "housing spend", "package_ids": ["pkg-1"]}
+        ]
+    ),
+    TurnRecordEvent(
+        record={"turn_id": "t1", "packages": ["pkg-1"], "loop_impl": "v2"}
+    ),
 ]
 
 
