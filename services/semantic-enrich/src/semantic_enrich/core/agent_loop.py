@@ -35,22 +35,12 @@ from semantic_enrich.core.agent_cache import (
     ResponseCache,
     cache_key,
 )
+
+# Re-exported: the request type moved to neutral ground so the v2
+# pipeline can share it without importing this module. Existing
+# imports (`from agent_loop import ChatRequest`) keep working.
+from semantic_enrich.core.agent_request import ChatRequest as ChatRequest
 from semantic_enrich.providers.logging import get_logger
-
-
-@dataclass(frozen=True)
-class ChatRequest:
-    """One `POST /chat`-shaped input.
-
-    `history` follows OpenAI's chat message schema: role, content,
-    tool_calls, tool_call_id. `question` is appended by the loop as
-    the current turn's user message — the client sends it separately
-    so the loop can key the cache off just the current question.
-    """
-
-    conversation_id: str
-    history: list[dict[str, Any]]
-    question: str
 
 
 @dataclass

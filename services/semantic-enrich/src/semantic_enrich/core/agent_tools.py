@@ -364,7 +364,15 @@ def run_search_datasets(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
             candidates=candidates, top_similarity=top_similarity
         )
     )
-    return {"candidates": candidates, "top_similarity": top_similarity}
+    return {
+        "candidates": candidates,
+        "top_similarity": top_similarity,
+        # Weak-retrieval floor, surfaced in the result so the prompt
+        # can reference "the threshold in the search result" and the
+        # reformulation policy can tune it as a setting rather than a
+        # prompt edit.
+        "reformulation_threshold": ctx.settings.agent_reformulation_threshold,
+    }
 
 
 def run_search_columns(

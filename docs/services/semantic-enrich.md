@@ -456,6 +456,12 @@ uv run semantic-enrich eval --agent-mode --questions eval/questions-agent-traces
 # required here too — the default fixture is the retrieval harness's.
 uv run semantic-enrich eval --agent-mode --dry-run --limit 3 \
   --questions eval/questions-agent-traces.yaml --output /tmp/agent-dry.json
+
+# Same capture through the v2 pipeline (see "Turn pipeline v2"); the
+# report's loop_impl field records which loop produced it.
+uv run semantic-enrich eval --agent-mode --loop-impl v2 \
+  --questions eval/questions-agent-traces.yaml \
+  --output eval/reports/agent-traces-baseline-v2.json
 ```
 
 The fixture (`eval/questions-agent-traces.yaml`) is derived from real agent traffic: every entry carries the verbatim user question, `expected.triage` (`in_scope | off_scope | meta | clarify`) and `expected.outcome` (`answered | no_data | deflected | clarify`) labels, optional `packages_any_of` / `must_caveat`, and an `observed_v1` record of what the loop actually did in the source traces. The report records terminal state, final message, tool-call count, dollars, and per-call token series per question — no automatic grading; it is the denominator for before/after comparisons of loop changes. This is a manual, occasional capture (14 questions, well under $1) — do not schedule repeated runs.
@@ -497,6 +503,19 @@ Every deterministic rule the system prompt used to spell out is enforced inside 
 **`search_datasets`** exposes `similarity` (`round(1 - distance, 4)`) per candidate and `top_similarity` on the envelope.
 
 **`describe_corpus`** is a zero-arg read-only tool for corpus meta-questions ("how many rows do you have?"): package/document counts from the small metadata tables, `rows_total` from table metadata (`get_table`, free — `raw.rows` is never scanned), freshness from `MAX(load_attempted_at)` over loaded `raw.documents` rows (the semantic tables only carry `generated_at`; `raw.rows.loaded_at` would mean scanning the big table). Cached in-process for `WHENRICH_AGENT_SNAPSHOT_REFRESH_SECONDS`; still counts against the tool-call budget.
+
+## Turn pipeline v2 (`agent_loop_impl`)
+
+Two turn orchestrators ship side by side, selected by `WHENRICH_AGENT_LOOP_IMPL` (`v1` default; `--loop-impl` overrides on `chat` and `eval --agent-mode`):
+
+- **v1** — `core/agent_loop.py`, the single-generator loop.
+- **v2** — `core/agent/` (`pipeline.py` + `research.py` + `phases.py`), the same turn as five explicit phases: triage → memory → research → verify → answer. Phases return their events (`TriageOutcome` / `RecallOutcome` / `Verdict` carry `events: list[AgentEvent]`); the orchestrator is the only generator, so event ordering is auditable in one place. The research phase is v1's model/tool loop extracted verbatim; budgets and the wall-clock are charged through `TurnContext` so a verify-triggered retry pays into the same per-turn meters.
+
+Triage/memory/verify are identity stubs for now (`PassthroughTriage`, `NoopMemory`, `AlwaysFitsVerifier`), so **v2-with-stubs behaves exactly like v1** — `tests/integration/test_v1_v2_parity_stubbed.py` pins event-stream parity (modulo the additive v2 event types) on happy-path, budget-forced, invalid-history, and cache-replay scripts. `NoopMemory` delegates to the existing `agent_history.compact` / `agent_cache`, replay quirks included, until the real memory phase replaces it.
+
+Sharing rules: both loops share tools, retrieval, guard, executor, event types, settings, and the wire type `core/agent_request.ChatRequest` (which now carries an optional, currently-ignored `turn_records` field). They never import each other — an import-linter `independence` contract enforces it; only `core/agent_dispatch.py` (flag → deps + driver, used by the CLI and agent-service) and `core/agent_tracing.py` (the shared turn-span wrapper, which stamps `loop_impl` on every turn span) know both.
+
+Additive SSE event types emitted by v2 (v1 consumers ignore unknown types): `phase_start`, `turn_record` (live now), `triage_result`, `reformulation`, `verification`, `plan_hint` (declared for the phase implementations to fill). Prompt v2 (`agent/prompts/v2/system.j2`, ≤1.3K tokens CI-enforced by `tests/unit/test_prompt_v2.py`) drops every rule the tools now enforce and adds the citation contract: datasets are cited as `[<title>](/datasets/<package_id>)` with both parts verbatim from the turn's tool results. `search_datasets` surfaces `reformulation_threshold` (`WHENRICH_AGENT_REFORMULATION_THRESHOLD`, default 0.5) next to `top_similarity` so the prompt's weak-retrieval hook references a tool-owned number.
 
 ## How the library API is used
 

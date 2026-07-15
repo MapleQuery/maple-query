@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from typing import Literal
 
 from dotenv import find_dotenv
 from pydantic import AliasChoices, Field, SecretStr
@@ -240,6 +241,25 @@ class Settings(BaseSettings):
             _find_service_dir() / "agent" / "prompts" / "system.j2"
         )
     )
+
+    # ── turn pipeline (loop v2) ──
+    # Which orchestrator serves turns. Both ship in the same image;
+    # flipping requires only a redeploy with this env var.
+    agent_loop_impl: Literal["v1", "v2"] = "v1"
+    # The v2 system prompt (leaner: tool-side enforcement replaced the
+    # rule prose). Loaded only when agent_loop_impl == "v2".
+    agent_prompt_v2_path: Path = Field(
+        default_factory=lambda: (
+            _find_service_dir() / "agent" / "prompts" / "v2" / "system.j2"
+        )
+    )
+    # Verify-phase retry gate: how many times a verdict of "retry" may
+    # re-enter research within one turn.
+    agent_verify_max_retries: int = 1
+    # Weak-retrieval floor surfaced in the search_datasets result: a
+    # top_similarity below this suggests reformulating the query before
+    # concluding the data is missing.
+    agent_reformulation_threshold: float = 0.5
 
     # Model cost accounting (observability only; not enforced).
     # $/1K tokens; defaults match gpt-4o's published rates.

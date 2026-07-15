@@ -8,6 +8,7 @@ runs a request.
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -16,15 +17,17 @@ from fastapi import Request
 from semantic_enrich.clients.bq import BqClient, RealBqClient
 from semantic_enrich.clients.openai import OpenAIClient, RealOpenAIClient
 from semantic_enrich.config.settings import Settings
-from semantic_enrich.core.agent_cache import ResponseCache
-from semantic_enrich.core.agent_loop import (
-    LoopDeps,
-    load_system_prompt,
-    make_snapshot_hash_provider,
+from semantic_enrich.core.agent_dispatch import (
+    LoopImpl,
+    build_loop_handle,
+    resolve_run_turn,
 )
+from semantic_enrich.core.agent_events import AgentEvent
+from semantic_enrich.core.agent_request import ChatRequest
 from semantic_enrich.core.agent_tracing import (
     SessionSpanMap,
-    log_prompt_gauge,
+    TracedDeps,
+    run_turn_traced,
     session_span_map_from_settings,
 )
 from semantic_enrich.providers.braintrust_tracing import configure_braintrust
@@ -49,9 +52,12 @@ class AppState:
 
     service_settings: AgentServiceSettings
     loop_settings: Settings
-    loop_deps: LoopDeps
+    loop_deps: TracedDeps
     bq: BqClient
     openai_client: OpenAIClient
+    # Which orchestrator serves `/chat` turns. Must match the flavour
+    # of `loop_deps`; `build_app_state` builds both from one flag.
+    loop_impl: LoopImpl = "v1"
     # Optional PostHog client. `None` when no key is configured — every
     # capture call site null-checks before firing.
     posthog: object | None = None
@@ -63,6 +69,23 @@ class AppState:
             max_entries=1000, ttl_seconds=86_400
         )
     )
+
+    def run_turn(
+        self,
+        request: ChatRequest,
+        *,
+        session_parent: str | None = None,
+    ) -> Iterator[AgentEvent]:
+        """The traced turn driver for the configured loop. Routes call
+        this instead of importing an orchestrator module."""
+        events: Iterator[AgentEvent] = run_turn_traced(
+            request=request,
+            deps=self.loop_deps,
+            session_parent=session_parent,
+            run_turn_fn=resolve_run_turn(self.loop_impl),
+            loop_impl=self.loop_impl,
+        )
+        return events
 
 
 def build_loop_settings(service_settings: AgentServiceSettings) -> Settings:
@@ -128,34 +151,23 @@ def build_app_state(service_settings: AgentServiceSettings) -> AppState:
         request_timeout_s=loop_settings.openai_request_timeout_s,
         max_retries=loop_settings.openai_max_retries,
     )
-    prompt, prompt_hash = load_system_prompt(
-        loop_settings.agent_system_prompt_path, loop_settings
+    handle = build_loop_handle(
+        settings=loop_settings, bq=bq, openai_client=openai_client
     )
-    cache = ResponseCache(
-        max_entries=loop_settings.agent_cache_max_entries,
-        max_value_bytes=loop_settings.agent_cache_max_value_bytes,
-        ttl_seconds=loop_settings.agent_cache_ttl_seconds,
-    )
-    loop_deps = LoopDeps(
-        bq=bq,
-        openai_client=openai_client,
-        settings=loop_settings,
-        system_prompt=prompt,
-        prompt_hash=prompt_hash,
-        cache=cache,
-        snapshot_hash_provider=make_snapshot_hash_provider(bq, loop_settings),
-        system_prompt_tokens=log_prompt_gauge(
-            prompt=prompt, prompt_hash=prompt_hash, settings=loop_settings
-        ),
+    _log.info(
+        "loop_impl_selected",
+        loop_impl=handle.loop_impl,
+        prompt_hash=handle.prompt_hash,
     )
     posthog_client = build_posthog_client(service_settings)
     _log.info("posthog_configured", active=posthog_client is not None)
     return AppState(
         service_settings=service_settings,
         loop_settings=loop_settings,
-        loop_deps=loop_deps,
+        loop_deps=handle.deps,
         bq=bq,
         openai_client=openai_client,
+        loop_impl=handle.loop_impl,
         posthog=posthog_client,
         session_spans=session_span_map_from_settings(loop_settings),
     )

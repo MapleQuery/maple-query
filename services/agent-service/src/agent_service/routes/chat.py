@@ -1,8 +1,9 @@
 """`POST /chat` — SSE-framed agent turn.
 
-Delegates the whole turn to the 5.1 loop; the route only marshals the
-request body, wraps the sync event iterator into an async byte stream,
-and slaps the SSE-required response headers on the way out.
+Delegates the whole turn to the flag-selected loop via
+`AppState.run_turn`; the route only marshals the request body, wraps
+the sync event iterator into an async byte stream, and slaps the
+SSE-required response headers on the way out.
 """
 from __future__ import annotations
 
@@ -14,8 +15,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from semantic_enrich.core.agent_events import Done, ErrorEvent
-from semantic_enrich.core.agent_loop import ChatRequest
-from semantic_enrich.core.agent_tracing import run_turn_traced
+from semantic_enrich.core.agent_request import ChatRequest
 from starlette.concurrency import run_in_threadpool
 
 from agent_service.auth import BearerAuth
@@ -38,6 +38,9 @@ class ChatBody(BaseModel):
     conversation_id: str = Field(..., min_length=1, max_length=64)
     question: str = Field(..., min_length=1)
     history: list[dict[str, Any]] = Field(default_factory=list)
+    # Client-persisted turn memory. Wire shape settled ahead of the
+    # phase that consumes it; accepted and ignored by both loops.
+    turn_records: list[dict[str, Any]] = Field(default_factory=list)
 
 
 @router.post("/chat", dependencies=[BearerAuth])
@@ -50,6 +53,7 @@ async def chat(
         conversation_id=body.conversation_id,
         history=body.history,
         question=body.question,
+        turn_records=body.turn_records,
     )
 
     # Session-span parent lookup is a no-op (None) when tracing is off;
@@ -61,11 +65,7 @@ async def chat(
     session_parent = await run_in_threadpool(
         state.session_spans.get_or_create, body.conversation_id
     )
-    events = run_turn_traced(
-        request=chat_request,
-        deps=state.loop_deps,
-        session_parent=session_parent,
-    )
+    events = state.run_turn(chat_request, session_parent=session_parent)
 
     started = time.monotonic()
     tool_calls_total = 0

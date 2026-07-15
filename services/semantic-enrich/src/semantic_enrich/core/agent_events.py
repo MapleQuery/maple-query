@@ -35,7 +35,15 @@ EventType = Literal[
     "tool_error",
     "done",
     "error",
+    "phase_start",
+    "triage_result",
+    "reformulation",
+    "verification",
+    "plan_hint",
+    "turn_record",
 ]
+
+PhaseName = Literal["triage", "memory", "research", "verify", "answer"]
 
 
 @dataclass(frozen=True)
@@ -257,6 +265,79 @@ class ErrorEvent(_EventBase):
         return "error"
 
 
+# ── pipeline (v2) additive events ──
+# Declared as a set so the phase PRs that populate them share one
+# schema. All are optional for consumers: the web app's SSE handler
+# skips unknown event types.
+
+
+@dataclass(frozen=True)
+class PhaseStart(_EventBase):
+    phase: PhaseName
+
+    @property
+    def event_type(self) -> EventType:
+        return "phase_start"
+
+
+@dataclass(frozen=True)
+class TriageResult(_EventBase):
+    category: str
+    confidence: float
+    elapsed_ms: int
+    enforced: bool
+
+    @property
+    def event_type(self) -> EventType:
+        return "triage_result"
+
+
+@dataclass(frozen=True)
+class Reformulation(_EventBase):
+    original_query: str
+    reformulated_query: str
+    top_similarity_before: float | None
+
+    @property
+    def event_type(self) -> EventType:
+        return "reformulation"
+
+
+@dataclass(frozen=True)
+class Verification(_EventBase):
+    fits: bool
+    action: str
+    confidence: float
+    reason: str
+    enforced: bool
+
+    @property
+    def event_type(self) -> EventType:
+        return "verification"
+
+
+@dataclass(frozen=True)
+class PlanHint(_EventBase):
+    records_used: list[dict[str, Any]]
+
+    @property
+    def event_type(self) -> EventType:
+        return "plan_hint"
+
+
+@dataclass(frozen=True)
+class TurnRecordEvent(_EventBase):
+    """Carries the full turn-record JSON. The record schema is owned by
+    the memory phase; until it lands the pipeline emits the minimal
+    skeleton it can assemble from the turn context."""
+
+    record: dict[str, Any]
+
+    @property
+    def event_type(self) -> EventType:
+        return "turn_record"
+
+
 AgentEvent = (
     TurnStart
     | CacheHit
@@ -276,6 +357,12 @@ AgentEvent = (
     | ToolError
     | Done
     | ErrorEvent
+    | PhaseStart
+    | TriageResult
+    | Reformulation
+    | Verification
+    | PlanHint
+    | TurnRecordEvent
 )
 
 
@@ -298,6 +385,12 @@ _EVENT_CLASSES: dict[str, type[_EventBase]] = {
     "tool_error": ToolError,
     "done": Done,
     "error": ErrorEvent,
+    "phase_start": PhaseStart,
+    "triage_result": TriageResult,
+    "reformulation": Reformulation,
+    "verification": Verification,
+    "plan_hint": PlanHint,
+    "turn_record": TurnRecordEvent,
 }
 
 

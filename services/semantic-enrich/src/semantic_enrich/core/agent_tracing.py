@@ -29,9 +29,16 @@ from dataclasses import dataclass, field, replace
 
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import agent_events
+from semantic_enrich.core.agent.phases import PipelineDeps
 from semantic_enrich.core.agent_loop import ChatRequest, LoopDeps, run_turn
 from semantic_enrich.providers import braintrust_tracing
 from semantic_enrich.providers.logging import get_logger
+
+# Both orchestrators share the deps fields this wrapper touches
+# (settings, prompt_hash, snapshot_hash_provider, system_prompt_tokens,
+# trace_parent), so one driver traces either loop.
+TracedDeps = LoopDeps | PipelineDeps
+RunTurnFn = Callable[..., Iterator[agent_events.AgentEvent]]
 
 
 def tracing_active(settings: Settings) -> bool:
@@ -121,8 +128,10 @@ class TurnObserver:
 def run_turn_traced(
     *,
     request: ChatRequest,
-    deps: LoopDeps,
+    deps: TracedDeps,
     session_parent: str | None = None,
+    run_turn_fn: RunTurnFn | None = None,
+    loop_impl: str = "v1",
 ) -> Iterator[agent_events.AgentEvent]:
     """Drive one turn with an `agent.run_turn` span around it.
 
@@ -133,9 +142,13 @@ def run_turn_traced(
     so `wrap_openai` auto-spans attach even when the caller iterates
     from a threadpool.
 
-    With tracing off this is a plain passthrough to `run_turn`."""
+    `run_turn_fn` selects the orchestrator (default: the v1 loop);
+    `loop_impl` is stamped on the turn span so runs are attributable.
+
+    With tracing off this is a plain passthrough to the loop."""
+    driver: RunTurnFn = run_turn_fn if run_turn_fn is not None else run_turn
     if not tracing_active(deps.settings):
-        yield from run_turn(request=request, deps=deps)
+        yield from driver(request=request, deps=deps)
         return
 
     # One snapshot-hash lookup serves both the span metadata and the
@@ -153,7 +166,7 @@ def run_turn_traced(
         metadata={
             "prompt_hash": deps.prompt_hash,
             "snapshot_hash": snapshot_hash,
-            "loop_impl": "v1",
+            "loop_impl": loop_impl,
             "system_prompt_tokens": deps.system_prompt_tokens,
         },
     ) as span:
@@ -163,7 +176,7 @@ def run_turn_traced(
             trace_parent=span.export() or None,
         )
         observer = TurnObserver()
-        inner = run_turn(request=request, deps=turn_deps)
+        inner = driver(request=request, deps=turn_deps)
         try:
             while True:
                 with braintrust_tracing.span_current_scope(span):

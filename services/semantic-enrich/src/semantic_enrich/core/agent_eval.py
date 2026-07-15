@@ -27,8 +27,13 @@ import structlog
 import yaml
 
 from semantic_enrich.config.settings import Settings
-from semantic_enrich.core.agent_loop import ChatRequest, LoopDeps
+from semantic_enrich.core.agent_dispatch import (
+    LoopImpl,
+    resolve_run_turn,
+)
+from semantic_enrich.core.agent_request import ChatRequest
 from semantic_enrich.core.agent_tracing import (
+    TracedDeps,
     TurnObserver,
     run_turn_traced,
     session_span_map_from_settings,
@@ -191,7 +196,8 @@ def run_agent_eval(
     *,
     request: AgentEvalRequest,
     settings: Settings,
-    deps: LoopDeps,
+    deps: TracedDeps,
+    loop_impl: LoopImpl = "v1",
     logger: structlog.BoundLogger | None = None,
 ) -> dict[str, Any]:
     """Run every fixture question through the loop, one fresh
@@ -237,6 +243,8 @@ def run_agent_eval(
             request=chat_request,
             deps=deps,
             session_parent=session_map.get_or_create(conversation_id),
+            run_turn_fn=resolve_run_turn(loop_impl),
+            loop_impl=loop_impl,
         ):
             observer.observe(event)
         elapsed_ms = int((time.monotonic() - turn_started) * 1000)
@@ -279,7 +287,7 @@ def run_agent_eval(
     report: dict[str, Any] = {
         "run_id": request.run_id,
         "mode": "agent",
-        "loop_impl": "v1",
+        "loop_impl": loop_impl,
         "started_at": started.isoformat(),
         "finished_at": finished.isoformat(),
         "fixture_path": str(settings.eval_questions_path),
