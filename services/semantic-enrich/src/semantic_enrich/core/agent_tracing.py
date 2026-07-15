@@ -83,6 +83,8 @@ class TurnObserver:
         self.tokens_out_per_call: list[int] = []
         self._prev_tokens_in = 0
         self._prev_tokens_out = 0
+        # Set when the turn emitted a triage_result (v2 loop only).
+        self.triage: dict[str, object] | None = None
 
     def observe(self, event: agent_events.AgentEvent) -> None:
         if isinstance(event, agent_events.TurnStart):
@@ -99,6 +101,12 @@ class TurnObserver:
             )
             self._prev_tokens_in = event.tokens_in_total
             self._prev_tokens_out = event.tokens_out_total
+        elif isinstance(event, agent_events.TriageResult):
+            self.triage = {
+                "category": event.category,
+                "confidence": event.confidence,
+                "enforced": event.enforced,
+            }
         elif isinstance(event, agent_events.Done):
             self.tool_call_count = event.total_tool_calls
             self.dollars_spent = event.total_dollars
@@ -117,12 +125,15 @@ class TurnObserver:
         }
 
     def metadata(self) -> dict[str, object]:
-        return {
+        meta: dict[str, object] = {
             "turn_id": self.turn_id,
             "cached": self.cached,
             "tokens_in_per_call": self.tokens_in_per_call,
             "tokens_out_per_call": self.tokens_out_per_call,
         }
+        if self.triage is not None:
+            meta["triage"] = self.triage
+        return meta
 
 
 def run_turn_traced(

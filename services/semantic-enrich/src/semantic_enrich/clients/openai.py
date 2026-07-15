@@ -90,8 +90,12 @@ class OpenAIClient(Protocol):
         model: str,
         temperature: float,
         max_tokens: int,
+        timeout_s: float | None = None,
     ) -> StructuredGenerationResult:
         """Single-shot Structured Outputs call.
+
+        `timeout_s` overrides the client-level request timeout for this
+        call — used by callers with a hard per-call deadline (triage).
 
         `strict: true` at the vendor makes the response schema-conforming
         by construction. A schema violation despite that is a vendor
@@ -192,10 +196,16 @@ class RealOpenAIClient:
         model: str,
         temperature: float,
         max_tokens: int,
+        timeout_s: float | None = None,
     ) -> StructuredGenerationResult:
         parsed: dict[str, Any] = {}
         tokens_in = 0
         tokens_out = 0
+        # Per-request timeout override; the SDK accepts request options
+        # on `create`. Omitted → client-level default applies.
+        extra: dict[str, Any] = (
+            {"timeout": timeout_s} if timeout_s is not None else {}
+        )
         for attempt in self._retry:
             with attempt:
                 response = self._client.chat.completions.create(
@@ -203,6 +213,7 @@ class RealOpenAIClient:
                     messages=[{"role": "user", "content": prompt}],
                     temperature=temperature,
                     max_tokens=max_tokens,
+                    **extra,
                     response_format={
                         "type": "json_schema",
                         "json_schema": {

@@ -256,6 +256,24 @@ class Settings(BaseSettings):
     # Verify-phase retry gate: how many times a verdict of "retry" may
     # re-enter research within one turn.
     agent_verify_max_retries: int = 1
+
+    # ── query triage phase (loop v2) ──
+    # "off" skips classification entirely (kill switch); "log" is
+    # shadow mode — classify and emit events but never short-circuit;
+    # "act" deflects off_scope/meta/clarify turns before research.
+    agent_triage_mode: Literal["off", "log", "act"] = "log"
+    agent_triage_model: str = "gpt-4o-mini"
+    # Hard deadline for the classifier call. Triage may slow a turn by
+    # at most this much; on timeout the turn fails open to research.
+    agent_triage_timeout_ms: int = 2000
+    # Below this confidence a non-in_scope classification is not acted
+    # on (fail-open) — it is still logged for shadow-mode tuning.
+    agent_triage_min_confidence: float = 0.75
+    agent_triage_prompt_path: Path = Field(
+        default_factory=lambda: (
+            _find_service_dir() / "agent" / "prompts" / "v2" / "triage.j2"
+        )
+    )
     # Weak-retrieval floor surfaced in the search_datasets result: a
     # top_similarity below this suggests reformulating the query before
     # concluding the data is missing.

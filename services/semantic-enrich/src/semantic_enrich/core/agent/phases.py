@@ -165,6 +165,9 @@ class TurnContext:
     tool_call_count: int = 0
     verify_retries_used: int = 0
     reformulations_used: int = 0
+    # Stamped by the orchestrator after the triage phase so the turn
+    # record carries the routing decision.
+    triage_category: str = "in_scope"
     turn_start_emitted: bool = False
     history_messages: list[dict[str, Any]] = field(default_factory=list)
     trace: TurnTrace = field(default_factory=TurnTrace)
