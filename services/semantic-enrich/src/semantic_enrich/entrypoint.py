@@ -761,6 +761,7 @@ def eval_run(
             dry_run=dry_run,
             limit=limit,
             output=output,
+            question_ids=question_ids,
         )
         return
 
@@ -842,6 +843,7 @@ def _run_agent_eval_cli(
     dry_run: bool,
     limit: int | None,
     output: Path | None,
+    question_ids: list[str] | None = None,
 ) -> None:
     """`eval --agent-mode` body: build loop deps the same way `chat`
     does, then replay the labeled fixture through the loop."""
@@ -893,6 +895,7 @@ def _run_agent_eval_cli(
         run_id=settings.eval_run_id,
         limit=limit,
         output_override=output,
+        question_ids=tuple(question_ids) if question_ids else None,
     )
     try:
         report = run_agent_eval(

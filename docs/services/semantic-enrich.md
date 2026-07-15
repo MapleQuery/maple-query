@@ -496,7 +496,7 @@ Every deterministic rule the system prompt used to spell out is enforced inside 
 
 **`search_datasets`** exposes `similarity` (`round(1 - distance, 4)`) per candidate and `top_similarity` on the envelope.
 
-**`describe_corpus`** is a zero-arg read-only tool for corpus meta-questions ("how many rows do you have?"): package/document counts from the small metadata tables, `rows_total` from table metadata (`get_table`, free — `raw.rows` is never scanned), freshness from `MAX(loaded_at)`. Cached in-process for `WHENRICH_AGENT_SNAPSHOT_REFRESH_SECONDS`; still counts against the tool-call budget.
+**`describe_corpus`** is a zero-arg read-only tool for corpus meta-questions ("how many rows do you have?"): package/document counts from the small metadata tables, `rows_total` from table metadata (`get_table`, free — `raw.rows` is never scanned), freshness from `MAX(load_attempted_at)` over loaded `raw.documents` rows (the semantic tables only carry `generated_at`; `raw.rows.loaded_at` would mean scanning the big table). Cached in-process for `WHENRICH_AGENT_SNAPSHOT_REFRESH_SECONDS`; still counts against the tool-call budget.
 
 ## How the library API is used
 

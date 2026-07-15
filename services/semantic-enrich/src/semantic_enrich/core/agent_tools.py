@@ -752,8 +752,10 @@ def _fetch_corpus_stats(
     }
 
 
-# COUNTs over the small metadata tables only; the MAX(loaded_at) mirrors
-# the snapshot-hash provider's freshness query.
+# COUNTs over the small metadata tables only. Freshness comes from
+# `raw.documents.load_attempted_at` — the warehouse's actual load
+# timestamp; the semantic tables only carry `generated_at` (enrichment
+# time), and `raw.rows.loaded_at` would mean scanning the big table.
 _CORPUS_STATS_SQL = """
 SELECT
   (SELECT COUNT(*)
@@ -761,8 +763,9 @@ SELECT
   (SELECT COUNT(*)
    FROM `{project_id}.{raw_dataset}.{documents_table}`
    WHERE load_status = 'loaded') AS documents_loaded,
-  (SELECT CAST(MAX(loaded_at) AS STRING)
-   FROM `{project_id}.{semantic_dataset}.{datasets_table}`) AS latest_load_at
+  (SELECT CAST(MAX(load_attempted_at) AS STRING)
+   FROM `{project_id}.{raw_dataset}.{documents_table}`
+   WHERE load_status = 'loaded') AS latest_load_at
 """.strip()
 
 
