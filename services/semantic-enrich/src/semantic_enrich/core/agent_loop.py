@@ -135,20 +135,24 @@ def make_snapshot_hash_provider(
     """Return a callable that emits the current warehouse snapshot hash.
 
     Refreshed by the caller on `agent_snapshot_refresh_seconds`; the
-    provider itself just runs the two MAX(loaded_at) queries."""
+    provider itself just runs the two MAX(generated_at) queries."""
     project_id = settings.gcp_project_id
     if not project_id:
         # No project → no meaningful snapshot; the cache key falls back
         # to a stable literal, effectively disabling snapshot
         # invalidation. Only expected under `--dry-run`.
         return lambda: "no-snapshot"
+    # The semantic tables carry `generated_at` (enrichment time), not
+    # `loaded_at` — the original MAX(loaded_at) form raised BadRequest
+    # on every call and the defensive except pinned the snapshot to
+    # "unknown-snapshot", silently disabling cache invalidation.
     sql_ds = (
-        f"SELECT CAST(MAX(loaded_at) AS STRING) AS max_ts "
+        f"SELECT CAST(MAX(generated_at) AS STRING) AS max_ts "
         f"FROM `{project_id}.{settings.bq_dataset_semantic}."
         f"{settings.bq_datasets_table}`"
     )
     sql_cols = (
-        f"SELECT CAST(MAX(loaded_at) AS STRING) AS max_ts "
+        f"SELECT CAST(MAX(generated_at) AS STRING) AS max_ts "
         f"FROM `{project_id}.{settings.bq_dataset_semantic}."
         f"{settings.bq_columns_table}`"
     )
@@ -361,8 +365,11 @@ def run_turn(
         )
 
         # 3e. Budget check BEFORE executing the batch. Each call in the
-        # batch consumes one slot; refuse the whole batch when it would
-        # push us past the cap.
+        # batch consumes one slot; refuse calls past the cap. The
+        # assistant message above already recorded every tool_call_id,
+        # and the OpenAI API rejects the whole conversation unless each
+        # one gets a tool response — so refused calls still receive a
+        # `budget_exceeded` tool message, never silence.
         remaining_calls = (
             deps.settings.agent_max_tool_calls - state.tool_call_count
         )
@@ -374,6 +381,8 @@ def run_turn(
             )
             events.append(over_event)
             yield over_event
+            for tc in completion.tool_calls:
+                messages.append(_budget_refusal_msg(tc))
             # Force one final assistant turn with a synthetic user
             # message. The system prompt covers the "stop and answer"
             # path; here we make the situation explicit.
@@ -391,9 +400,11 @@ def run_turn(
             budget_forced = True
             continue
 
-        # 3f. Execute the batch (capped concurrency).
+        # 3f. Execute the batch (capped concurrency). Calls past the
+        # remaining budget are refused with a tool message, not dropped.
         batch = completion.tool_calls[:remaining_calls]
-        if len(batch) < len(completion.tool_calls):
+        refused = completion.tool_calls[remaining_calls:]
+        if refused:
             over_event = agent_events.BudgetExceeded(
                 which="tool_calls",
                 value=state.tool_call_count + len(completion.tool_calls),
@@ -408,6 +419,8 @@ def run_turn(
                 events.append(te)
                 yield te
             messages.append(tool_msg)
+        for tc in refused:
+            messages.append(_budget_refusal_msg(tc))
         state.tool_call_count += len(batch)
 
         # 3g. If we forced budget above, this iteration was the final
@@ -496,6 +509,26 @@ def _execute_batch(
         for fut in futures:
             results.append(fut.result())
     return results
+
+
+def _budget_refusal_msg(tc: ChatToolCall) -> dict[str, Any]:
+    """Tool response for a call refused by the tool-call budget.
+
+    Every tool_call_id recorded on an assistant message must get a
+    tool message — the OpenAI API 400s the next request otherwise."""
+    return {
+        "role": "tool",
+        "tool_call_id": tc.id,
+        "content": json.dumps(
+            {
+                "status": "budget_exceeded",
+                "message": (
+                    "Tool-call budget exhausted; this call was not "
+                    "executed. Answer from what you already have."
+                ),
+            }
+        ),
+    }
 
 
 def _run_one(

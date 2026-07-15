@@ -452,8 +452,10 @@ uv run semantic-enrich eval --agent-mode --questions eval/questions-agent-traces
 uv run semantic-enrich eval --agent-mode --questions eval/questions-agent-traces.yaml \
   --output eval/reports/agent-traces-baseline-v1.json
 
-# Self-test without OpenAI/BQ (canned client, no network).
-uv run semantic-enrich eval --agent-mode --dry-run --limit 3 --output /tmp/agent-dry.json
+# Self-test without OpenAI/BQ (canned client, no network). --questions is
+# required here too — the default fixture is the retrieval harness's.
+uv run semantic-enrich eval --agent-mode --dry-run --limit 3 \
+  --questions eval/questions-agent-traces.yaml --output /tmp/agent-dry.json
 ```
 
 The fixture (`eval/questions-agent-traces.yaml`) is derived from real agent traffic: every entry carries the verbatim user question, `expected.triage` (`in_scope | off_scope | meta | clarify`) and `expected.outcome` (`answered | no_data | deflected | clarify`) labels, optional `packages_any_of` / `must_caveat`, and an `observed_v1` record of what the loop actually did in the source traces. The report records terminal state, final message, tool-call count, dollars, and per-call token series per question — no automatic grading; it is the denominator for before/after comparisons of loop changes. This is a manual, occasional capture (14 questions, well under $1) — do not schedule repeated runs.
@@ -474,6 +476,27 @@ session:<conversation_id>            one root per conversation (created once,
 - **Tool spans** parent to the turn span by export string (robust across pool threads) and log digests only: full SQL + rationale for `run_sql`, first-3-rows samples, candidate lists reduced to ids + distance. Never full row payloads.
 - **Prompt gauge**: `system_prompt_gauge` is logged at startup with the tiktoken count of the rendered system prompt; a unit test bounds it under 3.0K tokens so silent prompt growth fails CI.
 - **Kill switch**: `WHENRICH_AGENT_TRACE_SESSIONS=false` (or simply no Braintrust key) turns every wrapper into a passthrough; the loop's event stream is identical either way.
+
+## Self-enforcing tool contract
+
+Every deterministic rule the system prompt used to spell out is enforced inside the tools (`core/agent_tools.py` + `core/retrieval.py`); the prompt keeps one-liners. Tool names and existing schema fields are frozen — everything below is additive or server-side. Normalization lives in `core/sql_normalize.py` and is shared by every LLM-SQL door: the agent's `run_sql` and the offline eval runner both call `normalize_sql` before the guard, so eval scores grade the SQL production actually runs.
+
+**`run_sql` hardening** (order: normalize tables → auto-quote JSONPaths → pairing check → guard → execute → NULL-ratio advisory):
+
+- *Table normalization*: bare `raw.rows`, backticked `` `raw.rows` ``, and placeholder-project forms (`<project>`, `PROJECT_ID`, …) after `FROM`/`JOIN` are rewritten to `` `<project>.raw.rows` `` before guarding. The scan masks string literals, `--`/`#`/`/* */` comments, and quote characters inside backtick identifiers first, so a `raw.rows` inside a quoted string or comment is never touched and an apostrophe in a comment can't desync the scan. The guard still runs after and remains the authority on allowed tables.
+- *JSONPath auto-quoting*: for `JSON_VALUE` / `JSON_QUERY` / `JSON_EXTRACT` / `JSON_EXTRACT_SCALAR` and their `_ARRAY` variants, when the second arg is a string-literal path (single- or double-quoted), bare segments not matching `[A-Za-z_][A-Za-z0-9_]*` get double-quoted (`$.2020-21_Exp` → `$."2020-21_Exp"`); already-quoted segments and anything unparseable (array subscripts / bracketed keys, escapes, non-literal args) pass through untouched — the prompt tells the model bracketed keys are its own job. The rewritten SQL is what runs and what `sql_guarded`/`sql_executed` events show; the tool result's `normalizations` field (`json_paths_quoted`, `tables_rewritten`) teaches the model the corrected form, and the `agent_autoquote_applied` structlog counter measures how often it was needed.
+- *Pairing check scoping*: set-operation queries are pairing-checked per arm, so the sanctioned cross-doc pattern — one SELECT per doc combined with `UNION ALL`, each arm referencing only its own doc's columns — passes instead of being cross-product-rejected. Violations within an arm still reject.
+- *NULL-ratio advisory*: columns whose NULL share of the returned rows is ≥ `WHENRICH_AGENT_NULL_RATIO_THRESHOLD` (default 0.8) get a `null_ratio_warning` in the tool result and on `sql_executed`. `status` stays `"ok"` — it's a hint that the referenced key probably doesn't match the row bodies. Zero-row results, `document_id`, and ungrouped-aggregate output columns (including BigQuery's `f0_` auto-names; windowed aggregates stay in scope) are excluded. An ungrouped aggregate that comes back all-NULL instead gets an `aggregate_null_note` — NULL there is ambiguous between zero matching rows and a semantically wrong column, so the note asks the model to disambiguate with a `COUNT(*)` before answering "no data".
+
+**`list_documents` enrichment**:
+
+- Per-column `column_samples` ride alongside the unchanged `columns` list — one batched, cluster-pruned query per call (`WHENRICH_AGENT_SAMPLE_VALUES_ROWS` rows/doc, values truncated to `WHENRICH_AGENT_SAMPLE_VALUE_MAX_CHARS`, keys capped at `WHENRICH_AGENT_SAMPLE_VALUES_MAX_COLUMNS`), sharing `sample_rows`' budget posture. Sampling failure degrades to no samples, never a tool error.
+- Docs whose `__col_N` share of columns exceeds `WHENRICH_AGENT_GENERATED_HEADER_RATIO` (default 0.5) carry `"quality": "low_generated_headers"` and sort after all clean docs — demoted, not dropped.
+- Optional `required_columns` filter returns only docs containing every listed column (with `filtered_out` diagnostics); if nothing satisfies it, the full listing comes back with `required_columns_unsatisfiable: true` instead of an empty result.
+
+**`search_datasets`** exposes `similarity` (`round(1 - distance, 4)`) per candidate and `top_similarity` on the envelope.
+
+**`describe_corpus`** is a zero-arg read-only tool for corpus meta-questions ("how many rows do you have?"): package/document counts from the small metadata tables, `rows_total` from table metadata (`get_table`, free — `raw.rows` is never scanned), freshness from `MAX(load_attempted_at)` over loaded `raw.documents` rows (the semantic tables only carry `generated_at`; `raw.rows.loaded_at` would mean scanning the big table). Cached in-process for `WHENRICH_AGENT_SNAPSHOT_REFRESH_SECONDS`; still counts against the tool-call budget.
 
 ## How the library API is used
 

@@ -175,3 +175,96 @@ def test_mixed_outcome_run(tmp_path: Path) -> None:
     md_path = settings.eval_reports_dir / "mixed.md"
     assert json_path.exists()
     assert md_path.exists()
+
+
+def test_generated_sql_is_normalized_before_guard(tmp_path: Path) -> None:
+    """The eval runner must grade the SQL production would run: bare
+    table refs and bare hyphenated JSONPaths are normalized before the
+    guard sees them, same as the agent's run_sql tool."""
+    payload = [
+        {
+            "id": "q01",
+            "question": "How much did we spend on housing?",
+            "domain": "housing",
+            "expected_packages": [],
+            "expected_columns": [],
+            "must_return_rows": True,
+        }
+    ]
+    fixture = tmp_path / "questions.yaml"
+    fixture.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    settings = Settings(
+        gcp_project_id="proj",
+        openai_api_key="sk-test",  # type: ignore[arg-type]
+        eval_questions_path=fixture,
+        eval_prompt_template=_copy_template(tmp_path),
+        eval_reports_dir=tmp_path / "reports",
+    )
+
+    bq = FakeBqClient()
+    bq.register_query("COUNT(*) AS n", [{"n": 10}])
+    bq.register_query("COUNT(*) AS n", [{"n": 100}])
+    bq.register_query("ARRAY_LENGTH(embedding)", [{"dim": 1536}])
+    bq.register_query("VECTOR_SEARCH", [
+        {"package_id": "pkg-1", "summary": "housing", "grain": None,
+         "measures": [], "dimensions": [], "distance": 0.1}
+    ])
+    bq.register_query("VECTOR_SEARCH", [
+        {"package_id": "pkg-1", "column_name": "2020-21_Expenditures",
+         "semantic_type": "currency", "description": "spend",
+         "sample_values": [], "distance": 0.15}
+    ])
+    bq.register_query("load_status = 'loaded'", [
+        {"document_id": "doc-1", "package_id": "pkg-1",
+         "title": "Housing 2023", "row_count": 42,
+         "resource_last_modified": None},
+    ])
+    bq.register_query("JSON_KEYS(row)", [
+        {"document_id": "doc-1", "columns": ["2020-21_Expenditures"]},
+    ])
+    bq.register_bounded_query(
+        "doc-1",
+        BoundedQueryResult(
+            rows=[{"e": "1"}],
+            total_bytes_billed=1024,
+            slot_ms=10,
+            elapsed_ms=50,
+            timed_out=False,
+            error=None,
+        ),
+    )
+
+    client = FakeOpenAIClient(
+        vector_factory=lambda _t: [1.0 / math.sqrt(1536)] * 1536,
+        structured_responses=[
+            {
+                # Bare table ref AND bare hyphenated path — both fixed
+                # by normalization in prod.
+                "sql": (
+                    "SELECT JSON_VALUE(r.row, '$.2020-21_Expenditures') "
+                    "AS e FROM raw.rows AS r "
+                    "WHERE r.document_id IN ('doc-1') LIMIT 10"
+                ),
+                "rationale": "housing spend",
+                "answer_summary": "one row",
+            }
+        ],
+    )
+    request = EvalRequest(
+        run_id="normalized",
+        dry_run=False,
+        no_execute=False,
+        limit=None,
+        question_ids=None,
+        max_bytes_billed_override=None,
+        output_override=None,
+    )
+    summary = run_eval(
+        request=request, settings=settings, bq=bq, openai_client=client
+    )
+    assert summary.sql_valid_count == 1
+    assert summary.answered_count == 1
+    executed = [sql for sql in bq.bounded_calls if "doc-1" in sql]
+    assert executed
+    assert "`proj.raw.rows`" in executed[-1]
+    assert "'$.\"2020-21_Expenditures\"'" in executed[-1]

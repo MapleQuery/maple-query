@@ -184,6 +184,7 @@ class AgentEvalRequest:
     run_id: str
     limit: int | None
     output_override: Path | None
+    question_ids: tuple[str, ...] | None = None
 
 
 def run_agent_eval(
@@ -201,6 +202,14 @@ def run_agent_eval(
     started = datetime.now(UTC)
 
     questions = load_agent_question_set(settings.eval_questions_path)
+    if request.question_ids:
+        wanted = set(request.question_ids)
+        questions = [q for q in questions if q.id in wanted]
+        missing = wanted - {q.id for q in questions}
+        if missing:
+            raise RuntimeError(
+                f"agent eval question id(s) not in fixture: {sorted(missing)}"
+            )
     if request.limit is not None:
         questions = questions[: request.limit]
 

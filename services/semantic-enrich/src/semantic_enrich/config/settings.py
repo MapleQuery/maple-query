@@ -251,6 +251,23 @@ class Settings(BaseSettings):
     agent_sample_rows_timeout_ms: int = 5_000
     agent_sample_rows_max_bytes_billed: int = 1024 * 1024 * 1024
 
+    # ── self-enforcing tool contract ──
+    # run_sql NULL-ratio advisory: columns whose NULL ratio over the
+    # returned rows meets this threshold get flagged in the tool result.
+    # 0.8 comes from the trace evidence (observed failure: 99/100 NULL);
+    # the emitted counter gives threshold-tuning data.
+    agent_null_ratio_threshold: float = 0.8
+    # list_documents per-column sample values: rows read per doc, chars
+    # kept per value, and columns kept per doc. All three bound the tool
+    # payload the model has to read.
+    agent_sample_values_rows: int = 3
+    agent_sample_value_max_chars: int = 40
+    agent_sample_values_max_columns: int = 30
+    # Docs whose generated-header (`__col_N`) share of columns exceeds
+    # this ratio get quality-flagged and demoted (never dropped —
+    # legitimately wide generated-header tables exist).
+    agent_generated_header_ratio: float = 0.5
+
     # ── Braintrust tracing ──
     # Wrapping the OpenAI client through `braintrust.wrap_openai` sends
     # every generation / embedding / tool call to the Braintrust project.

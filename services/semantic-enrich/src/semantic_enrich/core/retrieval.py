@@ -13,6 +13,7 @@ this corpus size — parent §3.4 commits to this posture; revisit when
 """
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -264,6 +265,79 @@ def _fetch_doc_columns(
     }
 
 
+def fetch_document_samples(
+    *,
+    bq: BqClient,
+    doc_ids: list[str],
+    settings: Settings,
+) -> dict[str, dict[str, list[str]]]:
+    """Per-column sample values for each doc: doc_id → column → values.
+
+    One batched, cluster-pruned query per call (mirrors `sample_rows`'
+    budget posture: bounded bytes, short timeout). Additive enrichment
+    for `list_documents` — any failure degrades to empty samples rather
+    than failing the tool.
+
+    Values are truncated to `agent_sample_value_max_chars` and the key
+    set per doc is capped at `agent_sample_values_max_columns` to bound
+    the payload the model has to read.
+    """
+    if not doc_ids:
+        return {}
+    project_id = _require_project(settings)
+    sql = _DOC_SAMPLES_SQL.format(
+        project_id=project_id,
+        dataset=settings.bq_dataset_raw,
+        rows_table=settings.bq_rows_table,
+    )
+    n = settings.agent_sample_values_rows
+    params: list[
+        bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter
+    ] = [
+        bigquery.ArrayQueryParameter("doc_ids", "STRING", doc_ids),
+        bigquery.ScalarQueryParameter("n", "INT64", n),
+    ]
+    result = bq.run_bounded_query(
+        sql,
+        params=params,
+        timeout_ms=settings.agent_sample_rows_timeout_ms,
+        max_bytes_billed=settings.agent_sample_rows_max_bytes_billed,
+        row_limit=len(doc_ids) * n,
+    )
+    if result.timed_out or result.error:
+        return {}
+    max_chars = settings.agent_sample_value_max_chars
+    max_columns = settings.agent_sample_values_max_columns
+    samples: dict[str, dict[str, list[str]]] = {}
+    ordered = sorted(
+        result.rows,
+        key=lambda r: (str(r.get("document_id")), int(r.get("row_index") or 0)),
+    )
+    for row in ordered:
+        doc_id = str(row.get("document_id"))
+        try:
+            body = json.loads(str(row.get("row_json") or ""))
+        except ValueError:
+            continue
+        if not isinstance(body, dict):
+            continue
+        doc_samples = samples.setdefault(doc_id, {})
+        for key, value in body.items():
+            # All-NULL columns carry no signal; skipping them here also
+            # keeps them from eating the column cap — in a sparse wide
+            # row the value-bearing columns are exactly the ones the
+            # payload must keep.
+            if value is None:
+                continue
+            column = str(key)
+            if column not in doc_samples and len(doc_samples) >= max_columns:
+                continue
+            doc_samples.setdefault(column, []).append(
+                str(value)[:max_chars]
+            )
+    return samples
+
+
 def _require_project(settings: Settings) -> str:
     if not settings.gcp_project_id:
         raise RuntimeError(
@@ -380,6 +454,15 @@ SELECT document_id, package_id, title, row_count, resource_last_modified
 FROM ranked
 WHERE rn <= @max_per_package
 ORDER BY package_id, rn
+""".strip()
+
+
+# Same cluster-pruned literal-IN posture as `_DOC_KEYS_SQL`; the
+# row_index bound keeps the read to the first @n rows per doc.
+_DOC_SAMPLES_SQL = """
+SELECT document_id, row_index, TO_JSON_STRING(row) AS row_json
+FROM `{project_id}.{dataset}.{rows_table}`
+WHERE document_id IN UNNEST(@doc_ids) AND row_index < @n
 """.strip()
 
 

@@ -44,6 +44,9 @@ class FakeBqClient:
             elapsed_ms=0, timed_out=False, error=None,
         )
         self.bounded_calls: list[str] = []
+        # describe_corpus surface: table_ref → num_rows metadata.
+        self.table_num_rows_by_ref: dict[str, int] = {}
+        self.table_num_rows_calls: list[str] = []
 
     # ── Test-side setup ──
 
@@ -160,6 +163,10 @@ class FakeBqClient:
             if fragment in sql:
                 return result
         return self.bounded_default
+
+    def table_num_rows(self, table_ref: str) -> int:
+        self.table_num_rows_calls.append(table_ref)
+        return self.table_num_rows_by_ref.get(table_ref, 0)
 
 
 def fake_generate_json_factory(

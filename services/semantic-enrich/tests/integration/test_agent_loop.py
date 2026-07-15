@@ -58,9 +58,10 @@ def test_prompt_template_renders_and_hashes() -> None:
     prompt, digest = _prompt_bits(settings)
     assert "MapleQuery" in prompt
     assert "raw.rows" in prompt
-    # The doc/column pairing HARD RULE is the load-bearing prompt rule
-    # ported from 4.6 — regressing it re-opens the all-NULL failure mode.
-    assert "HARD RULE" in prompt
+    # The pairing rule is enforced tool-side now (run_sql pairing check
+    # + list_documents required_columns); the prompt keeps a one-liner
+    # pointing at required_columns instead of the old HARD RULE prose.
+    assert "required_columns" in prompt
     assert "document_id" in prompt
     assert len(digest) == 64
 
@@ -224,3 +225,117 @@ def test_prompt_template_file_exists() -> None:
     path = settings.agent_system_prompt_path
     assert isinstance(path, Path)
     assert path.exists(), f"agent prompt template missing at {path}"
+
+
+def _assert_every_tool_call_answered(openai: FakeOpenAIClient) -> None:
+    """The OpenAI-protocol invariant: in every request's message list,
+    each assistant tool_calls id must be followed by a tool message
+    with that tool_call_id — the API 400s the whole request otherwise
+    (the turn-crash failure the 2026-07 fixture runs hit)."""
+    for call in openai.chat_calls:
+        messages = call["messages"]
+        answered = {
+            m.get("tool_call_id")
+            for m in messages
+            if m.get("role") == "tool"
+        }
+        for m in messages:
+            if m.get("role") != "assistant" or not m.get("tool_calls"):
+                continue
+            for tc in m["tool_calls"]:
+                assert tc["id"] in answered, (
+                    f"tool_call_id {tc['id']!r} has no tool response"
+                )
+
+
+def test_parallel_batch_straddling_budget_answers_every_call() -> None:
+    """A parallel batch bigger than the remaining budget must refuse
+    the overflow calls with tool messages, not drop them."""
+    settings = _settings().model_copy(update={"agent_max_tool_calls": 2})
+    bq = FakeBqClient()
+    for _ in range(3):
+        bq.register_query("VECTOR_SEARCH", [])
+    openai = FakeOpenAIClient(
+        vector_factory=lambda _t: [1.0 / math.sqrt(1536)] * 1536,
+        chat_script=[
+            # One parallel batch of 3 against a budget of 2.
+            {
+                "tool_calls": [
+                    {
+                        "id": f"c{i}",
+                        "name": "search_datasets",
+                        "arguments": {"query": q},
+                    }
+                    for i, q in enumerate(("x", "y", "z"))
+                ]
+            },
+            {"content": "Best effort with two searches."},
+        ],
+    )
+    deps = _deps(settings=settings, bq=bq, openai=openai)
+    outcome = run_turn_collected(
+        request=ChatRequest(
+            conversation_id="c1", history=[], question="pick something"
+        ),
+        deps=deps,
+    )
+    types = [e.event_type for e in outcome.events]
+    assert "budget_exceeded" in types
+    assert types[-1] == "done"
+    assert outcome.tool_call_count == 2
+    _assert_every_tool_call_answered(openai)
+    # The refused third call got an explicit budget refusal.
+    final_messages = openai.chat_calls[-1]["messages"]
+    refusals = [
+        m
+        for m in final_messages
+        if m.get("role") == "tool"
+        and m.get("tool_call_id") == "c2"
+        and "budget_exceeded" in m["content"]
+    ]
+    assert len(refusals) == 1
+
+
+def test_budget_block_after_cap_answers_every_call() -> None:
+    """Tool calls requested after the cap is already spent must get
+    budget-refusal tool messages before the forced-answer nudge."""
+    settings = _settings().model_copy(update={"agent_max_tool_calls": 1})
+    bq = FakeBqClient()
+    for _ in range(2):
+        bq.register_query("VECTOR_SEARCH", [])
+    openai = FakeOpenAIClient(
+        vector_factory=lambda _t: [1.0 / math.sqrt(1536)] * 1536,
+        chat_script=[
+            {
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "name": "search_datasets",
+                        "arguments": {"query": "x"},
+                    }
+                ]
+            },
+            # Cap is spent; this request must be refused, not dropped.
+            {
+                "tool_calls": [
+                    {
+                        "id": "c2",
+                        "name": "search_datasets",
+                        "arguments": {"query": "y"},
+                    }
+                ]
+            },
+            {"content": "Answering from what I have."},
+        ],
+    )
+    deps = _deps(settings=settings, bq=bq, openai=openai)
+    outcome = run_turn_collected(
+        request=ChatRequest(
+            conversation_id="c1", history=[], question="pick something"
+        ),
+        deps=deps,
+    )
+    types = [e.event_type for e in outcome.events]
+    assert "budget_exceeded" in types
+    assert types[-1] == "done"
+    _assert_every_tool_call_answered(openai)

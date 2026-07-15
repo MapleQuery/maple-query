@@ -58,6 +58,7 @@ from semantic_enrich.core.sql_generator import (
     prompt_template_hash,
 )
 from semantic_enrich.core.sql_guard import guard
+from semantic_enrich.core.sql_normalize import normalize_sql
 from semantic_enrich.providers.logging import get_logger
 
 # Cap the per-question row sample carried into the report. Full rows
@@ -439,7 +440,20 @@ def _process_question(
         latency_ms=sql_result.latency_ms,
     )
 
-    guard_result = guard(sql=sql_result.sql, bq=bq, settings=settings)
+    # Same deterministic normalization the agent's run_sql applies —
+    # the eval must grade the SQL production would actually run, or its
+    # scores diverge from the deployed behavior.
+    normalized_sql, normalizations = normalize_sql(
+        sql_result.sql, settings=settings
+    )
+    if normalizations:
+        log.info(
+            "sql_normalized",
+            question_id=question.id,
+            normalizations=normalizations,
+        )
+
+    guard_result = guard(sql=normalized_sql, bq=bq, settings=settings)
     inputs.sql_final_text = guard_result.sql_final
     inputs.dry_run_bytes = guard_result.dry_run_bytes
     inputs.sql_valid = guard_result.accepted

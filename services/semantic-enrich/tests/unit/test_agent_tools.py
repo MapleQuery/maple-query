@@ -77,10 +77,17 @@ def test_search_datasets_populates_known_ids() -> None:
     assert result["candidates"][0]["package_id"] == "pkg-1"
     # Title must reach the LLM so it can name datasets by title, not UUID.
     assert result["candidates"][0]["title"] == "Housing spending 2020"
+    # Normalized similarity rides alongside distance; the envelope
+    # carries the max for the weak-retrieval policy.
+    assert result["candidates"][0]["similarity"] == 0.9
+    assert result["top_similarity"] == 0.9
     assert "pkg-1" in ctx.state.known_package_ids
     kinds = [e.event_type for e in events]
     assert "retrieval_started" in kinds
     assert "datasets_ranked" in kinds
+    ranked = [e for e in events if e.event_type == "datasets_ranked"]
+    assert isinstance(ranked[0], agent_events.DatasetsRanked)
+    assert ranked[0].top_similarity == 0.9
 
 
 def test_search_columns_rejects_unknown_package_id() -> None:
@@ -415,4 +422,62 @@ def test_dispatch_routes_to_impl() -> None:
         tool_name="search_datasets",
         args={"query": "housing"},
     )
-    assert result == {"candidates": []}
+    assert result == {"candidates": [], "top_similarity": None}
+
+
+def test_check_doc_column_pairing_union_all_split_passes() -> None:
+    """The sanctioned cross-doc pattern: one SELECT per doc combined
+    with UNION ALL, each arm referencing only its own doc's columns.
+    Each arm is checked independently."""
+    state = agent_tools.LoopState(
+        conversation_id="c", turn_id="t", question="q"
+    )
+    state.doc_columns["doc-1"] = ["A"]
+    state.doc_columns["doc-2"] = ["B"]
+    sql = (
+        "SELECT JSON_VALUE(r.row, '$.A') AS v FROM `proj.raw.rows` AS r "
+        "WHERE r.document_id IN ('doc-1') "
+        "UNION ALL "
+        "SELECT JSON_VALUE(r.row, '$.B') AS v FROM `proj.raw.rows` AS r "
+        "WHERE r.document_id IN ('doc-2') LIMIT 10"
+    )
+    violations, msg = agent_tools.check_doc_column_pairing(
+        sql=sql, state=state
+    )
+    assert violations == []
+    assert msg is None
+
+
+def test_check_doc_column_pairing_union_arm_violation_still_flagged() -> None:
+    """Per-arm scoping must not weaken the check within an arm."""
+    state = agent_tools.LoopState(
+        conversation_id="c", turn_id="t", question="q"
+    )
+    state.doc_columns["doc-1"] = ["A"]
+    state.doc_columns["doc-2"] = ["B"]
+    sql = (
+        "SELECT JSON_VALUE(r.row, '$.B') AS v FROM `proj.raw.rows` AS r "
+        "WHERE r.document_id IN ('doc-1') "
+        "UNION ALL "
+        "SELECT JSON_VALUE(r.row, '$.B') AS v FROM `proj.raw.rows` AS r "
+        "WHERE r.document_id IN ('doc-2') LIMIT 10"
+    )
+    violations, msg = agent_tools.check_doc_column_pairing(
+        sql=sql, state=state
+    )
+    assert len(violations) == 1
+    assert violations[0] == {
+        "column": "B",
+        "doc_id": "doc-1",
+        "available_columns": ["A"],
+        "other_docs_with_column": ["doc-2"],
+    }
+    assert msg is not None
+
+
+def test_pairing_scopes_fall_back_to_whole_sql() -> None:
+    assert agent_tools._pairing_scopes("not really sql (") == [
+        "not really sql ("
+    ]
+    sql = "SELECT 1 FROM raw.rows WHERE document_id IN ('d')"
+    assert agent_tools._pairing_scopes(sql) == [sql]

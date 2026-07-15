@@ -93,6 +93,9 @@ class RetrievalStarted(_EventBase):
 @dataclass(frozen=True)
 class DatasetsRanked(_EventBase):
     candidates: list[dict[str, Any]]
+    # Max cosine similarity over the candidates (additive; None on
+    # recordings that predate the field or when no candidates matched).
+    top_similarity: float | None = field(default=None)
 
     @property
     def event_type(self) -> EventType:
@@ -113,6 +116,10 @@ class ColumnsRanked(_EventBase):
 class DocumentsListed(_EventBase):
     package_ids: list[str]
     documents: list[dict[str, Any]]
+    # required_columns transparency (additive): docs the filter removed
+    # and whether the filter matched nothing (full list returned).
+    filtered_out: list[dict[str, Any]] | None = field(default=None)
+    required_columns_unsatisfiable: bool = field(default=False)
 
     @property
     def event_type(self) -> EventType:
@@ -157,6 +164,8 @@ class SqlExecuted(_EventBase):
     bytes_billed: int
     elapsed_ms: int
     sample_rows: list[dict[str, Any]]
+    # NULL-ratio advisory passthrough (additive, nullable).
+    null_ratio_warning: dict[str, Any] | None = field(default=None)
 
     @property
     def event_type(self) -> EventType:
