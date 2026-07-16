@@ -58,8 +58,25 @@ def test_contains_citation_contract() -> None:
 
 def test_contains_retrieval_and_quality_hooks() -> None:
     prompt = _rendered()
-    assert "reformulation_threshold" in prompt
+    assert "retrieval_quality" in prompt
     assert "null_ratio_warning" in prompt
+    # The model must defer to the in-band verdict, not re-derive it.
+    assert "reformulation_threshold" not in prompt
+    assert "top_similarity" not in prompt
+
+
+def test_contains_reformulation_tactics() -> None:
+    prompt = _rendered()
+    # Bilingual vocabulary is a corpus-specific retrieval tactic.
+    assert "French" in prompt
+    assert "Amount_Montant" in prompt
+    assert "ONE clarifying question" in prompt
+
+
+def test_contains_surrender_contract() -> None:
+    prompt = _rendered()
+    assert "phrasings you tried" in prompt
+    assert "closest candidate" in prompt
 
 
 def test_moved_rule_prose_is_gone() -> None:

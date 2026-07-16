@@ -207,8 +207,25 @@ def test_budget_forced_parity() -> None:
 
     def bq() -> FakeBqClient:
         client = FakeBqClient()
+        # Strong hits: with weak retrieval the v2 loop now grants the
+        # second search a free reformulation retry, which is a real
+        # (intended) v1/v2 divergence — budget parity is only promised
+        # when the policy is inert.
         for _ in range(2):
-            client.register_query("VECTOR_SEARCH", [])
+            client.register_query(
+                "VECTOR_SEARCH",
+                [
+                    {
+                        "package_id": "pkg-1",
+                        "title": "Strong Hit",
+                        "summary": "s",
+                        "grain": None,
+                        "measures": [],
+                        "dimensions": [],
+                        "distance": 0.1,
+                    }
+                ],
+            )
         return client
 
     v1 = _run_v1(

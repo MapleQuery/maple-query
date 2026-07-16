@@ -79,6 +79,21 @@ def _unit_vec(_text: str) -> list[float]:
     return [1.0 / math.sqrt(1536)] * 1536
 
 
+def _strong_row() -> dict[str, Any]:
+    """A confident hit: keeps retrieval_quality "ok" so the
+    reformulation policy stays inert and searches bill normally —
+    these tests are about the budget, not weak retrieval."""
+    return {
+        "package_id": "pkg-1",
+        "title": "Strong Hit",
+        "summary": "s",
+        "grain": None,
+        "measures": [],
+        "dimensions": [],
+        "distance": 0.1,
+    }
+
+
 def test_tool_budget_is_shared_across_verify_retry() -> None:
     """First research pass spends 2 of 3 tool calls; the retry leg asks
     for 2 more — only 1 slot remains, so the overflow call is refused
@@ -86,7 +101,7 @@ def test_tool_budget_is_shared_across_verify_retry() -> None:
     settings = _settings(agent_max_tool_calls=3)
     bq = FakeBqClient()
     for _ in range(3):
-        bq.register_query("VECTOR_SEARCH", [])
+        bq.register_query("VECTOR_SEARCH", [_strong_row()])
     openai = FakeOpenAIClient(
         vector_factory=_unit_vec,
         chat_script=[
@@ -141,7 +156,7 @@ def test_budget_block_forces_final_answer() -> None:
     settings = _settings(agent_max_tool_calls=1)
     bq = FakeBqClient()
     for _ in range(2):
-        bq.register_query("VECTOR_SEARCH", [])
+        bq.register_query("VECTOR_SEARCH", [_strong_row()])
     openai = FakeOpenAIClient(
         vector_factory=_unit_vec,
         chat_script=[

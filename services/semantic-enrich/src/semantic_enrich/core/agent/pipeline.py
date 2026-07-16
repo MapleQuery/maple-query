@@ -252,6 +252,34 @@ def _finish(
     yield done
 
 
+def _outcome(
+    ctx: TurnContext,
+    *,
+    message: str,
+    result: ResearchResult | None,
+) -> str:
+    """Coarse outcome tag for the turn record. A clarify is detected
+    deterministically rather than by parsing intent: the loop served
+    the cap-reached steer, no SQL succeeded, and the final message
+    asks a question."""
+    if result is None:
+        return (
+            "clarify" if ctx.triage_category == "clarify" else "deflected"
+        )
+    if result.terminal_reason in ("error", "timeout"):
+        return "error"
+    sql_succeeded = any(
+        run.get("status") == "ok" for run in result.sql_runs
+    )
+    if (
+        ctx.state.clarify_steer_issued
+        and not sql_succeeded
+        and "?" in message
+    ):
+        return "clarify"
+    return "answered"
+
+
 def _turn_record(
     ctx: TurnContext,
     *,
@@ -266,6 +294,8 @@ def _turn_record(
         "question": ctx.request.question,
         "answer": message,
         "loop_impl": "v2",
+        "outcome": _outcome(ctx, message=message, result=result),
+        "searches": list(ctx.trace.searches),
         "triage_category": ctx.triage_category,
         "terminal_reason": (
             result.terminal_reason if result else "triage_short_circuit"

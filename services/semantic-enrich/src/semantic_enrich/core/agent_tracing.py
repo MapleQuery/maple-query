@@ -85,11 +85,20 @@ class TurnObserver:
         self._prev_tokens_out = 0
         # Set when the turn emitted a triage_result (v2 loop only).
         self.triage: dict[str, object] | None = None
+        # top_similarity of every datasets_ranked event, in call order.
+        # Feeds the similarity-floor calibration report.
+        self.top_similarities: list[float | None] = []
+        # Number of reformulation events (v2 loop only).
+        self.reformulations = 0
 
     def observe(self, event: agent_events.AgentEvent) -> None:
         if isinstance(event, agent_events.TurnStart):
             self.turn_id = event.turn_id
             self.cached = event.cached
+        elif isinstance(event, agent_events.DatasetsRanked):
+            self.top_similarities.append(event.top_similarity)
+        elif isinstance(event, agent_events.Reformulation):
+            self.reformulations += 1
         elif isinstance(event, agent_events.MessageDelta):
             self.final_message += event.delta
         elif isinstance(event, agent_events.CostUpdate):

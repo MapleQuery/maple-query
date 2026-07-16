@@ -130,11 +130,24 @@ def run(
             }
         )
 
+        # Reformulation retries ride free: a re-search after a weak
+        # retrieval signal is not charged against the tool budget for
+        # the first agent_max_reformulations retries, so the retry is
+        # never priced out by the budget spent on the failed attempt.
+        free_retry_ids: set[str] = set()
+        if not budget_forced:
+            free_retry_ids, reformulations = _plan_free_retries(
+                ctx, completion.tool_calls
+            )
+            yield from reformulations
+            ctx.reformulations_used += len(reformulations)
+            ctx.state.reformulations_used = ctx.reformulations_used
+
         # Budget check BEFORE executing the batch. Refused calls still
         # receive a tool message — the OpenAI API rejects the whole
         # conversation unless every tool_call_id gets a response.
         remaining_calls = ctx.remaining_tool_calls()
-        if remaining_calls <= 0 and not budget_forced:
+        if remaining_calls <= 0 and not free_retry_ids and not budget_forced:
             yield agent_events.BudgetExceeded(
                 which="tool_calls",
                 value=ctx.tool_call_count,
@@ -156,14 +169,24 @@ def run(
             budget_forced = True
             continue
 
-        # Execute the batch (capped concurrency). Calls past the
-        # remaining budget are refused with a tool message, not dropped.
-        batch = completion.tool_calls[:remaining_calls]
-        refused = completion.tool_calls[remaining_calls:]
+        # Execute the batch (capped concurrency). Free retries always
+        # run; other calls past the remaining budget are refused with a
+        # tool message, not dropped.
+        batch: list[ChatToolCall] = []
+        refused: list[ChatToolCall] = []
+        billable = 0
+        for tc in completion.tool_calls:
+            if tc.id in free_retry_ids:
+                batch.append(tc)
+            elif billable < remaining_calls:
+                batch.append(tc)
+                billable += 1
+            else:
+                refused.append(tc)
         if refused:
             yield agent_events.BudgetExceeded(
                 which="tool_calls",
-                value=ctx.tool_call_count + len(completion.tool_calls),
+                value=ctx.tool_call_count + billable + len(refused),
                 cap=deps.settings.agent_max_tool_calls,
             )
         for tc, tool_msg, tool_events, result_payload in _execute_batch(
@@ -174,12 +197,57 @@ def run(
             _record_trace(ctx, tc=tc, result=result_payload)
         for tc in refused:
             messages.append(_budget_refusal_msg(tc))
-        ctx.charge_tool_calls(len(batch))
+        ctx.charge_tool_calls(billable)
 
         # If budget was forced above, the next iteration consumes the
         # forced final answer.
         if budget_forced:
             continue
+
+
+def _plan_free_retries(
+    ctx: TurnContext, tool_calls: list[ChatToolCall]
+) -> tuple[set[str], list[agent_events.Reformulation]]:
+    """Identify which `search_datasets` calls in this batch are
+    reformulation retries entitled to the free budget slot, and build
+    their `reformulation` events.
+
+    Decided before execution so budget slicing and the tool-side
+    guidance switching agree: a retry is a *new* query (the duplicate
+    guard replays identical ones from cache, charged) issued after a
+    weak retrieval signal, within `agent_max_reformulations`."""
+    state = ctx.state
+    free: set[str] = set()
+    events: list[agent_events.Reformulation] = []
+    if not state.weak_signal_seen:
+        return free, events
+    prior = next(
+        (o for o in reversed(state.search_outcomes) if o.weak),
+        state.search_outcomes[-1] if state.search_outcomes else None,
+    )
+    seen = set(state.search_results)
+    used = ctx.reformulations_used
+    cap = ctx.deps.settings.agent_max_reformulations
+    for tc in tool_calls:
+        if tc.name != "search_datasets" or used >= cap:
+            continue
+        query = str(tc.arguments.get("query", ""))
+        normalized = agent_tools.normalize_search_query(query)
+        if not normalized or normalized in seen:
+            continue
+        used += 1
+        seen.add(normalized)
+        free.add(tc.id)
+        events.append(
+            agent_events.Reformulation(
+                original_query=prior.query if prior else "",
+                reformulated_query=query,
+                top_similarity_before=(
+                    prior.top_similarity if prior else None
+                ),
+            )
+        )
+    return free, events
 
 
 def _result(
@@ -213,6 +281,15 @@ def _record_trace(
         top = result.get("top_similarity")
         if isinstance(top, int | float):
             ctx.trace.top_similarities.append(float(top))
+        ctx.trace.searches.append(
+            {
+                "query": str(tc.arguments.get("query", "")),
+                "top_similarity": (
+                    float(top) if isinstance(top, int | float) else None
+                ),
+                "retrieval_quality": result.get("retrieval_quality"),
+            }
+        )
     elif tc.name == "list_documents":
         for pid in tc.arguments.get("package_ids") or []:
             if (

@@ -422,11 +422,11 @@ def test_dispatch_routes_to_impl() -> None:
         tool_name="search_datasets",
         args={"query": "housing"},
     )
-    assert result == {
-        "candidates": [],
-        "top_similarity": None,
-        "reformulation_threshold": 0.5,
-    }
+    assert result["candidates"] == []
+    assert result["top_similarity"] is None
+    # Zero candidates is a weak retrieval: verdict + guidance in-band.
+    assert result["retrieval_quality"] == "weak"
+    assert result["guidance"]
 
 
 def test_check_doc_column_pairing_union_all_split_passes() -> None:

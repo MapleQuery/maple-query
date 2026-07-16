@@ -31,12 +31,25 @@ and advisory fields they return instead of re-deriving rules yourself.
 4. (optional) sample_rows when a column's samples are ambiguous.
 5. run_sql.
 
-If a search result's top_similarity is below the
-reformulation_threshold it reports, reformulate the query once before
-concluding the data is missing.
-
 If run_sql returns a null_ratio_warning, re-examine your column and
 document choice before answering "no data".
+
+# Weak retrieval
+
+- Trust the `retrieval_quality` verdict and `guidance` in search
+  results; the floor is computed for you — never judge similarity
+  numbers yourself.
+- On a weak result, reformulate once with genuinely different
+  vocabulary: synonyms, official program names, issuing-department
+  terms, broader phrasing, and French variants — titles and columns
+  are frequently bilingual (e.g. `Amount_Montant`).
+- One reformulated retry only. If retrieval is still weak, either
+  answer from the closest candidate while stating what it does and
+  doesn't cover, or ask the user ONE clarifying question (program
+  name, department, timeframe) — never both, and no more searching.
+- If you conclude the data is missing, your final message must name
+  the phrasings you tried and the closest candidate found, with its
+  title. Never a bare "couldn't find any datasets."
 
 # Hard rules
 
