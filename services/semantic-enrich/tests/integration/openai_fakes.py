@@ -71,6 +71,7 @@ class FakeOpenAIClient:
         model: str,
         temperature: float,
         max_tokens: int,
+        timeout_s: float | None = None,
     ) -> StructuredGenerationResult:
         self.structured_calls.append(
             {
@@ -79,6 +80,7 @@ class FakeOpenAIClient:
                 "model": model,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
+                "timeout_s": timeout_s,
             }
         )
         # Canary preflight is handled independently of the per-question

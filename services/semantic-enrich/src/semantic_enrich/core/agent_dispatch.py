@@ -16,7 +16,7 @@ from semantic_enrich.clients.bq import BqClient
 from semantic_enrich.clients.openai import OpenAIClient
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import agent_events, agent_loop
-from semantic_enrich.core.agent import phases, pipeline
+from semantic_enrich.core.agent import phases, pipeline, triage
 from semantic_enrich.core.agent_cache import ResponseCache
 from semantic_enrich.core.agent_request import ChatRequest
 from semantic_enrich.core.agent_tracing import (
@@ -100,6 +100,14 @@ def build_loop_handle(
     )
     deps: TracedDeps
     if impl == "v2":
+        # The triage kill switch ("off") falls back to the passthrough
+        # stub; "log" and "act" both classify, so both need the prompt
+        # template present at startup.
+        triage_phase: phases.TriagePhase = (
+            phases.PassthroughTriage()
+            if settings.agent_triage_mode == "off"
+            else triage.QueryTriage.from_settings(settings)
+        )
         deps = phases.PipelineDeps(
             bq=bq,
             openai_client=openai_client,
@@ -109,6 +117,7 @@ def build_loop_handle(
             cache=cache,
             snapshot_hash_provider=provider,
             system_prompt_tokens=tokens,
+            triage=triage_phase,
         )
     else:
         deps = agent_loop.LoopDeps(

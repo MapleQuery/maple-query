@@ -76,6 +76,7 @@ def run_turn(
     # ── triage ──
     yield record(agent_events.PhaseStart(phase="triage"))
     triage = deps.triage.classify(ctx)
+    ctx.triage_category = triage.category
     for event in triage.events:
         yield record(event)
     if triage.short_circuit is not None:
@@ -265,6 +266,7 @@ def _turn_record(
         "question": ctx.request.question,
         "answer": message,
         "loop_impl": "v2",
+        "triage_category": ctx.triage_category,
         "terminal_reason": (
             result.terminal_reason if result else "triage_short_circuit"
         ),

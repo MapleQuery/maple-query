@@ -140,6 +140,9 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 pythonpath = ["src"]
+markers = [
+  "live: hits real vendor endpoints (network + cost); run manually, excluded from CI",
+]
 
 [tool.coverage.run]
 source = ["src/semantic_enrich"]

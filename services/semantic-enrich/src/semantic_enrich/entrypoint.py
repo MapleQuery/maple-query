@@ -1096,6 +1096,7 @@ class _CannedChatClient:
         model: str,
         temperature: float,
         max_tokens: int,
+        timeout_s: float | None = None,
     ) -> Any:
         from semantic_enrich.clients.openai import (
             StructuredGenerationResult,
@@ -1229,6 +1230,7 @@ class _StubOpenAIClient:
         model: str,
         temperature: float,
         max_tokens: int,
+        timeout_s: float | None = None,
     ) -> Any:
         raise RuntimeError(
             "openai client not configured; set WHENRICH_OPENAI_API_KEY. "
