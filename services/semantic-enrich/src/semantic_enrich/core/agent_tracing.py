@@ -85,6 +85,8 @@ class TurnObserver:
         self._prev_tokens_out = 0
         # Set when the turn emitted a triage_result (v2 loop only).
         self.triage: dict[str, object] | None = None
+        # Set when the turn emitted verification events (v2 loop only).
+        self.verify: dict[str, object] | None = None
         # top_similarity of every datasets_ranked event, in call order.
         # Feeds the similarity-floor calibration report.
         self.top_similarities: list[float | None] = []
@@ -116,6 +118,19 @@ class TurnObserver:
                 "confidence": event.confidence,
                 "enforced": event.enforced,
             }
+        elif isinstance(event, agent_events.Verification):
+            # First check seeds the entry; a second event means a
+            # verify retry happened and carries the final verdict.
+            if self.verify is None:
+                self.verify = {
+                    "fits_first": event.fits,
+                    "action_first": event.action,
+                    "fits_final": event.fits,
+                    "retried": False,
+                }
+            else:
+                self.verify["fits_final"] = event.fits
+                self.verify["retried"] = True
         elif isinstance(event, agent_events.Done):
             self.tool_call_count = event.total_tool_calls
             self.dollars_spent = event.total_dollars
@@ -142,6 +157,8 @@ class TurnObserver:
         }
         if self.triage is not None:
             meta["triage"] = self.triage
+        if self.verify is not None:
+            meta["verify"] = self.verify
         return meta
 
 

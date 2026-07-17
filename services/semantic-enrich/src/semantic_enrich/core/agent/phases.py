@@ -87,6 +87,14 @@ class Verdict:
     action: Literal["accept", "retry"]
     events: list[agent_events.AgentEvent] = field(default_factory=list)
     hints: list[SystemHint] = field(default_factory=list)
+    # Accept-with-modification: when set, this text ships instead of
+    # the raw candidate (a template-composed caveat wrapping it, or a
+    # clarifying question replacing a surrender). None = unchanged.
+    composed_message: str | None = None
+    # Overrides the turn record's outcome tag when the composed
+    # message changes the turn's nature ("answered_with_caveat",
+    # "clarify"). None = derive normally.
+    outcome_override: str | None = None
 
 
 @dataclass

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import agent_loop
-from semantic_enrich.core.agent import phases, pipeline, triage
+from semantic_enrich.core.agent import phases, pipeline, triage, verify
 from semantic_enrich.core.agent_dispatch import (
     build_loop_handle,
     resolve_run_turn,
@@ -55,10 +55,22 @@ def test_v2_flag_builds_pipeline_deps_with_v2_prompt() -> None:
         settings.agent_prompt_v2_path, settings
     )
     assert handle.prompt_hash == v2_hash
-    # The default triage mode ("log") wires the real classifier phase;
-    # memory/verify remain stubs.
+    # The default triage/verify modes ("log") wire the real phases;
+    # memory remains a stub.
     assert isinstance(handle.deps.triage, triage.QueryTriage)
     assert isinstance(handle.deps.memory, phases.NoopMemory)
+    assert isinstance(handle.deps.verifier, verify.AnswerFitVerifier)
+
+
+def test_verify_kill_switch_falls_back_to_the_always_fits_stub() -> None:
+    settings = _settings(agent_loop_impl="v2", agent_verify_mode="off")
+    handle = build_loop_handle(
+        settings=settings,
+        bq=object(),  # type: ignore[arg-type]
+        openai_client=FakeOpenAIClient(),
+        snapshot_hash_provider=lambda: "snap",
+    )
+    assert isinstance(handle.deps, phases.PipelineDeps)
     assert isinstance(handle.deps.verifier, phases.AlwaysFitsVerifier)
 
 

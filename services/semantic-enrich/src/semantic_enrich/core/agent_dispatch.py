@@ -16,7 +16,7 @@ from semantic_enrich.clients.bq import BqClient
 from semantic_enrich.clients.openai import OpenAIClient
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import agent_events, agent_loop
-from semantic_enrich.core.agent import phases, pipeline, triage
+from semantic_enrich.core.agent import phases, pipeline, triage, verify
 from semantic_enrich.core.agent_cache import ResponseCache
 from semantic_enrich.core.agent_request import ChatRequest
 from semantic_enrich.core.agent_tracing import (
@@ -108,6 +108,14 @@ def build_loop_handle(
             if settings.agent_triage_mode == "off"
             else triage.QueryTriage.from_settings(settings)
         )
+        # Same kill-switch shape for the verify phase: "log" and "act"
+        # both check (and need the template at startup), "off" wires
+        # the always-fits stub.
+        verify_phase: phases.VerifyPhase = (
+            phases.AlwaysFitsVerifier()
+            if settings.agent_verify_mode == "off"
+            else verify.AnswerFitVerifier.from_settings(settings)
+        )
         deps = phases.PipelineDeps(
             bq=bq,
             openai_client=openai_client,
@@ -118,6 +126,7 @@ def build_loop_handle(
             snapshot_hash_provider=provider,
             system_prompt_tokens=tokens,
             triage=triage_phase,
+            verifier=verify_phase,
         )
     else:
         deps = agent_loop.LoopDeps(
