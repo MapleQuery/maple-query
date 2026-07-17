@@ -271,6 +271,8 @@ def run_agent_eval(
                     "tokens_out_per_call": observer.tokens_out_per_call,
                     "elapsed_ms": elapsed_ms,
                     "cached": observer.cached,
+                    "top_similarities": observer.top_similarities,
+                    "reformulations": observer.reformulations,
                 },
             }
         )
@@ -302,6 +304,9 @@ def run_agent_eval(
             "tool_calls": sum(r["run"]["tool_call_count"] for r in results),
             "terminal_counts": _terminal_counts(results),
         },
+        "similarity_calibration": _similarity_calibration(
+            results, floor=settings.agent_search_similarity_floor
+        ),
         "questions": results,
     }
 
@@ -319,6 +324,38 @@ def run_agent_eval(
         totals=report["totals"],
     )
     return report
+
+
+def _similarity_calibration(
+    results: list[dict[str, Any]], *, floor: float
+) -> dict[str, Any]:
+    """Distribution of first-search top_similarity, grouped by the
+    fixture's expected outcome. This is the evidence for choosing the
+    weak-retrieval floor: pick the value that separates questions the
+    corpus can answer from questions it genuinely can't."""
+    by_outcome: dict[str, list[float]] = {}
+    for r in results:
+        sims = [
+            s
+            for s in r["run"].get("top_similarities", [])
+            if isinstance(s, int | float)
+        ]
+        if not sims:
+            continue
+        outcome = str(r["expected"]["outcome"])
+        by_outcome.setdefault(outcome, []).append(float(sims[0]))
+    summary: dict[str, Any] = {"floor": floor, "by_expected_outcome": {}}
+    for outcome, sims in sorted(by_outcome.items()):
+        ordered = sorted(sims)
+        summary["by_expected_outcome"][outcome] = {
+            "count": len(ordered),
+            "min": ordered[0],
+            "median": ordered[len(ordered) // 2],
+            "max": ordered[-1],
+            "below_floor": sum(1 for s in ordered if s < floor),
+            "values": ordered,
+        }
+    return summary
 
 
 def _terminal_counts(results: list[dict[str, Any]]) -> dict[str, int]:

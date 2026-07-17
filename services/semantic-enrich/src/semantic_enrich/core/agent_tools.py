@@ -268,6 +268,25 @@ _DESCRIBE_CORPUS: dict[str, Any] = {
 # ── Runtime types ──
 
 
+@dataclass(frozen=True)
+class SearchOutcome:
+    """One search_datasets call's retrieval verdict, kept on the loop
+    state so the reformulation policy (loop-side) and the guidance
+    selection (tool-side) read the same history."""
+
+    query: str
+    normalized_query: str
+    top_similarity: float | None
+    weak: bool
+
+
+def normalize_search_query(query: str) -> str:
+    """Case-folded, whitespace-collapsed form used for the
+    duplicate-query guard. Two queries that normalize equal are 'the
+    same search' — re-running one returns the cached result."""
+    return " ".join(query.casefold().split())
+
+
 @dataclass
 class LoopState:
     """Per-turn mutable state threaded through every tool call.
@@ -293,6 +312,29 @@ class LoopState:
     tokens_out_total: int = 0
     dollars_spent: float = 0.0
     tool_call_ids: list[str] = field(default_factory=list)
+    # ── retrieval-resilience policy state ──
+    # Every search_datasets verdict this turn, in call order.
+    search_outcomes: list[SearchOutcome] = field(default_factory=list)
+    # normalized query → the result payload already returned for it
+    # (duplicate-query guard: identical re-searches replay from here
+    # instead of re-embedding and re-querying).
+    search_results: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # True once any weak-retrieval signal fired this turn (a weak
+    # search verdict, or list_documents coming back with zero usable
+    # docs). Gates the loop's free-reformulation-retry slot.
+    weak_signal_seen: bool = False
+    # Mirrored from the turn context by the v2 loop before each tool
+    # batch; guidance switches to the clarify steer once this reaches
+    # agent_max_reformulations. Stays 0 under the v1 loop, which ships
+    # verdicts but does not enforce the policy.
+    reformulations_used: int = 0
+    # True when the previous turn already ended in a clarifying
+    # question: the cap-reached guidance then drops the clarify option
+    # and requires a best-effort caveated answer instead.
+    prior_clarify: bool = False
+    # Set when the cap-reached guidance was served; the turn record
+    # uses it to tag a question-shaped final message as a clarify.
+    clarify_steer_issued: bool = False
 
 
 EmitFn = Callable[[agent_events.AgentEvent], None]
@@ -318,10 +360,66 @@ class InvalidToolArgsError(ValueError):
 
 # ── Tool implementations ──
 
+# Weak-retrieval guidance, chosen per result so the model never has to
+# compare similarity floats against a remembered threshold: the verdict
+# and the next move ship in-band with the tool result.
+_GUIDANCE_REFORMULATE = (
+    "No candidate is a confident match. Reformulate once (synonyms, "
+    "official program names, issuing-department terms, broader "
+    "phrasing) and search again before concluding the data is missing."
+)
+_GUIDANCE_DUPLICATE = (
+    "identical query; rephrase with different vocabulary or ask the user"
+)
+_GUIDANCE_CLARIFY = (
+    "Do not search again. Either answer from the best available "
+    "candidate — stating clearly what it does and doesn't cover — or "
+    "ask the user ONE clarifying question that would let you search "
+    "better (e.g. program name, department, timeframe)."
+)
+_GUIDANCE_BEST_EFFORT = (
+    "Do not search again, and do not ask another clarifying question "
+    "— the user has already answered one. Answer from the best "
+    "available candidate, stating clearly what it does and doesn't "
+    "cover."
+)
+_GUIDANCE_NO_USABLE_DOCS = (
+    "No usable documents for this package selection. Reconsider your "
+    "package choice, or reformulate your dataset search with different "
+    "vocabulary."
+)
+
+
+def _weak_guidance(
+    state: LoopState,
+    settings: Settings,
+    *,
+    reformulate_text: str = _GUIDANCE_REFORMULATE,
+) -> str:
+    """Pick the guidance string for a weak retrieval signal based on
+    how much of the reformulation budget this turn has already spent."""
+    if state.reformulations_used < settings.agent_max_reformulations:
+        return reformulate_text
+    state.clarify_steer_issued = True
+    if state.prior_clarify:
+        return _GUIDANCE_BEST_EFFORT
+    return _GUIDANCE_CLARIFY
+
 
 def run_search_datasets(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     query = _require_str(args, "query")
     k = _optional_int(args, "k", default=5, min_=1, max_=10)
+    normalized = normalize_search_query(query)
+
+    # Duplicate-query guard: an identical re-search replays the prior
+    # result (no re-embed, no BQ query, no repeated ranking events)
+    # with guidance to actually change vocabulary. It still counts
+    # against the tool budget — thrash must not be free.
+    cached = ctx.state.search_results.get(normalized)
+    if cached is not None:
+        replay = dict(cached)
+        replay["guidance"] = _GUIDANCE_DUPLICATE
+        return replay
 
     ctx.emit(agent_events.RetrievalStarted(query=query, k=k))
 
@@ -364,15 +462,31 @@ def run_search_datasets(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
             candidates=candidates, top_similarity=top_similarity
         )
     )
-    return {
+
+    # In-band weak/ok verdict: the floor lives in settings, the
+    # comparison lives here, and the model only ever reads the verdict.
+    weak = (
+        top_similarity is None
+        or top_similarity < ctx.settings.agent_search_similarity_floor
+    )
+    result: dict[str, Any] = {
         "candidates": candidates,
         "top_similarity": top_similarity,
-        # Weak-retrieval floor, surfaced in the result so the prompt
-        # can reference "the threshold in the search result" and the
-        # reformulation policy can tune it as a setting rather than a
-        # prompt edit.
-        "reformulation_threshold": ctx.settings.agent_reformulation_threshold,
+        "retrieval_quality": "weak" if weak else "ok",
     }
+    if weak:
+        result["guidance"] = _weak_guidance(ctx.state, ctx.settings)
+        ctx.state.weak_signal_seen = True
+    ctx.state.search_outcomes.append(
+        SearchOutcome(
+            query=query,
+            normalized_query=normalized,
+            top_similarity=top_similarity,
+            weak=weak,
+        )
+    )
+    ctx.state.search_results[normalized] = dict(result)
+    return result
 
 
 def run_search_columns(
@@ -509,6 +623,23 @@ def run_list_documents(
             # return everything and flag the filter as unsatisfiable.
             filtered_out = []
             result["required_columns_unsatisfiable"] = True
+
+    # Zero usable docs (unsatisfiable filter, nothing listed, or every
+    # doc quality-demoted) is the same signal as a weak search: guide
+    # the model to rethink instead of surrendering, under the same
+    # reformulation-policy caps.
+    docs_listed = result["documents"]
+    if (
+        result.get("required_columns_unsatisfiable")
+        or not docs_listed
+        or all("quality" in d for d in docs_listed)
+    ):
+        result["guidance"] = _weak_guidance(
+            ctx.state,
+            ctx.settings,
+            reformulate_text=_GUIDANCE_NO_USABLE_DOCS,
+        )
+        ctx.state.weak_signal_seen = True
 
     ctx.emit(
         agent_events.DocumentsListed(

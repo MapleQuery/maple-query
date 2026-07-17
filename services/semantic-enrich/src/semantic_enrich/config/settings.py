@@ -274,10 +274,19 @@ class Settings(BaseSettings):
             _find_service_dir() / "agent" / "prompts" / "v2" / "triage.j2"
         )
     )
-    # Weak-retrieval floor surfaced in the search_datasets result: a
-    # top_similarity below this suggests reformulating the query before
-    # concluding the data is missing.
-    agent_reformulation_threshold: float = 0.5
+    # ── retrieval resilience (loop v2 policy; verdicts ship to both) ──
+    # Weak-retrieval floor: a search_datasets result whose
+    # top_similarity falls below this is verdict-stamped
+    # `retrieval_quality: "weak"` in the tool result itself, with
+    # guidance to reformulate. Cosine similarity; tune from the live
+    # calibration report (answered vs surrendered distributions), not
+    # by prompt edits.
+    agent_search_similarity_floor: float = 0.30
+    # Hard cap on reformulated re-searches per turn. The first
+    # `agent_max_reformulations` retries after a weak result are not
+    # charged against agent_max_tool_calls — a retry must not be
+    # priced out by the budget already spent on the failed attempt.
+    agent_max_reformulations: int = 1
 
     # Model cost accounting (observability only; not enforced).
     # $/1K tokens; defaults match gpt-4o's published rates.

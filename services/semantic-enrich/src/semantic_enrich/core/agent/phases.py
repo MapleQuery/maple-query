@@ -56,6 +56,10 @@ class TurnTrace:
     sql_runs: list[dict[str, Any]] = field(default_factory=list)
     packages_researched: list[str] = field(default_factory=list)
     columns_referenced: list[str] = field(default_factory=list)
+    # Every dataset search this turn: query, top_similarity,
+    # retrieval_quality. Feeds the turn record so a clarify turn can
+    # tell the follow-up turn which phrasings already failed.
+    searches: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -178,17 +182,24 @@ class TurnContext:
     @classmethod
     def begin(cls, *, request: ChatRequest, deps: PipelineDeps) -> TurnContext:
         turn_id = uuid.uuid4().hex
+        state = agent_tools.LoopState(
+            conversation_id=request.conversation_id,
+            turn_id=turn_id,
+            question=request.question,
+        )
+        # One clarifying question per thread of inquiry: when the
+        # previous turn already ended in one, the weak-retrieval
+        # guidance drops the clarify option this turn.
+        state.prior_clarify = (
+            last_clarify_record(request.turn_records) is not None
+        )
         return cls(
             request=request,
             deps=deps,
             turn_id=turn_id,
             started_monotonic=time.monotonic(),
             snapshot_hash=deps.snapshot_hash_provider(),
-            state=agent_tools.LoopState(
-                conversation_id=request.conversation_id,
-                turn_id=turn_id,
-                question=request.question,
-            ),
+            state=state,
         )
 
     # ── shared meters ──
@@ -240,6 +251,49 @@ class TurnContext:
             * settings.agent_model_output_rate
             / 1000.0
         )
+
+
+def last_clarify_record(
+    turn_records: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """The previous turn's record when it ended in a clarifying
+    question, else None. Records are client-supplied — inspected
+    defensively, never trusted to be well-formed."""
+    if not turn_records:
+        return None
+    last = turn_records[-1]
+    if isinstance(last, dict) and last.get("outcome") == "clarify":
+        return last
+    return None
+
+
+def _clarify_followup_hint(record: dict[str, Any]) -> str:
+    """Render the previous clarify turn's failed searches as a hint so
+    the follow-up turn folds the user's answer into *new* vocabulary
+    instead of repeating what already came back weak."""
+    queries: list[str] = []
+    weak_queries: list[str] = []
+    searches = record.get("searches")
+    if isinstance(searches, list):
+        for s in searches:
+            if not isinstance(s, dict):
+                continue
+            query = s.get("query")
+            if not isinstance(query, str) or not query:
+                continue
+            queries.append(query)
+            if s.get("retrieval_quality") == "weak":
+                weak_queries.append(query)
+    tried = "; ".join(f'"{q}"' for q in (weak_queries or queries))
+    if not tried:
+        tried = "its dataset searches"
+    return (
+        "The previous turn could not find a confident dataset match: "
+        f"it searched {tried} with weak results and asked the user a "
+        "clarifying question. The user's message is the answer to that "
+        "question. Do not repeat those exact searches — fold the "
+        "clarification into different search vocabulary."
+    )
 
 
 # ── default phase implementations ──
@@ -299,7 +353,13 @@ class NoopMemory:
             settings=deps.settings,
             openai_client=deps.openai_client,
         )
-        return RecallOutcome(history_messages=compacted.messages)
+        hints: list[SystemHint] = []
+        clarify = last_clarify_record(ctx.request.turn_records)
+        if clarify is not None:
+            hints.append(SystemHint(text=_clarify_followup_hint(clarify)))
+        return RecallOutcome(
+            history_messages=compacted.messages, hints=hints
+        )
 
     def commit(self, ctx: TurnContext) -> None:
         # Only successful, budget-clean turns get cached; a turn that
