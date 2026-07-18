@@ -16,7 +16,7 @@ from semantic_enrich.clients.bq import BqClient
 from semantic_enrich.clients.openai import OpenAIClient
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import agent_events, agent_loop
-from semantic_enrich.core.agent import phases, pipeline, triage, verify
+from semantic_enrich.core.agent import memory, phases, pipeline, triage, verify
 from semantic_enrich.core.agent_cache import ResponseCache
 from semantic_enrich.core.agent_request import ChatRequest
 from semantic_enrich.core.agent_tracing import (
@@ -116,6 +116,23 @@ def build_loop_handle(
             if settings.agent_verify_mode == "off"
             else verify.AnswerFitVerifier.from_settings(settings)
         )
+        # v2 memory: digest replay cache + cached snapshot hash. The
+        # snapshot queries run at most once per refresh window, and a
+        # changed hash purges stale replay entries at that boundary.
+        replay_cache = memory.ReplayCacheV2(
+            max_entries=settings.agent_cache_max_entries,
+            ttl_seconds=settings.agent_cache_ttl_seconds,
+        )
+        raw_provider = (
+            snapshot_hash_provider
+            if snapshot_hash_provider is not None
+            else memory.make_snapshot_hash_provider_v2(bq, settings)
+        )
+        cached_provider = memory.CachedSnapshotHash(
+            provider=raw_provider,
+            refresh_seconds=settings.agent_snapshot_refresh_seconds,
+            on_change=replay_cache.invalidate_on_snapshot,
+        )
         deps = phases.PipelineDeps(
             bq=bq,
             openai_client=openai_client,
@@ -123,9 +140,10 @@ def build_loop_handle(
             system_prompt=prompt,
             prompt_hash=prompt_hash,
             cache=cache,
-            snapshot_hash_provider=provider,
+            snapshot_hash_provider=cached_provider,
             system_prompt_tokens=tokens,
             triage=triage_phase,
+            memory=memory.SessionMemory(cache=replay_cache),
             verifier=verify_phase,
         )
     else:

@@ -189,7 +189,9 @@ def test_budget_block_forces_final_answer() -> None:
         for e in outcome.events
         if isinstance(e, agent_events.TurnRecordEvent)
     ]
-    assert records[0].record["terminal_reason"] == "budget_forced"
+    # A budget-forced best-effort with no SQL behind it is a no-data
+    # claim in the record schema.
+    assert records[0].record["outcome"] == "no_data"
 
 
 def test_wallclock_timeout_produces_v1_terminal_sequence() -> None:

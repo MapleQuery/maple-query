@@ -29,6 +29,9 @@ export interface ChatRequest {
   conversation_id: string;
   question: string;
   history: HistoryMessage[];
+  /** Client-held turn records echoed back so the server-side memory
+   * phase (replay skip-hints, clarify follow-ups) can use them. */
+  turn_records?: Record<string, unknown>[];
 }
 
 // ---------------------------------------------------------------------------
@@ -127,6 +130,10 @@ const ToolError = z.object({
   message: z.string(),
 });
 
+const TurnRecord = z.object({
+  record: z.record(z.unknown()),
+});
+
 const Done = z.object({
   turn_id: z.string(),
   total_tool_calls: z.number(),
@@ -155,6 +162,7 @@ export const AgentEventSchemas = {
   budget_exceeded: BudgetExceeded,
   turn_timeout: TurnTimeout,
   tool_error: ToolError,
+  turn_record: TurnRecord,
   done: Done,
   error: ErrorEvt,
 } as const;

@@ -177,7 +177,7 @@ def test_clarify_candidate_skips_verification() -> None:
     assert not any(
         isinstance(e, agent_events.Verification) for e in outcome.events
     )
-    assert _record_of(outcome)["outcome"] == "clarify"
+    assert _record_of(outcome)["outcome"] == "clarified"
 
 
 def test_budget_forced_answer_skips_verification() -> None:
@@ -233,4 +233,6 @@ def test_log_mode_ships_unchanged_with_shadow_event() -> None:
     assert verifications[0].enforced is False
     # No retry leg in shadow mode.
     assert _record_of(outcome)["verify_retries_used"] == 0
-    assert _record_of(outcome)["outcome"] == "answered"
+    # Search-then-answer with no SQL behind it records as a no-data
+    # claim; log mode must not have altered that.
+    assert _record_of(outcome)["outcome"] == "no_data"

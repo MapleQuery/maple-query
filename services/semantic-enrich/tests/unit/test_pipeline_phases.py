@@ -286,8 +286,8 @@ def test_turn_record_carries_the_v2_skeleton() -> None:
     record = records[0].record
     assert record["loop_impl"] == "v2"
     assert record["question"] == "q?"
-    assert record["answer"] == "answer."
-    assert record["terminal_reason"] == "final_answer"
+    assert record["answer_digest"] == "answer."
+    assert record["v"] == 1
     assert record["turn_id"] == outcome.turn_id
 
 

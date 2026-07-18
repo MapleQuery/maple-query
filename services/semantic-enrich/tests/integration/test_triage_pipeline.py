@@ -111,8 +111,8 @@ def test_off_scope_turn_deflects_with_zero_warehouse_traffic() -> None:
         for e in outcome.events
         if isinstance(e, agent_events.TurnRecordEvent)
     ).record
-    assert record["triage_category"] == "off_scope"
-    assert record["terminal_reason"] == "triage_short_circuit"
+    assert record["category"] == "off_scope"
+    assert record["outcome"] == "deflected"
 
 
 def test_meta_turn_touches_only_the_corpus_stats_surfaces() -> None:

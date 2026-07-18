@@ -270,7 +270,7 @@ def last_clarify_record(
     if not turn_records:
         return None
     last = turn_records[-1]
-    if isinstance(last, dict) and last.get("outcome") == "clarify":
+    if isinstance(last, dict) and last.get("outcome") == "clarified":
         return last
     return None
 
@@ -281,7 +281,7 @@ def _clarify_followup_hint(record: dict[str, Any]) -> str:
     instead of repeating what already came back weak."""
     queries: list[str] = []
     weak_queries: list[str] = []
-    searches = record.get("searches")
+    searches = record.get("searches_tried")
     if isinstance(searches, list):
         for s in searches:
             if not isinstance(s, dict):

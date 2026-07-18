@@ -276,6 +276,19 @@ class Settings(BaseSettings):
         )
     )
 
+    # ── session memory (loop v2) ──
+    # Client-echoed turn records accepted per request; older ones are
+    # dropped client-side first, and this caps hostile payloads.
+    agent_turn_records_max: int = 50
+    # Plan-hint selection: at most this many prior answered records,
+    # each clearing this Jaccard overlap against the new question.
+    agent_plan_hints_max: int = 2
+    agent_plan_hint_min_overlap: float = 0.2
+    # Compaction v2 keep-window (verbatim user/assistant turns). Lower
+    # than v1's agent_history_keep_turns because records carry the
+    # cross-turn load now; the v1 setting retires with the v1 loop.
+    agent_history_keep_turns_v2: int = 2
+
     # ── query triage phase (loop v2) ──
     # "off" skips classification entirely (kill switch); "log" is
     # shadow mode — classify and emit events but never short-circuit;

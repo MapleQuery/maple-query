@@ -118,19 +118,20 @@ def test_surrender_turn_record_names_every_phrasing_tried() -> None:
         if isinstance(e, agent_events.TurnRecordEvent)
     ]
     record = records[0].record
-    # A statement-shaped surrender is an answer, not a clarify — the
-    # clarify tag needs a question.
-    assert record["outcome"] == "answered"
+    # A statement-shaped surrender records as a no-data claim — never
+    # a clarify (that tag needs a question), never an answer (no SQL
+    # evidence behind it).
+    assert record["outcome"] == "no_data"
     # The record carries the fit-check inputs: every phrasing tried,
     # each with its retrieval verdict. A surrender with zero searches
     # is downstream's retry signal.
-    tried = [s["query"] for s in record["searches"]]
+    tried = [s["query"] for s in record["searches_tried"]]
     assert tried == [
         "visa processing times",
         "temporary resident visa wait",
     ]
     assert all(
-        s["retrieval_quality"] == "weak" for s in record["searches"]
+        s["retrieval_quality"] == "weak" for s in record["searches_tried"]
     )
     # The scripted message honours the contract the prompt demands:
     # phrasings tried + closest candidate by title.

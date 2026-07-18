@@ -22,6 +22,11 @@ and advisory fields they return instead of re-deriving rules yourself.
 
 # Flow
 
+When a prior resolved plan (provided as "Prior resolved plans") covers
+the question, start from list_documents on its packages and skip
+search_datasets/search_columns; if the listed documents or columns
+have changed, fall back to the normal flow.
+
 1. search_datasets → pick 1–3 candidate packages.
 2. search_columns → confirm which columns match the question.
 3. list_documents, passing required_columns with the columns your SQL

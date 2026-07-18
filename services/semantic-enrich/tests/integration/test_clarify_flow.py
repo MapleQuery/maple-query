@@ -1,7 +1,7 @@
 """The clarify-instead-of-surrender branch, across two turns.
 
 A clarifying question is a plain final message; the pipeline tags the
-turn record `outcome: "clarify"` with the searches tried, and the
+turn record `outcome: "clarified"` with the searches tried, and the
 follow-up turn (the user's answer, carrying that record back via
 `ChatRequest.turn_records`) gets the failed phrasings as a system
 hint and loses the option to ask a second consecutive question.
@@ -115,13 +115,13 @@ def _record(outcome: Any) -> dict[str, Any]:
 def test_cap_reached_turn_ends_in_clarify_record() -> None:
     outcome, _ = _run_clarify_turn()
     record = _record(outcome)
-    assert record["outcome"] == "clarify"
-    assert [s["query"] for s in record["searches"]] == [
+    assert record["outcome"] == "clarified"
+    assert [s["query"] for s in record["searches_tried"]] == [
         "immigration PR times",
         "IRCC processing time",
     ]
     assert all(
-        s["retrieval_quality"] == "weak" for s in record["searches"]
+        s["retrieval_quality"] == "weak" for s in record["searches_tried"]
     )
 
 
@@ -145,7 +145,9 @@ def test_answered_turn_is_not_tagged_clarify() -> None:
         ),
         deps=deps,
     )
-    assert _record(outcome)["outcome"] == "answered"
+    # No successful SQL in this scripted turn → a no-data claim, but
+    # decidedly not a clarify.
+    assert _record(outcome)["outcome"] == "no_data"
 
 
 def test_followup_turn_receives_failed_search_hint() -> None:
