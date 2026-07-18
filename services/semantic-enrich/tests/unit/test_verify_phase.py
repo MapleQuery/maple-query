@@ -242,7 +242,7 @@ def test_clarify_on_surrender_composes_question() -> None:
     )
     verdict = _verifier(settings).check(ctx, _result(sql_ok=False))
     assert verdict.action == "accept"
-    assert verdict.outcome_override == "clarify"
+    assert verdict.outcome_override == "clarified"
     assert verdict.composed_message is not None
     assert "which program" in verdict.composed_message
     assert verdict.composed_message.rstrip().endswith(

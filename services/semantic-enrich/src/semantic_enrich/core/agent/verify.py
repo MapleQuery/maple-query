@@ -287,7 +287,7 @@ class AnswerFitVerifier:
             action="accept",
             events=events,
             composed_message=compose_clarify(gap=gap),
-            outcome_override="clarify",
+            outcome_override="clarified",
         )
 
     # ── checker call ──

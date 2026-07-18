@@ -179,11 +179,27 @@ export function ChatContainer({
       const evidenceByTurnId: Record<string, EvidenceCard[]> = {};
       for (const t of nextTurns) evidenceByTurnId[t.id] = t.cards;
 
+      // Append this turn's memory record (dedup by turn_id — the
+      // persistence pass can fire more than once per turn), capped to
+      // the server's ingest limit.
+      const prevRecords = prev.turnRecords ?? [];
+      const record = state.turnRecord as { turn_id?: unknown } | null;
+      const alreadyStored =
+        record != null &&
+        prevRecords.some(
+          (r) => (r as { turn_id?: unknown }).turn_id === record.turn_id,
+        );
+      const turnRecords =
+        record != null && !alreadyStored
+          ? [...prevRecords, record].slice(-50)
+          : prevRecords;
+
       const next: StoredConversation = {
         ...prev,
         title,
         history,
         evidenceByTurnId,
+        turnRecords,
         updatedAt: nowIso,
       };
       conversations.save(next);
@@ -200,6 +216,7 @@ export function ChatContainer({
     state.toolCalls,
     state.elapsedMs,
     state.cached,
+    state.turnRecord,
     turns,
     refreshIndex,
   ]);
@@ -237,7 +254,7 @@ export function ChatContainer({
     });
 
     const nextHistory = appendUserTurn(history, question);
-    await send(question, nextHistory);
+    await send(question, nextHistory, conversation.turnRecords ?? []);
   };
 
   const handleNewConversation = () => {

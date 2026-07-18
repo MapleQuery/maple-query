@@ -15,6 +15,9 @@ export interface StreamState {
   elapsedMs: number | null;
   cached: boolean;
   error: string | null;
+  /** The server-built memory record for this turn, echoed back on the
+   * next request as `turn_records`. */
+  turnRecord: Record<string, unknown> | null;
 }
 
 const initialState: StreamState = {
@@ -26,6 +29,7 @@ const initialState: StreamState = {
   elapsedMs: null,
   cached: false,
   error: null,
+  turnRecord: null,
 };
 
 type Action =
@@ -247,6 +251,9 @@ function reducer(state: StreamState, action: Action): StreamState {
             ],
           };
 
+        case "turn_record":
+          return { ...state, turnRecord: payload.record };
+
         case "done":
           return {
             ...state,
@@ -296,7 +303,11 @@ export function useChatStream({ conversationId, onDone }: UseChatStreamOptions) 
   }, [abort]);
 
   const send = React.useCallback(
-    async (question: string, history: HistoryMessage[]) => {
+    async (
+      question: string,
+      history: HistoryMessage[],
+      turnRecords: Record<string, unknown>[] = [],
+    ) => {
       abort();
       dispatch({ type: "start" });
       const controller = new AbortController();
@@ -304,7 +315,12 @@ export function useChatStream({ conversationId, onDone }: UseChatStreamOptions) 
 
       try {
         await streamChat(
-          { conversation_id: conversationId, question, history },
+          {
+            conversation_id: conversationId,
+            question,
+            history,
+            turn_records: turnRecords,
+          },
           {
             onEvent: (event) => dispatch({ type: "event", event }),
             onDone: () => {

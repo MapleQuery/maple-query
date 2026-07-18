@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import agent_loop
-from semantic_enrich.core.agent import phases, pipeline, triage, verify
+from semantic_enrich.core.agent import memory, phases, pipeline, triage, verify
 from semantic_enrich.core.agent_dispatch import (
     build_loop_handle,
     resolve_run_turn,
@@ -56,9 +56,9 @@ def test_v2_flag_builds_pipeline_deps_with_v2_prompt() -> None:
     )
     assert handle.prompt_hash == v2_hash
     # The default triage/verify modes ("log") wire the real phases;
-    # memory remains a stub.
+    # memory is the record-backed session memory.
     assert isinstance(handle.deps.triage, triage.QueryTriage)
-    assert isinstance(handle.deps.memory, phases.NoopMemory)
+    assert isinstance(handle.deps.memory, memory.SessionMemory)
     assert isinstance(handle.deps.verifier, verify.AnswerFitVerifier)
 
 

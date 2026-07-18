@@ -60,7 +60,12 @@ from semantic_enrich.core.agent_eval import (
     AgentQuestionSetError,
     run_agent_eval,
 )
-from semantic_enrich.core.agent_events import AgentEvent, Done, ErrorEvent
+from semantic_enrich.core.agent_events import (
+    AgentEvent,
+    Done,
+    ErrorEvent,
+    TurnRecordEvent,
+)
 from semantic_enrich.core.agent_request import ChatRequest
 from semantic_enrich.core.agent_tracing import (
     session_span_map_from_settings,
@@ -998,8 +1003,9 @@ def chat(
 
     cid = conversation_id or str(_uuid4())
     history: list[dict[str, Any]] = []
+    turn_records: list[dict[str, Any]] = []
     if history_file is not None and history_file.exists():
-        history = _read_history(history_file)
+        history, turn_records = _read_history(history_file)
 
     typer.echo(
         f"# MapleQuery chat (conversation_id={cid}, dry_run={dry_run}, "
@@ -1018,8 +1024,10 @@ def chat(
             conversation_id=cid,
             history=history,
             question=question,
+            turn_records=turn_records,
         )
         assistant_message = ""
+        latest_record: dict[str, Any] | None = None
         try:
             for event in handle.run_turn(
                 request,
@@ -1027,6 +1035,8 @@ def chat(
             ):
                 _print_event(event)
                 assistant_message = _consume_delta(event, assistant_message)
+                if isinstance(event, TurnRecordEvent):
+                    latest_record = event.record
                 if isinstance(event, ErrorEvent):
                     break
                 if isinstance(event, Done):
@@ -1037,8 +1047,10 @@ def chat(
             continue
         history.append({"role": "user", "content": question})
         history.append({"role": "assistant", "content": assistant_message})
+        if latest_record is not None:
+            turn_records.append(latest_record)
         if history_file is not None:
-            _write_history(history_file, history)
+            _write_history(history_file, history, turn_records)
 
 
 def _print_event(event: AgentEvent) -> None:
@@ -1053,20 +1065,36 @@ def _consume_delta(event: AgentEvent, buffer: str) -> str:
     return buffer
 
 
-def _read_history(path: Path) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
+def _read_history(
+    path: Path,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """JSONL transcript → (messages, turn_records). Record lines are
+    `{"_turn_record": {...}}`; everything else is a chat message, so
+    pre-record transcripts load unchanged."""
+    messages: list[dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
-        out.append(json.loads(line))
-    return out
+        payload = json.loads(line)
+        if isinstance(payload, dict) and "_turn_record" in payload:
+            records.append(payload["_turn_record"])
+        else:
+            messages.append(payload)
+    return messages, records
 
 
-def _write_history(path: Path, history: list[dict[str, Any]]) -> None:
+def _write_history(
+    path: Path,
+    history: list[dict[str, Any]],
+    turn_records: list[dict[str, Any]] | None = None,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         for msg in history:
             f.write(json.dumps(msg) + "\n")
+        for record in turn_records or []:
+            f.write(json.dumps({"_turn_record": record}, default=str) + "\n")
 
 
 def _uuid4() -> Any:

@@ -142,6 +142,9 @@ export interface StoredConversation {
   updatedAt: string;
   history: HistoryMessage[];
   evidenceByTurnId: Record<string, EvidenceCard[]>;
+  /** Server-built turn records, echoed back as `turn_records` on the
+   * next request. Optional: pre-record conversations load unchanged. */
+  turnRecords?: Record<string, unknown>[];
 }
 
 export const conversations = {

@@ -241,5 +241,7 @@ def test_trace_lands_in_turn_record() -> None:
         if isinstance(e, agent_events.TurnRecordEvent)
     ]
     assert len(records) == 1
-    assert records[0].record["packages"] == ["pkg-1"]
+    assert records[0].record["packages"] == [
+        {"package_id": "pkg-1", "title": "Housing Starts"}
+    ]
     assert outcome.events[-1].event_type == "done"

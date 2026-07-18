@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from semantic_enrich.core import agent_events, agent_history
-from semantic_enrich.core.agent import research
+from semantic_enrich.core.agent import records, research
 from semantic_enrich.core.agent.phases import (
     PipelineDeps,
     ResearchResult,
@@ -223,7 +223,7 @@ def _skip_verify(ctx: TurnContext, result: ResearchResult) -> bool:
         return True
     return (
         _outcome(ctx, message=result.candidate_answer, result=result)
-        == "clarify"
+        == "clarified"
     )
 
 
@@ -287,10 +287,14 @@ def _outcome(
     """Coarse outcome tag for the turn record. A clarify is detected
     deterministically rather than by parsing intent: the loop served
     the cap-reached steer, no SQL succeeded, and the final message
-    asks a question."""
+    asks a question. An answer with no successful SQL behind it is a
+    no-data claim, not an answer — the distinction gates the replay
+    cache and plan-hint selection."""
     if result is None:
         return (
-            "clarify" if ctx.triage_category == "clarify" else "deflected"
+            "clarified"
+            if ctx.triage_category == "clarify"
+            else "deflected"
         )
     if result.terminal_reason in ("error", "timeout"):
         return "error"
@@ -302,8 +306,8 @@ def _outcome(
         and not sql_succeeded
         and "?" in message
     ):
-        return "clarify"
-    return "answered"
+        return "clarified"
+    return "answered" if sql_succeeded else "no_data"
 
 
 def _turn_record(
@@ -313,33 +317,9 @@ def _turn_record(
     result: ResearchResult | None,
     outcome_override: str | None = None,
 ) -> dict[str, Any]:
-    """Minimal turn-record skeleton. The memory phase owns the real
-    schema; until it lands this carries what the context knows."""
-    return {
-        "turn_id": ctx.turn_id,
-        "conversation_id": ctx.request.conversation_id,
-        "question": ctx.request.question,
-        "answer": message,
-        "loop_impl": "v2",
-        "outcome": (
-            outcome_override
-            or _outcome(ctx, message=message, result=result)
-        ),
-        "searches": list(ctx.trace.searches),
-        "triage_category": ctx.triage_category,
-        "terminal_reason": (
-            result.terminal_reason if result else "triage_short_circuit"
-        ),
-        "packages": list(result.packages_cited) if result else [],
-        "columns_referenced": (
-            list(result.columns_referenced) if result else []
-        ),
-        "sql_run_count": len(result.sql_runs) if result else 0,
-        "tool_call_count": ctx.tool_call_count,
-        "tokens_in_total": ctx.tokens_in_total,
-        "tokens_out_total": ctx.tokens_out_total,
-        "dollars_spent": round(ctx.dollars_spent, 6),
-        "verify_retries_used": ctx.verify_retries_used,
-        "reformulations_used": ctx.reformulations_used,
-        "snapshot_hash": ctx.snapshot_hash,
-    }
+    outcome = outcome_override or _outcome(
+        ctx, message=message, result=result
+    )
+    return records.build(
+        ctx, message=message, result=result, outcome=outcome
+    )
