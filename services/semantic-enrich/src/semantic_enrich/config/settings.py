@@ -257,6 +257,25 @@ class Settings(BaseSettings):
     # re-enter research within one turn.
     agent_verify_max_retries: int = 1
 
+    # ── answer-fit verification phase (loop v2) ──
+    # "off" wires the always-fits stub (kill switch); "log" is shadow
+    # mode — check and emit verification events but never alter the
+    # answer; "act" enforces the caveat/retry/clarify dispositions.
+    agent_verify_mode: Literal["off", "log", "act"] = "log"
+    agent_verify_model: str = "gpt-4o-mini"
+    # Hard deadline for the checker call; on timeout the answer ships
+    # unchanged (fail-open — verification can degrade nothing).
+    agent_verify_timeout_ms: int = 2500
+    # In act mode a non-"answer" verdict below this confidence demotes
+    # to caveat: false retries/clarifies cost real work and user
+    # patience, a false caveat costs one humble sentence.
+    agent_verify_min_confidence: float = 0.7
+    agent_verify_prompt_path: Path = Field(
+        default_factory=lambda: (
+            _find_service_dir() / "agent" / "prompts" / "v2" / "verify.j2"
+        )
+    )
+
     # ── query triage phase (loop v2) ──
     # "off" skips classification entirely (kill switch); "log" is
     # shadow mode — classify and emit events but never short-circuit;

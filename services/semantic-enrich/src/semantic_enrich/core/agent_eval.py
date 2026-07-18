@@ -273,6 +273,7 @@ def run_agent_eval(
                     "cached": observer.cached,
                     "top_similarities": observer.top_similarities,
                     "reformulations": observer.reformulations,
+                    "verify": observer.verify,
                 },
             }
         )
@@ -307,6 +308,7 @@ def run_agent_eval(
         "similarity_calibration": _similarity_calibration(
             results, floor=settings.agent_search_similarity_floor
         ),
+        "verify_fit": _verify_fit(results),
         "questions": results,
     }
 
@@ -356,6 +358,28 @@ def _similarity_calibration(
             "values": ordered,
         }
     return summary
+
+
+def _verify_fit(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """First-check fits-rate grouped by expected outcome — the
+    evidence for the verify act-mode precision gate: clean-answer
+    entries should first-check `fits=true`, known wrong-fit entries
+    `fits=false`."""
+    by_outcome: dict[str, dict[str, Any]] = {}
+    for r in results:
+        verify = r["run"].get("verify")
+        if not verify:
+            continue
+        outcome = str(r["expected"]["outcome"])
+        bucket = by_outcome.setdefault(
+            outcome, {"checked": 0, "fits_first": 0, "unfit_ids": []}
+        )
+        bucket["checked"] += 1
+        if verify.get("fits_first"):
+            bucket["fits_first"] += 1
+        else:
+            bucket["unfit_ids"].append(r["id"])
+    return by_outcome
 
 
 def _terminal_counts(results: list[dict[str, Any]]) -> dict[str, int]:

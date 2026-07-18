@@ -117,27 +117,34 @@ def run_turn(
 
     # ── verify ──
     yield record(agent_events.PhaseStart(phase="verify"))
-    verdict = deps.verifier.check(ctx, result)
-    for event in verdict.events:
-        yield record(event)
-    if verdict.action == "retry" and ctx.retries_remaining():
-        ctx.verify_retries_used += 1
-        yield record(agent_events.PhaseStart(phase="research"))
-        result = yield from _record_stream(
-            ctx, research.run(ctx, hints=verdict.hints)
-        )
-        if _is_terminal_error(result):
-            yield record(_terminal_error_event(result))
-            return
-        verdict = deps.verifier.check(ctx, result, final=True)
+    if _skip_verify(ctx, result):
+        verdict = Verdict(action="accept")
+    else:
+        verdict = deps.verifier.check(ctx, result)
         for event in verdict.events:
             yield record(event)
+        if verdict.action == "retry" and ctx.retries_remaining():
+            ctx.verify_retries_used += 1
+            yield record(agent_events.PhaseStart(phase="research"))
+            result = yield from _record_stream(
+                ctx, research.run(ctx, hints=verdict.hints)
+            )
+            if _is_terminal_error(result):
+                yield record(_terminal_error_event(result))
+                return
+            if _skip_verify(ctx, result):
+                verdict = Verdict(action="accept")
+            else:
+                verdict = deps.verifier.check(ctx, result, final=True)
+                for event in verdict.events:
+                    yield record(event)
 
     yield from _finish(
         ctx,
         message=_compose(result, verdict),
         result=result,
         record=record,
+        outcome_override=verdict.outcome_override,
     )
 
 
@@ -207,11 +214,24 @@ def _terminal_error_event(result: ResearchResult) -> agent_events.ErrorEvent:
     )
 
 
+def _skip_verify(ctx: TurnContext, result: ResearchResult) -> bool:
+    """Verification runs only on research-produced candidate answers:
+    budget/timeout-forced answers already carry their best-effort
+    framing (delaying them further is worse), and a clarifying
+    question is not a claim to check."""
+    if result.terminal_reason != "final_answer":
+        return True
+    return (
+        _outcome(ctx, message=result.candidate_answer, result=result)
+        == "clarify"
+    )
+
+
 def _compose(result: ResearchResult, verdict: Verdict) -> str:
-    # The stub verifier never rewrites; the verify phase later shapes
-    # caveats/retries through its hints instead of editing the text.
-    del verdict
-    return result.candidate_answer
+    # The verify phase never rewrites the model's text: it either
+    # ships the candidate unchanged, wraps it under a template caveat,
+    # or replaces a surrender with a clarifying question.
+    return verdict.composed_message or result.candidate_answer
 
 
 def _finish(
@@ -220,6 +240,7 @@ def _finish(
     message: str,
     result: ResearchResult | None,
     record: Callable[[agent_events.AgentEvent], agent_events.AgentEvent],
+    outcome_override: str | None = None,
 ) -> Iterator[agent_events.AgentEvent]:
     if not ctx.turn_start_emitted:
         # Short-circuit paths (triage) still owe the FE a turn_start.
@@ -236,7 +257,12 @@ def _finish(
         yield record(agent_events.MessageDelta(delta=message))
     yield record(
         agent_events.TurnRecordEvent(
-            record=_turn_record(ctx, message=message, result=result)
+            record=_turn_record(
+                ctx,
+                message=message,
+                result=result,
+                outcome_override=outcome_override,
+            )
         )
     )
     done = agent_events.Done(
@@ -285,6 +311,7 @@ def _turn_record(
     *,
     message: str,
     result: ResearchResult | None,
+    outcome_override: str | None = None,
 ) -> dict[str, Any]:
     """Minimal turn-record skeleton. The memory phase owns the real
     schema; until it lands this carries what the context knows."""
@@ -294,7 +321,10 @@ def _turn_record(
         "question": ctx.request.question,
         "answer": message,
         "loop_impl": "v2",
-        "outcome": _outcome(ctx, message=message, result=result),
+        "outcome": (
+            outcome_override
+            or _outcome(ctx, message=message, result=result)
+        ),
         "searches": list(ctx.trace.searches),
         "triage_category": ctx.triage_category,
         "terminal_reason": (
