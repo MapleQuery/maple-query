@@ -1,0 +1,51 @@
+# Multi-turn parity scenarios (M5 cutover suite 3).
+#
+# Five scripted conversations of 3-5 turns, each reproducing one
+# observed cross-turn failure class. The parity runner drives them
+# with real history + turn-record carryover inside one conversation
+# (fresh deps per scenario, so within-scenario cache behaviour is
+# what's measured). `expect` entries are 1-indexed turn numbers.
+
+- id: replay-identical
+  description: identical-question replay — turns 2-4 must be cache hits
+  turns:
+    - "How much did canadian politicians spend on airfare?"
+    - "How much did canadian politicians spend on airfare?"
+    - "How much did canadian politicians spend on airfare?"
+    - "How much did canadian politicians spend on airfare?"
+  expect:
+    cached_turns: [2, 3, 4]
+
+- id: plan-reuse
+  description: related follow-up reuses the prior turn's plan
+  turns:
+    - "How much did canadian politicians spend on airfare?"
+    - "canadian politicians airfare spend by year?"
+  expect:
+    plan_hint_turns: [2]
+
+- id: clarify-then-answer
+  description: weak-retrieval clarify, then the user's answer lands
+  turns:
+    - "what's the latest update on tariffs and the trade war"
+    - "I mean tariff rates on Chinese steel imports over time"
+  expect: {}
+
+- id: offscope-mid-conversation
+  description: off-scope turn mid-conversation deflects without derailing
+  turns:
+    - "How much did canadian politicians spend on airfare?"
+    - "what do you think of the prime minister?"
+    - "and how much on hotels?"
+  expect:
+    deflected_turns: [2]
+
+- id: stability-turns-2-5
+  description: same-territory questions stay stable across turns 2-5
+  turns:
+    - "How much did canadian politicians spend on airfare?"
+    - "which department spent the most on airfare?"
+    - "how much airfare spending was there in 2023?"
+    - "and in 2022?"
+    - "how much did canadian politicians spend on airfare?"
+  expect: {}

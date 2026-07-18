@@ -232,6 +232,16 @@ class AnswerFitVerifier:
         ):
             demotions.append("retry_unavailable")
             action = "caveat"
+        if mode == "act" and action == "retry" and (
+            inputs["answer_kind"] != "no_data"
+        ):
+            # Retry is the reformulation policy's second enforcement
+            # point — a surrender fix. An answer grounded in real rows
+            # that misses a dimension ships cheaper and just as
+            # honestly under a caveat; a second research leg to
+            # *improve* real data rarely pays its full-turn cost.
+            demotions.append("answer_already_grounded")
+            action = "caveat"
         if mode == "act" and action == "clarify":
             if inputs["answer_kind"] != "no_data":
                 # Never withhold real data behind a question.
@@ -269,7 +279,15 @@ class AnswerFitVerifier:
                 composed_message=compose_caveat(
                     gap=gap, answer=result.candidate_answer
                 ),
-                outcome_override="answered_with_caveat",
+                # A caveat on a real answer is a caveated answer; a
+                # caveat prepended to a no-data claim does not upgrade
+                # it — the record (and the replay/plan-hint gates
+                # behind it) must keep calling a surrender a surrender.
+                outcome_override=(
+                    "answered_with_caveat"
+                    if inputs["answer_kind"] == "answer"
+                    else None
+                ),
             )
         if action == "retry":
             return Verdict(

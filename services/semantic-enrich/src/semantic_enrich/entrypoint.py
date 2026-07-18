@@ -43,6 +43,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +66,14 @@ from semantic_enrich.core.agent_events import (
     Done,
     ErrorEvent,
     TurnRecordEvent,
+)
+from semantic_enrich.core.agent_parity import (
+    compute_gates,
+    load_fixture_questions,
+    load_scenarios,
+    run_fixture_suite,
+    run_scenario_suite,
+    run_traces_suite,
 )
 from semantic_enrich.core.agent_request import ChatRequest
 from semantic_enrich.core.agent_tracing import (
@@ -953,6 +962,115 @@ def _build_loop_handle_cli(
     except RuntimeError as exc:
         log.error("prompt_load_failed", error=str(exc))
         raise typer.Exit(3) from exc
+
+
+@app.command("parity")
+def parity(
+    runs: int = typer.Option(
+        3, "--runs", help="Runs per impl per suite; metrics are medians."
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        help="Report path. Default eval/reports/m5-parity-<date>.json.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run/--no-dry-run",
+        help="Harness self-test: canned clients, no OpenAI/BQ.",
+    ),
+) -> None:
+    """The M5 cutover parity evaluation: three suites against both
+    loop impls from the same build, gates G1-G7 computed on medians.
+
+    v2 runs with triage and verify in act mode (the enforcement flips
+    ride this gate). Cost: ~50 turns x 2 impls x runs."""
+    configure_logging()
+    log = get_logger("semantic_enrich.entrypoint")
+    settings = Settings()
+    eval_dir = settings.eval_questions_path.parent
+    scenarios = load_scenarios(eval_dir / "scenarios-multiturn.yaml")
+    fixture_pairs = load_fixture_questions(settings.eval_questions_path)
+    traces_path = eval_dir / "questions-agent-traces.yaml"
+
+    session_spans = session_span_map_from_settings(settings)
+    report: dict[str, Any] = {
+        "started_at": datetime.now(UTC).isoformat(),
+        "runs_per_impl": runs,
+        "impls": {},
+    }
+    prompt_tokens = {"v1": 0, "v2": 0}
+    for impl in ("v1", "v2"):
+        impl_settings = settings
+        if impl == "v2":
+            # Enforcement flips ride the cutover gate: the parity run
+            # measures v2 exactly as it will serve.
+            impl_settings = settings.model_copy(
+                update={
+                    "agent_triage_mode": "act",
+                    "agent_verify_mode": "act",
+                }
+            )
+        impl_runs: list[dict[str, Any]] = []
+        for run_no in range(runs):
+            handle = _build_loop_handle_cli(
+                settings=impl_settings,
+                log=log,
+                dry_run=dry_run,
+                subcommand="parity",
+                loop_impl=impl,
+            )
+            prompt_tokens[impl] = handle.system_prompt_tokens
+            tag = f"{impl}-r{run_no}"
+
+            def run_turn(
+                request: ChatRequest, _handle: LoopHandle = handle
+            ) -> Any:
+                return _handle.run_turn(
+                    request,
+                    session_parent=session_spans.get_or_create(
+                        request.conversation_id
+                    ),
+                )
+
+            impl_runs.append(
+                {
+                    "fixture": run_fixture_suite(
+                        fixture_pairs, run_turn=run_turn, run_tag=tag
+                    ),
+                    "traces": run_traces_suite(
+                        traces_path, run_turn=run_turn, run_tag=tag
+                    ),
+                    "scenarios": run_scenario_suite(
+                        scenarios, run_turn=run_turn, run_tag=tag
+                    ),
+                }
+            )
+            log.info("parity_run_finished", impl=impl, run=run_no)
+        report["impls"][impl] = {
+            "prompt_tokens": prompt_tokens[impl],
+            "runs": impl_runs,
+        }
+
+    report["gates"] = compute_gates(
+        v1_runs=report["impls"]["v1"]["runs"],
+        v2_runs=report["impls"]["v2"]["runs"],
+        v2_prompt_tokens=prompt_tokens["v2"],
+    )
+    report["finished_at"] = datetime.now(UTC).isoformat()
+
+    output_path = output or (
+        settings.eval_reports_dir
+        / f"m5-parity-{datetime.now(UTC).date().isoformat()}.json"
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(report, indent=2, default=str) + "\n", encoding="utf-8"
+    )
+    typer.echo(json.dumps(report["gates"], indent=2))
+    typer.echo(f"report: {output_path}")
+    if not all(g["pass"] for g in report["gates"].values()):
+        raise typer.Exit(1)
 
 
 @app.command("chat")

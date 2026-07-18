@@ -25,8 +25,21 @@ def test_resolve_run_turn_selects_the_orchestrator() -> None:
     assert resolve_run_turn("v2") is pipeline.run_turn
 
 
-def test_default_flag_builds_v1_deps_with_v1_prompt() -> None:
+def test_default_flag_builds_v2_deps() -> None:
+    """Post-cutover default: v2 serves unless the flag says otherwise."""
     settings = _settings()
+    handle = build_loop_handle(
+        settings=settings,
+        bq=object(),  # type: ignore[arg-type]
+        openai_client=FakeOpenAIClient(),
+        snapshot_hash_provider=lambda: "snap",
+    )
+    assert handle.loop_impl == "v2"
+    assert isinstance(handle.deps, phases.PipelineDeps)
+
+
+def test_v1_flag_builds_v1_deps_with_v1_prompt() -> None:
+    settings = _settings(agent_loop_impl="v1")
     handle = build_loop_handle(
         settings=settings,
         bq=object(),  # type: ignore[arg-type]

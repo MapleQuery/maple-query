@@ -213,7 +213,11 @@ class Settings(BaseSettings):
     # Per-turn budgets. Tool-call and SQL-execution caps are the runtime
     # tripwires. There is intentionally no per-turn dollar cap — cost
     # enforcement lives at OpenAI's daily-usage dashboard.
-    agent_max_tool_calls: int = 6
+    # Tuned for v1's four-step happy path at 6; raised for the v2
+    # pipeline, whose policy phases (reformulate → list → sample → sql
+    # with a verify retry possible) legitimately need more headroom —
+    # the parity run showed budget-forced surrenders at 6.
+    agent_max_tool_calls: int = 8
     agent_max_sql_executions: int = 2
     agent_turn_timeout_seconds: int = 60
     # Parallel tool-call fan-out ceiling per assistant response.
@@ -244,8 +248,10 @@ class Settings(BaseSettings):
 
     # ── turn pipeline (loop v2) ──
     # Which orchestrator serves turns. Both ship in the same image;
-    # flipping requires only a redeploy with this env var.
-    agent_loop_impl: Literal["v1", "v2"] = "v1"
+    # flipping requires only a redeploy with this env var. v2 is the
+    # default post-cutover; v1 remains as the rollback path until the
+    # soak completes and the v1 code is deleted.
+    agent_loop_impl: Literal["v1", "v2"] = "v2"
     # The v2 system prompt (leaner: tool-side enforcement replaced the
     # rule prose). Loaded only when agent_loop_impl == "v2".
     agent_prompt_v2_path: Path = Field(
@@ -261,7 +267,9 @@ class Settings(BaseSettings):
     # "off" wires the always-fits stub (kill switch); "log" is shadow
     # mode — check and emit verification events but never alter the
     # answer; "act" enforces the caveat/retry/clarify dispositions.
-    agent_verify_mode: Literal["off", "log", "act"] = "log"
+    # Enforcing post-cutover (precision gate met in the parity run);
+    # demote to "log" without leaving v2 if verify misbehaves alone.
+    agent_verify_mode: Literal["off", "log", "act"] = "act"
     agent_verify_model: str = "gpt-4o-mini"
     # Hard deadline for the checker call; on timeout the answer ships
     # unchanged (fail-open — verification can degrade nothing).
@@ -293,7 +301,9 @@ class Settings(BaseSettings):
     # "off" skips classification entirely (kill switch); "log" is
     # shadow mode — classify and emit events but never short-circuit;
     # "act" deflects off_scope/meta/clarify turns before research.
-    agent_triage_mode: Literal["off", "log", "act"] = "log"
+    # Enforcing post-cutover (precision gate met in the parity run);
+    # demote to "log" without leaving v2 if triage misbehaves alone.
+    agent_triage_mode: Literal["off", "log", "act"] = "act"
     agent_triage_model: str = "gpt-4o-mini"
     # Hard deadline for the classifier call. Triage may slow a turn by
     # at most this much; on timeout the turn fails open to research.
