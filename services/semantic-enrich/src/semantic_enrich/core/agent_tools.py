@@ -35,9 +35,8 @@ from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import agent_events
 from semantic_enrich.core.retrieval import (
     embed_question,
-    fetch_document_samples,
     retrieve_columns,
-    retrieve_documents,
+    retrieve_documents_with_samples,
     retrieve_packages,
 )
 from semantic_enrich.core.sql_executor import execute as execute_sql
@@ -553,13 +552,10 @@ def run_list_documents(
             "search_datasets in this turn"
         )
 
-    documents, _latency = retrieve_documents(
+    # One bounded raw.rows job supplies both the per-doc column key
+    # sets and the sample values (keys-query fallback inside).
+    documents, samples_by_doc, _latency = retrieve_documents_with_samples(
         bq=ctx.bq, package_ids=list(package_ids), settings=ctx.settings
-    )
-    samples_by_doc = fetch_document_samples(
-        bq=ctx.bq,
-        doc_ids=[d.document_id for d in documents],
-        settings=ctx.settings,
     )
     payload: list[dict[str, Any]] = []
     for d in documents:

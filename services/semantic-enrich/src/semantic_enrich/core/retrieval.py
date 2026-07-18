@@ -24,6 +24,7 @@ from google.cloud import bigquery
 from semantic_enrich.clients.bq import BqClient
 from semantic_enrich.clients.openai import OpenAIClient
 from semantic_enrich.config.settings import Settings
+from semantic_enrich.core.sample_selector import truncate_cell
 
 
 @dataclass(frozen=True)
@@ -228,6 +229,55 @@ def retrieve_documents(
     ], latency_ms
 
 
+def retrieve_documents_with_samples(
+    *,
+    bq: BqClient,
+    package_ids: list[str],
+    settings: Settings,
+) -> tuple[
+    list[DocumentCandidate], dict[str, dict[str, list[str]]], int
+]:
+    """The `list_documents` tool path: candidate docs plus per-doc
+    column key sets and sample values, with a single bounded `raw.rows`
+    job on the happy path (see `fetch_document_columns_and_samples`).
+
+    Same filter posture as `retrieve_documents`, which stays two-query
+    for the eval harness (it never needs samples)."""
+    project_id = _require_project(settings)
+    docs_sql = _DOCUMENT_SEARCH_SQL.format(
+        project_id=project_id,
+        dataset=settings.bq_dataset_raw,
+        table=settings.bq_documents_table,
+    )
+    docs_params: list[
+        bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter
+    ] = [
+        bigquery.ArrayQueryParameter("package_ids", "STRING", package_ids),
+        bigquery.ScalarQueryParameter(
+            "max_per_package",
+            "INT64",
+            settings.eval_max_documents_per_package,
+        ),
+    ]
+    started = time.monotonic()
+    doc_rows = list(bq.query_rows(docs_sql, params=docs_params))
+    doc_ids = [str(r["document_id"]) for r in doc_rows]
+    keys_by_doc, samples_by_doc = fetch_document_columns_and_samples(
+        bq=bq, doc_ids=doc_ids, settings=settings
+    )
+    latency_ms = int((time.monotonic() - started) * 1000)
+    return (
+        [
+            _document_from_row(
+                r, keys_by_doc.get(str(r["document_id"]), [])
+            )
+            for r in doc_rows
+        ],
+        samples_by_doc,
+        latency_ms,
+    )
+
+
 def _fetch_doc_columns(
     *,
     bq: BqClient,
@@ -236,6 +286,11 @@ def _fetch_doc_columns(
     settings: Settings,
 ) -> dict[str, list[str]]:
     """Fetch the JSON key set of each doc's first row from `raw.rows`.
+
+    Kept as the fallback path for
+    `fetch_document_columns_and_samples` (columns are load-bearing and
+    must not degrade to empty on a bounded-query timeout) and for the
+    eval harness's `retrieve_documents`.
 
     `raw.rows.row` is a native JSON object (post loader-fix + reload),
     so the bare `JSON_KEYS(row)` is the correct form — the legacy
@@ -265,25 +320,38 @@ def _fetch_doc_columns(
     }
 
 
-def fetch_document_samples(
+def fetch_document_columns_and_samples(
     *,
     bq: BqClient,
     doc_ids: list[str],
     settings: Settings,
-) -> dict[str, dict[str, list[str]]]:
-    """Per-column sample values for each doc: doc_id → column → values.
+) -> tuple[dict[str, list[str]], dict[str, dict[str, list[str]]]]:
+    """Per-doc column key sets AND per-column sample values from one
+    bounded, cluster-pruned `raw.rows` read.
 
-    One batched, cluster-pruned query per call (mirrors `sample_rows`'
-    budget posture: bounded bytes, short timeout). Additive enrichment
-    for `list_documents` — any failure degrades to empty samples rather
-    than failing the tool.
+    The sampler already fetches full row bodies, so each doc's column
+    list is derivable client-side from its lowest-`row_index` parseable
+    row — row bodies are flat CSV-derived objects, so the top-level
+    keys match what `JSON_KEYS(row)` would return, in document order.
+    One job instead of the former two, and cheaper than the old keys
+    query alone because this one carries the `row_index` bound.
 
-    Values are truncated to `agent_sample_value_max_chars` and the key
+    Failure posture is asymmetric because the consumers are:
+
+    - samples are advisory — on any failure they degrade to empty;
+    - columns are load-bearing (they feed `state.doc_columns` and the
+      `run_sql` pairing check), so any doc the bounded read did not
+      yield a parseable row for falls back to the old `JSON_KEYS(row)`
+      query. Happy path: one job. Degraded path: two, with the same
+      column quality as before the merge.
+
+    Values are truncated to `agent_sample_value_max_chars` (with an
+    ellipsis marker, via `sample_selector.truncate_cell`) and the key
     set per doc is capped at `agent_sample_values_max_columns` to bound
     the payload the model has to read.
     """
     if not doc_ids:
-        return {}
+        return {}, {}
     project_id = _require_project(settings)
     sql = _DOC_SAMPLES_SQL.format(
         project_id=project_id,
@@ -304,13 +372,13 @@ def fetch_document_samples(
         max_bytes_billed=settings.agent_sample_rows_max_bytes_billed,
         row_limit=len(doc_ids) * n,
     )
-    if result.timed_out or result.error:
-        return {}
     max_chars = settings.agent_sample_value_max_chars
     max_columns = settings.agent_sample_values_max_columns
+    keys_by_doc: dict[str, list[str]] = {}
     samples: dict[str, dict[str, list[str]]] = {}
+    rows = [] if result.timed_out or result.error else result.rows
     ordered = sorted(
-        result.rows,
+        rows,
         key=lambda r: (str(r.get("document_id")), int(r.get("row_index") or 0)),
     )
     for row in ordered:
@@ -321,6 +389,10 @@ def fetch_document_samples(
             continue
         if not isinstance(body, dict):
             continue
+        if doc_id not in keys_by_doc:
+            # Lowest-index parseable row wins (rows are sorted); later
+            # rows only contribute sample values.
+            keys_by_doc[doc_id] = [str(k) for k in body]
         doc_samples = samples.setdefault(doc_id, {})
         for key, value in body.items():
             # All-NULL columns carry no signal; skipping them here also
@@ -332,10 +404,20 @@ def fetch_document_samples(
             column = str(key)
             if column not in doc_samples and len(doc_samples) >= max_columns:
                 continue
-            doc_samples.setdefault(column, []).append(
-                str(value)[:max_chars]
+            rendered = truncate_cell(value, max_chars=max_chars)
+            if rendered is not None:
+                doc_samples.setdefault(column, []).append(rendered)
+    missing = [d for d in doc_ids if d not in keys_by_doc]
+    if missing:
+        keys_by_doc.update(
+            _fetch_doc_columns(
+                bq=bq,
+                project_id=project_id,
+                doc_ids=missing,
+                settings=settings,
             )
-    return samples
+        )
+    return keys_by_doc, samples
 
 
 def _require_project(settings: Settings) -> str:
