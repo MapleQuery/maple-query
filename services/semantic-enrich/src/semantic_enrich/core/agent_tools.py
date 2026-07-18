@@ -371,16 +371,17 @@ _GUIDANCE_DUPLICATE = (
     "identical query; rephrase with different vocabulary or ask the user"
 )
 _GUIDANCE_CLARIFY = (
-    "Do not search again. Either answer from the best available "
-    "candidate — stating clearly what it does and doesn't cover — or "
-    "ask the user ONE clarifying question that would let you search "
-    "better (e.g. program name, department, timeframe)."
+    "Do not search again. Either proceed with the best available "
+    "candidate — list its documents, run your SQL, and state clearly "
+    "what the data does and doesn't cover — or ask the user ONE "
+    "clarifying question that would let you search better (e.g. "
+    "program name, department, timeframe)."
 )
 _GUIDANCE_BEST_EFFORT = (
     "Do not search again, and do not ask another clarifying question "
-    "— the user has already answered one. Answer from the best "
-    "available candidate, stating clearly what it does and doesn't "
-    "cover."
+    "— the user has already answered one. Proceed with the best "
+    "available candidate: list its documents, run your SQL, and state "
+    "clearly what the data does and doesn't cover."
 )
 _GUIDANCE_NO_USABLE_DOCS = (
     "No usable documents for this package selection. Reconsider your "

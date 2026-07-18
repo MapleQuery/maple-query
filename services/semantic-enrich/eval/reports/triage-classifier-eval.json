@@ -13,7 +13,7 @@
       "classified": "in_scope",
       "confidence": 0.9,
       "acted": "in_scope",
-      "reason": "The question pertains to immigration processing times, which can be answered using federal datasets on immigration."
+      "reason": "The question pertains to federal immigration data, which is likely available in the open datasets."
     },
     {
       "id": "trace-2026-07-02-002",
@@ -22,7 +22,7 @@
       "classified": "in_scope",
       "confidence": 0.9,
       "acted": "in_scope",
-      "reason": "The question is asking for a comparison of housing grant approvals, which can be answered using federal datasets that may include provincial breakdowns."
+      "reason": "The question is asking for data on housing grant approvals, which is covered by federal datasets, and it specifies a time frame."
     },
     {
       "id": "trace-2026-07-02-003",
@@ -31,7 +31,7 @@
       "classified": "off_scope",
       "confidence": 0.9,
       "acted": "off_scope",
-      "reason": "The question is about a provincial politician personally, not program data."
+      "reason": "The question is about a provincial politician's personal purchases, which is not covered by federal datasets."
     },
     {
       "id": "trace-2026-07-02-004",
@@ -40,7 +40,7 @@
       "classified": "in_scope",
       "confidence": 0.95,
       "acted": "in_scope",
-      "reason": "The question is directly related to federal spending data, which includes airplane/jet costs."
+      "reason": "The question pertains to federal spending data, which is available in the datasets."
     },
     {
       "id": "trace-2026-07-02-005",
@@ -49,7 +49,7 @@
       "classified": "in_scope",
       "confidence": 0.95,
       "acted": "in_scope",
-      "reason": "The question pertains to federal travel-expense data, which includes spending by Canadian politicians on airplanes."
+      "reason": "Federal travel-expense data covers politicians' spending on airplanes."
     },
     {
       "id": "trace-2026-07-02-006",
@@ -85,7 +85,7 @@
       "classified": "in_scope",
       "confidence": 0.9,
       "acted": "in_scope",
-      "reason": "The question pertains to infrastructure project data, which may include federal involvement or funding, and the answer can clarify the federal boundary."
+      "reason": "The question pertains to infrastructure project data, which can be answered with federal datasets, while noting the federal boundary."
     },
     {
       "id": "trace-2026-07-02-010",
@@ -101,16 +101,16 @@
       "question": "what is the best university of canada",
       "expected": "off_scope",
       "classified": "off_scope",
-      "confidence": 0.95,
+      "confidence": 0.9,
       "acted": "off_scope",
-      "reason": "The question asks for an opinion on universities, which is not covered by federal open data."
+      "reason": "This question is asking for an opinion about universities, which is not covered by the federal open data."
     },
     {
       "id": "trace-2026-07-02-012",
       "question": "how many rows of data do you have access to?",
       "expected": "meta",
       "classified": "meta",
-      "confidence": 0.95,
+      "confidence": 0.9,
       "acted": "meta",
       "reason": "The question is about the system's data access, which falls under the meta category."
     },
@@ -130,7 +130,7 @@
       "classified": "meta",
       "confidence": 1.0,
       "acted": "meta",
-      "reason": "The question is directly asking about the system's model, which falls under the meta category."
+      "reason": "The question is about the system itself, specifically the model it runs on."
     }
   ]
 }

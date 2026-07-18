@@ -197,7 +197,7 @@ def test_retry_returns_retry_with_gap_hint() -> None:
             )
         ],
     )
-    verdict = _verifier(settings).check(ctx, _result())
+    verdict = _verifier(settings).check(ctx, _result(sql_ok=False))
     assert verdict.action == "retry"
     assert len(verdict.hints) == 1
     assert "per-province breakdown" in verdict.hints[0].text
@@ -211,6 +211,34 @@ def test_final_check_forbids_retry() -> None:
         responses=[_checker_says(action="retry", confidence=0.95)],
     )
     verdict = _verifier(settings).check(ctx, _result(), final=True)
+    assert verdict.action == "accept"
+    assert verdict.outcome_override == "answered_with_caveat"
+
+
+def test_surrender_keeps_the_retry_path() -> None:
+    # The surrender is retry's designed-for case, however many
+    # phrasings were already tried.
+    settings = _settings()
+    ctx = _ctx(
+        settings=settings,
+        responses=[_checker_says(action="retry", confidence=0.95)],
+    )
+    ctx.trace.searches.append(
+        {"query": "a", "top_similarity": 0.5, "retrieval_quality": "ok"}
+    )
+    verdict = _verifier(settings).check(ctx, _result(sql_ok=False))
+    assert verdict.action == "retry"
+
+
+def test_grounded_answer_demotes_retry_to_caveat() -> None:
+    # An answer backed by real rows ships under a caveat rather than
+    # burning a second research leg to improve it.
+    settings = _settings()
+    ctx = _ctx(
+        settings=settings,
+        responses=[_checker_says(action="retry", confidence=0.95)],
+    )
+    verdict = _verifier(settings).check(ctx, _result(sql_ok=True))
     assert verdict.action == "accept"
     assert verdict.outcome_override == "answered_with_caveat"
 
@@ -270,7 +298,10 @@ def test_clarify_suppressed_after_previous_clarify() -> None:
         prior_clarify=True,
     )
     verdict = _verifier(settings).check(ctx, _result(sql_ok=False))
-    assert verdict.outcome_override == "answered_with_caveat"
+    # Caveat applied, but a no-data claim never upgrades to
+    # answered_with_caveat.
+    assert verdict.outcome_override is None
+    assert verdict.composed_message is not None
 
 
 # ── shadow mode ──

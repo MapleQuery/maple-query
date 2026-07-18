@@ -16,6 +16,16 @@ fits=false signals (each must be grounded in the question's wording):
 - The entities in the data are lookalikes of the entities asked
   about — a person is not a program with a similar name, one
   program's top-up is not a cross-province comparison.
+- The question attributes activity to a person or another level of
+  government, and the answer presents federal program data as that
+  person's or government's work without saying whose data it is.
+  Example: "status of [premier]'s highway projects" answered from a
+  federal infrastructure dataset with "the status of [premier]'s
+  buildouts shows 9,064 complete" — the data tracks federal
+  projects, not the premier's; without that boundary stated, this is
+  a caveat even when the numbers are real. Check datasets_used: if
+  the dataset is a federal program and the question names a person
+  or province as the actor, the answer must say the data is federal.
 - The answer claims the data could not be found, but searches_tried
   shows only one phrasing. An unreformulated surrender never fits.
 - A null_ratio_warning in result_summary on an answered turn: the

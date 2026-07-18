@@ -146,7 +146,10 @@ def test_retry_then_caveat_flow() -> None:
     ]
     assert len(hints) == 1
     record = _record_of(outcome)
-    assert record["outcome"] == "answered_with_caveat"
+    # The caveated second candidate ran no SQL, so the record honestly
+    # stays a no-data claim — the caveat shows in the message, not as
+    # an outcome upgrade.
+    assert record["outcome"] == "no_data"
     assert record["verify_retries_used"] == 1
     # Both legs' tool calls billed normally (strong retrieval, no
     # reformulation credit).
