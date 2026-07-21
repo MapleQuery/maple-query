@@ -246,7 +246,41 @@ def _derivation_events(
                 flags=flags,
             )
         )
+
+    # The invariant: a numeric answer never ships with no trace. When
+    # the answer states a figure that ties to no computed total (read
+    # from a cell, or fabricated), emit an explicit "unverified" trace
+    # so the panel still appears — saying plainly that there is no
+    # computation behind the number, rather than showing nothing.
+    if not events and ungrounded and result.grounding is not None:
+        headline = result.grounding.headline_value
+        titles = _packages_and_titles(result)
+        events.append(
+            agent_events.DerivationEvent(
+                dataset_titles=titles,
+                source_packages=list(result.packages_cited),
+                aggregation="none",
+                value_columns=[],
+                scope="",
+                row_count=0,
+                source_row_estimate=0,
+                result_value=headline,
+                result_label=None,
+                unit_scale="unknown",
+                unit_source="unresolved",
+                flags=["unverified"],
+            )
+        )
     return events
+
+
+def _packages_and_titles(result: ResearchResult) -> list[str]:
+    seen: list[str] = []
+    for d in result.derivations:
+        for title in d.dataset_titles:
+            if title and title not in seen:
+                seen.append(title)
+    return seen
 
 
 def _attach_grounding(ctx: TurnContext, result: ResearchResult) -> None:

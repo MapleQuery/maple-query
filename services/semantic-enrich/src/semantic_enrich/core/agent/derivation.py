@@ -107,34 +107,32 @@ def _safe_mask(sql: str) -> str:
 
 def build_derivation(
     *, sql: str, result: dict[str, Any], state: LoopState
-) -> Derivation:
-    """Assemble a :class:`Derivation` from the executed SQL and the
-    ``run_sql`` result payload. Pure and deterministic; no model or
-    warehouse call. Never raises."""
+) -> list[Derivation]:
+    """Assemble the :class:`Derivation`(s) for one ``run_sql`` from the
+    executed SQL and its result payload. Pure and deterministic; no model
+    or warehouse call. Never raises.
+
+    Returns **one derivation per scalar-aggregate output column** — a
+    ``SELECT SUM(a), SUM(b)`` yields two traced totals, not zero — plus a
+    single shape-only derivation for a grouped or non-aggregate query."""
     try:
         return _build(sql=sql, result=result, state=state)
     except Exception as exc:  # pragma: no cover - defensive
-        return _incomplete(sql, f"build_error:{type(exc).__name__}")
+        return [_incomplete(sql, f"build_error:{type(exc).__name__}")]
 
 
 def _build(
     *, sql: str, result: dict[str, Any], state: LoopState
-) -> Derivation:
+) -> list[Derivation]:
     from semantic_enrich.core import agent_tools
 
     tree = sqlglot.parse_one(sql, dialect="bigquery")
     if tree is None:
-        return _incomplete(sql, "unparseable_sql")
+        return [_incomplete(sql, "unparseable_sql")]
 
-    notes: list[str] = []
-
-    # ── computation shape ──
-    aggregation, value_columns = _aggregation_and_value_columns(tree)
     has_group_by = tree.find(exp.Group) is not None
-    group_by_columns = _group_by_columns(tree)
-    scalar_cols = agent_tools._scalar_aggregate_columns(sql)
 
-    # ── provenance ──
+    # ── shared provenance (same for every column of one query) ──
     source_documents = tuple(sorted(agent_tools._extract_inlined_document_ids(sql)))
     packages: list[str] = []
     titles: list[str] = []
@@ -147,59 +145,147 @@ def _build(
         if title and title not in titles:
             titles.append(title)
         row_estimate += int(state.doc_row_count.get(doc_id) or 0)
-
-    # ── the number ──
-    row_count = int(result.get("row_count") or 0)
+    shared: dict[str, Any] = {
+        "source_packages": tuple(packages),
+        "source_documents": source_documents,
+        "dataset_titles": tuple(titles),
+        "predicate_shape": _predicate_shape(tree),
+        "sql_shape": _safe_mask(sql),
+        "row_count": int(result.get("row_count") or 0),
+        "source_row_estimate": row_estimate,
+    }
     rows = result.get("rows") or []
-    result_value: float | None = None
-    result_label: str | None = None
+    row0 = rows[0] if rows and isinstance(rows[0], dict) else None
+
+    # ── grouped or non-aggregate: one shape-only derivation ──
     if has_group_by:
-        # A grouped aggregate has no single scalar cell by construction
-        # (_scalar_aggregate_columns skips GROUP BY selects), so this
-        # must be checked before the scalar-count branch. Keyed on the
-        # tree, not on named group columns, since GROUP BY may reference
-        # a select alias we can't map back to a JSON path.
-        notes.append("grouped_aggregate")
-    elif len(scalar_cols) != 1:
-        notes.append("no_scalar_aggregate" if not scalar_cols else "multi_scalar_aggregate")
-    elif row_count != 1:
-        notes.append("multi_row_no_scalar" if row_count > 1 else "zero_rows")
-    elif not rows:
-        notes.append("no_result_rows")
-    else:
-        label = next(iter(scalar_cols))
-        parsed = _to_float(rows[0].get(label) if isinstance(rows[0], dict) else None)
-        if parsed is None:
-            notes.append("non_numeric_result")
+        agg, cols = _aggregation_and_value_columns(tree)
+        unit_scale, unit_source = _resolve_units(
+            value_columns=cols, aggregation=agg, state=state
+        )
+        return [
+            Derivation(
+                **shared,
+                aggregation=agg,
+                value_columns=cols,
+                group_by_columns=_group_by_columns(tree),
+                result_value=None,
+                result_label=None,
+                unit_scale=unit_scale,
+                unit_source=unit_source,
+                complete=True,
+                notes=("grouped_aggregate",),
+            )
+        ]
+
+    projections = _scalar_aggregate_projections(tree)
+    if not projections:
+        agg, cols = _aggregation_and_value_columns(tree)
+        unit_scale, unit_source = _resolve_units(
+            value_columns=cols, aggregation=agg, state=state
+        )
+        return [
+            Derivation(
+                **shared,
+                aggregation=agg,
+                value_columns=cols,
+                group_by_columns=(),
+                result_value=None,
+                result_label=None,
+                unit_scale=unit_scale,
+                unit_source=unit_source,
+                complete=True,
+                notes=("no_scalar_aggregate",),
+            )
+        ]
+
+    # ── one derivation per scalar-aggregate output column ──
+    derivations: list[Derivation] = []
+    for name, agg, value_cols in projections:
+        notes: list[str] = []
+        result_value: float | None = None
+        result_label: str | None = None
+        if shared["row_count"] != 1:
+            notes.append(
+                "multi_row_no_scalar" if shared["row_count"] > 1 else "zero_rows"
+            )
+        elif row0 is None:
+            notes.append("no_result_rows")
         else:
-            result_value = parsed
-            result_label = label
+            parsed = _to_float(row0.get(name))
+            if parsed is None:
+                notes.append("non_numeric_result")
+            else:
+                result_value = parsed
+                result_label = name
+        unit_scale, unit_source = _resolve_units(
+            value_columns=value_cols, aggregation=agg, state=state
+        )
+        derivations.append(
+            Derivation(
+                **shared,
+                aggregation=agg,
+                value_columns=value_cols,
+                group_by_columns=(),
+                result_value=result_value,
+                result_label=result_label,
+                unit_scale=unit_scale,
+                unit_source=unit_source,
+                complete=True,
+                notes=tuple(notes),
+            )
+        )
+    return derivations
 
-    # ── units ──
-    unit_scale, unit_source = _resolve_units(
-        value_columns=value_columns,
-        aggregation=aggregation,
-        state=state,
-    )
 
-    return Derivation(
-        source_packages=tuple(packages),
-        source_documents=source_documents,
-        dataset_titles=tuple(titles),
-        aggregation=aggregation,
-        value_columns=value_columns,
-        group_by_columns=group_by_columns,
-        predicate_shape=_predicate_shape(tree),
-        sql_shape=_safe_mask(sql),
-        row_count=row_count,
-        source_row_estimate=row_estimate,
-        result_value=result_value,
-        result_label=result_label,
-        unit_scale=unit_scale,
-        unit_source=unit_source,
-        complete=True,
-        notes=tuple(notes),
-    )
+def _scalar_aggregate_projections(
+    tree: exp.Expression,
+) -> list[tuple[str, str, tuple[str, ...]]]:
+    """Per ungrouped scalar-aggregate output column: ``(output_name,
+    aggregation, value_columns)``. Output names match BigQuery's
+    (``f0_``-style for anonymous projections), so they key the result
+    row dict. Mirrors ``_scalar_aggregate_columns`` but keeps per-column
+    detail so each total is traced separately."""
+    from semantic_enrich.core import agent_tools
+
+    out: list[tuple[str, str, tuple[str, ...]]] = []
+    for select in tree.find_all(exp.Select):
+        if select.args.get("group") is not None:
+            continue
+        anonymous_index = 0
+        for projection in select.expressions:
+            name = projection.alias_or_name
+            if not name:
+                name = f"f{anonymous_index}_"
+                anonymous_index += 1
+            scalar_aggs = [
+                agg
+                for agg in projection.find_all(exp.AggFunc)
+                if agg.find_ancestor(exp.Window) is None
+            ]
+            if not scalar_aggs:
+                continue
+            agg_name = _dominant_agg_name(scalar_aggs)
+            value_cols = tuple(
+                sorted(agent_tools._extract_json_path_columns(projection.sql()))
+            )
+            out.append((name, agg_name, value_cols))
+    return out
+
+
+_AGG_RANK = {"SUM": 3, "AVG": 2, "MIN": 1, "MAX": 1, "COUNT": 0}
+
+
+def _dominant_agg_name(aggs: list[exp.AggFunc]) -> str:
+    """The money-bearing aggregate wins when a projection mixes them."""
+    best_name = "none"
+    best_rank = -1
+    for agg in aggs:
+        name = _agg_name(agg)
+        rank = _AGG_RANK.get(name, 0)
+        if rank > best_rank:
+            best_name, best_rank = name, rank
+    return best_name
 
 
 def _aggregation_and_value_columns(

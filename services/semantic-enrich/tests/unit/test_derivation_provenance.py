@@ -31,7 +31,7 @@ def test_two_packages_are_both_captured() -> None:
         sql=_TWO_DOC_SUM,
         result={"row_count": 1, "rows": [{"total": 9.0e11}]},
         state=_state(),
-    )
+    )[0]
     assert set(deriv.source_documents) == {"doc-a", "doc-b"}
     assert set(deriv.source_packages) == {"pkg-2024", "pkg-2025"}
     assert set(deriv.dataset_titles) == {
@@ -45,7 +45,7 @@ def test_source_row_estimate_sums_source_docs() -> None:
         sql=_TWO_DOC_SUM,
         result={"row_count": 1, "rows": [{"total": 9.0e11}]},
         state=_state(),
-    )
+    )[0]
     # This is the input-row proxy the absurd-floor gate uses; the
     # scalar aggregate's own row_count is 1.
     assert deriv.source_row_estimate == 1412
@@ -61,6 +61,6 @@ def test_missing_row_count_metadata_defaults_to_zero() -> None:
         "FROM raw.rows WHERE document_id IN ('doc-a')",
         result={"row_count": 1, "rows": [{"t": 5.0}]},
         state=state,
-    )
+    )[0]
     assert deriv.source_row_estimate == 0
     assert deriv.source_packages == ("pkg-2024",)

@@ -322,6 +322,7 @@ const FLAG_LABELS: Record<string, string> = {
   cross_source_sum: "summed across multiple datasets",
   unknown_units: "units unverified",
   ungrounded: "figure not tied to a computed total",
+  unverified: "not computed by a query — treat with caution",
 };
 
 function formatDerivedValue(d: DerivationT): string {
@@ -352,6 +353,8 @@ function DerivationCard({
   index: number;
   derivation: DerivationT;
 }) {
+  const computed = d.aggregation !== "none";
+  const unverified = d.flags.includes("unverified");
   const how = `${d.aggregation}${
     d.value_columns.length ? ` of ${d.value_columns.join(", ")}` : ""
   }`;
@@ -359,7 +362,7 @@ function DerivationCard({
     <RailShell
       index={index}
       icon={<Sigma className="h-4 w-4 text-body" />}
-      title="How I got this number"
+      title={unverified ? "Unverified figure" : "How I got this number"}
       meta={formatDerivedValue(d)}
     >
       <dl className="mt-1 space-y-1 text-xs text-body">
@@ -369,16 +372,25 @@ function DerivationCard({
             <dd className="inline">{d.dataset_titles.join(", ")}</dd>
           </div>
         )}
-        <div>
-          <dt className="inline font-medium text-muted">How: </dt>
-          <dd className="inline">{how}</dd>
-        </div>
-        <div>
-          <dt className="inline font-medium text-muted">Over: </dt>
-          <dd className="inline">
-            ~{d.source_row_estimate.toLocaleString()} rows
-          </dd>
-        </div>
+        {computed && (
+          <div>
+            <dt className="inline font-medium text-muted">How: </dt>
+            <dd className="inline">{how}</dd>
+          </div>
+        )}
+        {computed && d.source_row_estimate > 0 && (
+          <div>
+            <dt className="inline font-medium text-muted">Over: </dt>
+            <dd className="inline">
+              ~{d.source_row_estimate.toLocaleString()} rows
+            </dd>
+          </div>
+        )}
+        {!computed && (
+          <p className="text-muted">
+            I could not tie this figure to a query I ran.
+          </p>
+        )}
       </dl>
       {d.flags.length > 0 && (
         <ul className="mt-2 flex flex-wrap gap-1">
