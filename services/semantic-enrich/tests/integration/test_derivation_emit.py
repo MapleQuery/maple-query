@@ -109,6 +109,97 @@ def test_numeric_turn_emits_one_curated_derivation_event() -> None:
     assert "SELECT" not in str(deriv.to_dict())
 
 
+def _bq_cols(row_json: str) -> FakeBqClient:
+    bq = FakeBqClient()
+    bq.register_query(
+        "VECTOR_SEARCH",
+        [{"package_id": "pkg-1", "title": "Estimates 2024-25", "summary": "s",
+          "grain": None, "measures": [], "dimensions": [], "distance": 0.1}],
+    )
+    bq.register_query(
+        "FROM `proj.raw.documents`",
+        [{"document_id": "doc-1", "package_id": "pkg-1",
+          "title": "Estimates 2024-25", "source_url": "u", "row_count": 100}],
+    )
+    bq.register_bounded_query(
+        "TO_JSON_STRING",
+        BoundedQueryResult(
+            rows=[{"document_id": "doc-1", "row_index": 0, "row_json": row_json}],
+            total_bytes_billed=1, slot_ms=1, elapsed_ms=1, timed_out=False, error=None,
+        ),
+    )
+    return bq
+
+
+def test_multi_scalar_query_emits_two_derivation_events() -> None:
+    # The two-total answer that showed NO trace before: each SUM column
+    # now emits its own panel.
+    bq = _bq_cols('{"main_estimates": "1", "to_date": "1"}')
+    bq.bounded_default = BoundedQueryResult(
+        rows=[{"total_main": 450.42e9, "total_to_date": 489.84e9}],
+        total_bytes_billed=1, slot_ms=1, elapsed_ms=1, timed_out=False, error=None,
+    )
+    sql = (
+        "SELECT "
+        "SUM(SAFE_CAST(JSON_VALUE(r.row, '$.main_estimates') AS FLOAT64)) AS total_main, "
+        "SUM(SAFE_CAST(JSON_VALUE(r.row, '$.to_date') AS FLOAT64)) AS total_to_date "
+        "FROM raw.rows AS r WHERE r.document_id IN ('doc-1')"
+    )
+    openai = FakeOpenAIClient(
+        vector_factory=_unit_vec,
+        chat_script=[
+            _call("s", "search_datasets", {"query": "estimates 2024-25"}),
+            _call("l", "list_documents", {"package_ids": ["pkg-1"]}),
+            _call("r", "run_sql", {"sql": sql, "rationale": "totals"}),
+            {"content": "Main estimates $450.42B; estimates to date $489.84B."},
+        ],
+    )
+    outcome = run_turn_collected(
+        request=ChatRequest(conversation_id="c1", history=[], question="totals 2024-25?"),
+        deps=_deps(settings=_settings(), bq=bq, openai=openai),
+    )
+    derivs = [
+        e for e in outcome.events if isinstance(e, agent_events.DerivationEvent)
+    ]
+    assert len(derivs) == 2
+    values = {e.result_label for e in derivs}
+    assert values == {"total_main", "total_to_date"}
+
+
+def test_ungrounded_numeric_answer_emits_unverified_trace() -> None:
+    # A number read from a cell (non-aggregate query) ties to no computed
+    # total -> an explicit "unverified" trace still appears.
+    bq = _bq_cols('{"Amount": "1"}')
+    bq.bounded_default = BoundedQueryResult(
+        rows=[{"a": "5"}], total_bytes_billed=1, slot_ms=1, elapsed_ms=1,
+        timed_out=False, error=None,
+    )
+    sql = (
+        "SELECT JSON_VALUE(r.row, '$.Amount') AS a "
+        "FROM raw.rows AS r WHERE r.document_id IN ('doc-1') LIMIT 10"
+    )
+    openai = FakeOpenAIClient(
+        vector_factory=_unit_vec,
+        chat_script=[
+            _call("s", "search_datasets", {"query": "estimates"}),
+            _call("l", "list_documents", {"package_ids": ["pkg-1"]}),
+            _call("r", "run_sql", {"sql": sql, "rationale": "read"}),
+            {"content": "The total is about $500 billion."},
+        ],
+    )
+    outcome = run_turn_collected(
+        request=ChatRequest(conversation_id="c1", history=[], question="total?"),
+        deps=_deps(settings=_settings(), bq=bq, openai=openai),
+    )
+    derivs = [
+        e for e in outcome.events if isinstance(e, agent_events.DerivationEvent)
+    ]
+    assert len(derivs) == 1
+    assert derivs[0].flags == ["unverified"]
+    assert derivs[0].aggregation == "none"
+    assert derivs[0].result_value == 500e9
+
+
 def test_non_numeric_turn_emits_no_derivation_event() -> None:
     bq = FakeBqClient()
     bq.register_query("VECTOR_SEARCH", [])

@@ -312,9 +312,9 @@ def _record_trace(
         # the columns_referenced capture below uses, so shape and columns
         # stay consistent with the rest of the trace.
         if status == "ok" and ctx.deps.settings.agent_derivation_capture:
-            deriv = build_derivation(sql=sql, result=result, state=ctx.state)
-            entry["derivation"] = deriv.to_dict()
-            ctx.trace.derivations.append(deriv)
+            derivs = build_derivation(sql=sql, result=result, state=ctx.state)
+            entry["derivations"] = [d.to_dict() for d in derivs]
+            ctx.trace.derivations.extend(derivs)
         ctx.trace.sql_runs.append(entry)
         for col in sorted(agent_tools._extract_json_path_columns(sql)):
             if col not in ctx.trace.columns_referenced:
