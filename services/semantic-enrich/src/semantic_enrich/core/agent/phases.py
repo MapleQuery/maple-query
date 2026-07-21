@@ -26,6 +26,7 @@ from semantic_enrich.clients.bq import BqClient
 from semantic_enrich.clients.openai import OpenAIClient
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import agent_events, agent_history, agent_tools
+from semantic_enrich.core.agent.derivation import Derivation
 from semantic_enrich.core.agent_cache import (
     CacheEntry,
     ResponseCache,
@@ -60,6 +61,9 @@ class TurnTrace:
     # retrieval_quality. Feeds the turn record so a clarify turn can
     # tell the follow-up turn which phrasings already failed.
     searches: list[dict[str, Any]] = field(default_factory=list)
+    # One Derivation per successful numeric-yielding run_sql, captured
+    # deterministically (no model call). Consumed by grounding/verify.
+    derivations: list[Derivation] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -109,6 +113,9 @@ class ResearchResult:
     sql_runs: list[dict[str, Any]] = field(default_factory=list)
     packages_cited: list[str] = field(default_factory=list)
     columns_referenced: list[str] = field(default_factory=list)
+    # Deterministic per-run_sql derivations (7.1). Consumed by the
+    # grounding gate and the magnitude/units verify extension.
+    derivations: list[Derivation] = field(default_factory=list)
     # Set when terminal_reason == "error"; the orchestrator turns these
     # into the terminal ErrorEvent.
     error_message: str = ""

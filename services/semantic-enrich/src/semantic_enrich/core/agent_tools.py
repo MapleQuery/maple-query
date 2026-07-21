@@ -305,6 +305,16 @@ class LoopState:
     # `columns` list doesn't include `<col>` is caught as a tool error
     # rather than silently returning all-NULL.
     doc_columns: dict[str, list[str]] = field(default_factory=dict)
+    # ── derivation-capture metadata (loop v2) ──
+    # Populated as a side effect of the tools that already fetch this
+    # data, so the deterministic derivation builder resolves provenance
+    # and unit scale without any extra query. doc_id → package/title/
+    # row_count from list_documents; column_name → semantic metadata
+    # from search_columns (best-effort, keyed by bare name).
+    doc_package: dict[str, str] = field(default_factory=dict)
+    doc_title: dict[str, str] = field(default_factory=dict)
+    doc_row_count: dict[str, int] = field(default_factory=dict)
+    column_metadata: dict[str, dict[str, Any]] = field(default_factory=dict)
     tool_call_count: int = 0
     sql_execution_count: int = 0
     tokens_in_total: int = 0
@@ -526,6 +536,15 @@ def run_search_columns(
         }
         for c in columns
     ]
+    # Cache column semantics for the derivation unit-scale resolver
+    # (side effect; keyed by bare column name, best-effort). setdefault
+    # keeps the first-seen metadata rather than letting a later, weaker
+    # match overwrite it.
+    for c in columns:
+        ctx.state.column_metadata.setdefault(
+            c.column_name,
+            {"semantic_type": c.semantic_type, "description": c.description},
+        )
     ctx.emit(
         agent_events.ColumnsRanked(
             package_ids=list(package_ids), candidates=candidates
@@ -593,6 +612,17 @@ def run_list_documents(
         ctx.state.known_document_ids.add(doc_id)
         cols = entry.get("columns") or []
         ctx.state.doc_columns[doc_id] = [str(c) for c in cols]
+        # Provenance metadata for the derivation builder (side effect;
+        # no extra query — package/title/row_count are already here).
+        pkg = entry.get("package_id")
+        if isinstance(pkg, str) and pkg:
+            ctx.state.doc_package[doc_id] = pkg
+        title = entry.get("title")
+        if isinstance(title, str) and title:
+            ctx.state.doc_title[doc_id] = title
+        rc = entry.get("row_count")
+        if isinstance(rc, int):
+            ctx.state.doc_row_count[doc_id] = rc
 
     result: dict[str, Any] = {"documents": payload}
     filtered_out: list[dict[str, Any]] = []

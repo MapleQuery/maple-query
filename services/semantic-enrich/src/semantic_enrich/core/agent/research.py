@@ -24,6 +24,7 @@ from typing import Any, Literal
 
 from semantic_enrich.clients.openai import ChatToolCall
 from semantic_enrich.core import agent_events, agent_tools
+from semantic_enrich.core.agent.derivation import build_derivation
 from semantic_enrich.core.agent.phases import (
     ResearchResult,
     SystemHint,
@@ -262,6 +263,7 @@ def _result(
         sql_runs=list(ctx.trace.sql_runs),
         packages_cited=list(ctx.trace.packages_researched),
         columns_referenced=list(ctx.trace.columns_referenced),
+        derivations=list(ctx.trace.derivations),
     )
 
 
@@ -299,14 +301,21 @@ def _record_trace(
                 ctx.trace.packages_researched.append(pid)
     elif tc.name == "run_sql":
         sql = str(tc.arguments.get("sql", ""))
-        ctx.trace.sql_runs.append(
-            {
-                "sql": sql,
-                "status": status,
-                "row_count": result.get("row_count"),
-                "null_ratio_warning": result.get("null_ratio_warning"),
-            }
-        )
+        entry: dict[str, Any] = {
+            "sql": sql,
+            "status": status,
+            "row_count": result.get("row_count"),
+            "null_ratio_warning": result.get("null_ratio_warning"),
+        }
+        # Deterministic derivation capture: only successful runs yield a
+        # number worth accounting for. Parsed from the same SQL string
+        # the columns_referenced capture below uses, so shape and columns
+        # stay consistent with the rest of the trace.
+        if status == "ok" and ctx.deps.settings.agent_derivation_capture:
+            deriv = build_derivation(sql=sql, result=result, state=ctx.state)
+            entry["derivation"] = deriv.to_dict()
+            ctx.trace.derivations.append(deriv)
+        ctx.trace.sql_runs.append(entry)
         for col in sorted(agent_tools._extract_json_path_columns(sql)):
             if col not in ctx.trace.columns_referenced:
                 ctx.trace.columns_referenced.append(col)
