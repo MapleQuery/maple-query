@@ -203,6 +203,52 @@ def _record_stream(
         yield event
 
 
+def _derivation_events(
+    result: ResearchResult | None,
+) -> list[agent_events.DerivationEvent]:
+    """One curated 'how I got this number' event per value-bearing
+    derivation. Additive and emit-only; shape-only derivations (no
+    scalar value) are not surfaced as a panel in M6."""
+    if result is None:
+        return []
+    cross = (
+        result.grounding is not None
+        and result.grounding.cross_source_sum.flagged
+    )
+    ungrounded = (
+        result.grounding is not None
+        and result.grounding.grounding == "ungrounded"
+    )
+    events: list[agent_events.DerivationEvent] = []
+    for d in result.derivations:
+        if d.result_value is None:
+            continue
+        flags: list[str] = []
+        if cross and d.aggregation == "SUM" and len(d.source_packages) >= 2:
+            flags.append("cross_source_sum")
+        if d.unit_scale == "unknown":
+            flags.append("unknown_units")
+        if ungrounded:
+            flags.append("ungrounded")
+        events.append(
+            agent_events.DerivationEvent(
+                dataset_titles=list(d.dataset_titles),
+                source_packages=list(d.source_packages),
+                aggregation=d.aggregation,
+                value_columns=list(d.value_columns),
+                scope=d.predicate_shape,
+                row_count=d.row_count,
+                source_row_estimate=d.source_row_estimate,
+                result_value=d.result_value,
+                result_label=d.result_label,
+                unit_scale=d.unit_scale,
+                unit_source=d.unit_source,
+                flags=flags,
+            )
+        )
+    return events
+
+
 def _attach_grounding(ctx: TurnContext, result: ResearchResult) -> None:
     """Compute the deterministic grounding report over the candidate
     answer and stash it on the result for the verify phase. Runs on the
@@ -283,6 +329,8 @@ def _finish(
     yield record(agent_events.PhaseStart(phase="answer"))
     if message:
         yield record(agent_events.MessageDelta(delta=message))
+    for event in _derivation_events(result):
+        yield record(event)
     yield record(
         agent_events.TurnRecordEvent(
             record=_turn_record(

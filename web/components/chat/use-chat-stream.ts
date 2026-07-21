@@ -132,6 +132,15 @@ function reducer(state: StreamState, action: Action): StreamState {
             ],
           };
 
+        case "derivation":
+          return {
+            ...state,
+            cards: [
+              ...state.cards,
+              { id: uuid(), kind: "derivation", derivation: payload },
+            ],
+          };
+
         case "sql_generated":
           return {
             ...state,

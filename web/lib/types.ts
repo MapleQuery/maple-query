@@ -134,6 +134,21 @@ const TurnRecord = z.object({
   record: z.record(z.unknown()),
 });
 
+const Derivation = z.object({
+  dataset_titles: z.array(z.string()).default([]),
+  source_packages: z.array(z.string()).default([]),
+  aggregation: z.string(),
+  value_columns: z.array(z.string()).default([]),
+  scope: z.string().default(""),
+  row_count: z.number(),
+  source_row_estimate: z.number().default(0),
+  result_value: z.number().nullable(),
+  result_label: z.string().nullable(),
+  unit_scale: z.string(),
+  unit_source: z.string(),
+  flags: z.array(z.string()).default([]),
+});
+
 const Done = z.object({
   turn_id: z.string(),
   total_tool_calls: z.number(),
@@ -163,6 +178,7 @@ export const AgentEventSchemas = {
   turn_timeout: TurnTimeout,
   tool_error: ToolError,
   turn_record: TurnRecord,
+  derivation: Derivation,
   done: Done,
   error: ErrorEvt,
 } as const;
@@ -177,6 +193,7 @@ export type DoneEvent = z.infer<typeof Done>;
 export type ErrorEvent = z.infer<typeof ErrorEvt>;
 export type DatasetCandidateT = z.infer<typeof DatasetCandidate>;
 export type ColumnCandidateT = z.infer<typeof ColumnCandidate>;
+export type DerivationT = z.infer<typeof Derivation>;
 
 // ---------------------------------------------------------------------------
 // REST endpoints
