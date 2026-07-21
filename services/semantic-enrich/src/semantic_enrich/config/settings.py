@@ -263,6 +263,12 @@ class Settings(BaseSettings):
     # re-enter research within one turn.
     agent_verify_max_retries: int = 1
 
+    # ── numeric-trust: derivation capture (loop v2) ──
+    # Deterministic per-run_sql provenance capture (no model call, no
+    # extra query). Kill switch only; False leaves ResearchResult
+    # derivations empty and the pipeline otherwise byte-identical.
+    agent_derivation_capture: bool = True
+
     # ── answer-fit verification phase (loop v2) ──
     # "off" wires the always-fits stub (kill switch); "log" is shadow
     # mode — check and emit verification events but never alter the
