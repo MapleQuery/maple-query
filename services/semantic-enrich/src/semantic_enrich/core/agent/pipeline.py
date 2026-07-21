@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from semantic_enrich.core import agent_events, agent_history
-from semantic_enrich.core.agent import records, research
+from semantic_enrich.core.agent import grounding, records, research
 from semantic_enrich.core.agent.phases import (
     PipelineDeps,
     ResearchResult,
@@ -25,6 +25,9 @@ from semantic_enrich.core.agent.phases import (
     Verdict,
 )
 from semantic_enrich.core.agent_request import ChatRequest
+from semantic_enrich.providers.logging import get_logger
+
+_LOG = get_logger("semantic_enrich.agent.pipeline")
 
 
 @dataclass
@@ -115,6 +118,9 @@ def run_turn(
         yield record(_terminal_error_event(result))
         return
 
+    # ── grounding (deterministic; feeds verify) ──
+    _attach_grounding(ctx, result)
+
     # ── verify ──
     yield record(agent_events.PhaseStart(phase="verify"))
     if _skip_verify(ctx, result):
@@ -132,6 +138,7 @@ def run_turn(
             if _is_terminal_error(result):
                 yield record(_terminal_error_event(result))
                 return
+            _attach_grounding(ctx, result)
             if _skip_verify(ctx, result):
                 verdict = Verdict(action="accept")
             else:
@@ -194,6 +201,27 @@ def _record_stream(
             return result
         ctx.events.append(event)
         yield event
+
+
+def _attach_grounding(ctx: TurnContext, result: ResearchResult) -> None:
+    """Compute the deterministic grounding report over the candidate
+    answer and stash it on the result for the verify phase. Runs on the
+    same set of turns verify does (research-produced, non-clarify
+    answers); always logged, never alters the answer here."""
+    if _skip_verify(ctx, result):
+        return
+    report = grounding.build_grounding_report(
+        result.candidate_answer, result.derivations
+    )
+    result.grounding = report
+    _LOG.info(
+        "grounding",
+        grounding=report.grounding,
+        matched=report.matched,
+        headline_value=report.headline_value,
+        cross_source_flagged=report.cross_source_sum.flagged,
+        fiscal_years=list(report.cross_source_sum.fiscal_years),
+    )
 
 
 def _is_terminal_error(result: ResearchResult) -> bool:
