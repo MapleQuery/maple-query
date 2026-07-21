@@ -151,7 +151,11 @@ def observe_turn(
             plan_hint = True
         elif isinstance(event, agent_events.TurnRecordEvent):
             record = event.record
-        elif isinstance(event, agent_events.Verification):
+        elif isinstance(event, agent_events.Verification) and (
+            event.kind != "magnitude"
+        ):
+            # Magnitude-gate verdicts (kind="magnitude") are not fit
+            # checks and must not seed the parity fits comparison.
             if verify is None:
                 verify = {
                     "fits_first": event.fits,

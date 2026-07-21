@@ -310,6 +310,11 @@ class Verification(_EventBase):
     confidence: float
     reason: str
     enforced: bool
+    # Which check produced this verdict: "fit" (the answer-fit checker)
+    # or "magnitude" (the deterministic numeric plausibility gate).
+    # Additive with a default so recordings predating the field load as
+    # fit checks; consumers of the fits-rate metric filter on it.
+    kind: str = field(default="fit")
 
     @property
     def event_type(self) -> EventType:

@@ -118,7 +118,12 @@ class TurnObserver:
                 "confidence": event.confidence,
                 "enforced": event.enforced,
             }
-        elif isinstance(event, agent_events.Verification):
+        elif isinstance(event, agent_events.Verification) and (
+            event.kind != "magnitude"
+        ):
+            # Only fit-check verdicts feed the fits-rate metric; the
+            # deterministic magnitude gate emits its own verification
+            # events (kind="magnitude") which must not seed fits_first.
             # First check seeds the entry; a second event means a
             # verify retry happened and carries the final verdict.
             if self.verify is None:
