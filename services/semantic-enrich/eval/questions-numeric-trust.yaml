@@ -1,0 +1,171 @@
+# Numeric-trust regression fixture.
+#
+# The two real failures from the 2026-07-21 session that motivated the
+# numeric-trust work — transcribed faithfully, including the real
+# dataset titles and the column that was actually summed — plus
+# known-good totals and boundary cases. Each entry carries a
+# `recorded_derivation` so the DETERMINISTIC tier grades the magnitude
+# gate with zero OpenAI cost (CI); the live tier (operator, opt-in)
+# ignores it and captures a fresh derivation against the warehouse.
+#
+# Schema (validated by core/agent/numeric_trust_eval.load_fixture):
+#   id       — unique, stable (nt\d\d).
+#   question — the user's message.
+#   kind     — absurd_floor | cross_source | good | multi_year_ok | unknown_units
+#   expect:
+#     derivation_captured   — bool
+#     result_value_present  — bool
+#     magnitude_finding     — the finding tag, or null for a clean total
+#     disposition           — ship | caveat | caveat_or_retry
+#   recorded_derivation — the captured Derivation, for the free tier.
+#   notes    — what actually went wrong / why this case exists.
+#
+# safe_load only.
+
+- id: nt01
+  question: "Total spending 2020-21"
+  kind: absurd_floor
+  expect:
+    derivation_captured: true
+    result_value_present: true
+    magnitude_finding: absurd_floor
+    disposition: caveat_or_retry
+  recorded_derivation:
+    aggregation: SUM
+    value_columns: ["change_in_authorities"]
+    unit_scale: unknown
+    row_count: 1               # scalar aggregate -> one output row
+    source_row_estimate: 1412  # rows drawn from -> what the floor keys on
+    result_value: 8.2
+    source_packages: ["est-supp-a-2020-21"]
+    dataset_titles: ["Supplementary Estimates (A), 2020-21"]
+  notes: >
+    Summed a change/adjustment column (mostly zeros) of a Supplementary
+    Estimates authorization ledger; shipped ~$8 as a total, correctly
+    hedged but shipped all the same.
+
+- id: nt02
+  question: "Total 2024-25 expenditure estimates"
+  kind: cross_source
+  expect:
+    derivation_captured: true
+    result_value_present: true
+    magnitude_finding: cross_source_sum
+    disposition: caveat
+  recorded_derivation:
+    aggregation: SUM
+    value_columns: ["Amount"]
+    unit_scale: dollars
+    row_count: 1
+    source_row_estimate: 4200
+    result_value: 900840000000   # ~$900.84B
+    source_packages: ["est-main-2024-25", "est-main-2025-26"]
+    dataset_titles:
+      - "Main Estimates 2024-25"
+      - "Main Estimates 2025-26"
+  notes: >
+    Summed across BOTH the 2024-25 and 2025-26 Estimates datasets — an
+    invisible double-count that read as the tool's cleanest success.
+    Real federal budgetary expenditure that year is ~half this.
+
+- id: nt03
+  question: "How much did the Canada Child Benefit pay out in 2023-24?"
+  kind: good
+  expect:
+    derivation_captured: true
+    result_value_present: true
+    magnitude_finding: null
+    disposition: ship
+  recorded_derivation:
+    aggregation: SUM
+    value_columns: ["benefit_amount_dollars"]
+    unit_scale: dollars
+    row_count: 1
+    source_row_estimate: 1200
+    result_value: 24700000000    # ~$24.7B — a real, plausible total
+    source_packages: ["ccb-payments-2023-24"]
+    dataset_titles: ["Canada Child Benefit Payments 2023-24"]
+  notes: A single-source plausible total; must ship clean (no finding).
+
+- id: nt04
+  question: "Total EI benefits paid in 2022-23?"
+  kind: good
+  expect:
+    derivation_captured: true
+    result_value_present: true
+    magnitude_finding: null
+    disposition: ship
+  recorded_derivation:
+    aggregation: SUM
+    value_columns: ["amount_thousands"]
+    unit_scale: thousands
+    row_count: 1
+    source_row_estimate: 800
+    result_value: 22500000        # 22.5M thousands = $22.5B, plausible
+    source_packages: ["ei-benefits-2022-23"]
+    dataset_titles: ["Employment Insurance Benefits 2022-23"]
+  notes: Thousands-scale total; normalizes to a plausible figure, ship.
+
+- id: nt05
+  question: "What was total departmental spending for Fisheries in 2023-24?"
+  kind: good
+  expect:
+    derivation_captured: true
+    result_value_present: true
+    magnitude_finding: null
+    disposition: ship
+  recorded_derivation:
+    aggregation: SUM
+    value_columns: ["expenditure_dollars"]
+    unit_scale: dollars
+    row_count: 1
+    source_row_estimate: 340
+    result_value: 4100000000     # ~$4.1B, plausible
+    source_packages: ["fisheries-expenditures-2023-24"]
+    dataset_titles: ["Fisheries and Oceans Expenditures 2023-24"]
+  notes: Single-source plausible total, ship clean.
+
+- id: nt06
+  question: "Combined Main Estimates for 2024-25 and 2025-26"
+  kind: multi_year_ok
+  expect:
+    derivation_captured: true
+    result_value_present: true
+    magnitude_finding: cross_source_sum
+    disposition: caveat
+  recorded_derivation:
+    aggregation: SUM
+    value_columns: ["Amount"]
+    unit_scale: dollars
+    row_count: 1
+    source_row_estimate: 4200
+    result_value: 910000000000
+    source_packages: ["est-main-2024-25", "est-main-2025-26"]
+    dataset_titles:
+      - "Main Estimates 2024-25"
+      - "Main Estimates 2025-26"
+  notes: >
+    A LEGITIMATE two-year combined total the user explicitly asked for.
+    Must still be flagged (the intent is auditable) and shipped WITH a
+    caveat — never rejected, and never a wasted retry.
+
+- id: nt07
+  question: "What is the total grant amount in the innovation program dataset?"
+  kind: unknown_units
+  expect:
+    derivation_captured: true
+    result_value_present: true
+    magnitude_finding: unknown_units
+    disposition: caveat
+  recorded_derivation:
+    aggregation: SUM
+    value_columns: ["grant_value"]
+    unit_scale: unknown
+    row_count: 1
+    source_row_estimate: 45      # below the floor min_rows, so only units fires
+    result_value: 620000000      # plausible magnitude, but scale unproven
+    source_packages: ["innovation-grants-2023"]
+    dataset_titles: ["Innovation Program Grants 2023"]
+  notes: >
+    A plausibly-sized monetary total whose column scale could not be
+    established; must ship with a units caveat, never silently as dollars.

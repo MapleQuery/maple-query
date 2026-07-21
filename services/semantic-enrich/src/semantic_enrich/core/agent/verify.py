@@ -175,9 +175,12 @@ def _magnitude_action(
 ) -> str:
     """The disposition a magnitude finding maps to, independent of mode
     (the event records this as the would-be action even in shadow)."""
-    if mag.finding is None:
+    finding = mag.finding
+    if finding is None:
         return "answer"
-    if mag.is_hard and retry_available:
+    # Only the "re-examine the column" class (floor/ceiling) spends a
+    # retry; a cross-source sum is possibly legitimate, so it caveats.
+    if finding.retry_eligible and finding.severity == "hard" and retry_available:
         return "retry"
     return "caveat"
 

@@ -167,6 +167,24 @@ def test_cross_source_caveat_composes_with_answer() -> None:
     assert "The total was $900.84B." in verdict.composed_message
 
 
+def test_cross_source_caveats_not_retries_even_with_retry_available() -> None:
+    # A cross-source sum may be a legitimate multi-year total; it must
+    # surface a caveat, never spend a retry that would just reproduce it.
+    settings = _settings()
+    ctx = _ctx(settings=settings, responses=[_fit(action="answer", fits=True)])
+    verdict = _verifier(settings).check(  # final defaults False -> retry available
+        ctx,
+        _result(
+            answer="The total was $900.84B.",
+            derivations=[_deriv(result_value=9e11, unit_scale="dollars", source_row_estimate=100)],
+            grounding=_cross_source(),
+        ),
+    )
+    assert verdict.action == "accept"
+    assert verdict.composed_message is not None
+    assert "double-count" in verdict.composed_message
+
+
 # ── soft -> caveat ──
 
 

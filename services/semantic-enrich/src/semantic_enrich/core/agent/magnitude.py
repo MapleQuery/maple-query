@@ -52,6 +52,13 @@ class MagnitudeFinding:
     detail: str
     caveat: str
     hint: str | None = None
+    # Whether this finding may spend a research retry. True only for the
+    # "very likely wrong, re-examine the column" class (absurd_floor,
+    # over_ceiling): re-running research can fix those. A cross-source
+    # sum is *suspicious but possibly legitimate* (a real multi-year
+    # total), so it flags for a caveat that surfaces the intent — never
+    # a retry that would just discard and reproduce the same sum.
+    retry_eligible: bool = False
 
 
 @dataclass(frozen=True)
@@ -161,6 +168,7 @@ def _value_checks(
                     "re-examine whether the summed column is an amount or a "
                     "change/adjustment column"
                 ),
+                retry_eligible=True,
             )
         )
 
@@ -180,6 +188,7 @@ def _value_checks(
                     f"your total of {_fmt(normalized)} is implausibly large; "
                     "check for a double-count or a unit-scale error"
                 ),
+                retry_eligible=True,
             )
         )
 
