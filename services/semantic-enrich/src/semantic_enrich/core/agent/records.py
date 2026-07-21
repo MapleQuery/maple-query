@@ -111,6 +111,19 @@ def build(
         "tool_call_count": ctx.tool_call_count,
         "reformulations_used": ctx.reformulations_used,
         "verify_retries_used": ctx.verify_retries_used,
+        **_grounding_fields(result),
+    }
+
+
+def _grounding_fields(result: ResearchResult | None) -> dict[str, Any]:
+    """Numeric-grounding summary for observability (additive; None-safe).
+    Empty dict when grounding did not run for this turn."""
+    report = result.grounding if result else None
+    if report is None:
+        return {}
+    return {
+        "grounding": report.grounding,
+        "cross_source_sum": report.cross_source_sum.flagged,
     }
 
 

@@ -27,6 +27,7 @@ from semantic_enrich.clients.openai import OpenAIClient
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import agent_events, agent_history, agent_tools
 from semantic_enrich.core.agent.derivation import Derivation
+from semantic_enrich.core.agent.grounding import GroundingReport
 from semantic_enrich.core.agent_cache import (
     CacheEntry,
     ResponseCache,
@@ -116,6 +117,10 @@ class ResearchResult:
     # Deterministic per-run_sql derivations (7.1). Consumed by the
     # grounding gate and the magnitude/units verify extension.
     derivations: list[Derivation] = field(default_factory=list)
+    # Deterministic numeric-grounding signals over the candidate answer
+    # (headline match + cross-source double-count). Populated by the
+    # pipeline before verify; None when grounding did not run.
+    grounding: GroundingReport | None = None
     # Set when terminal_reason == "error"; the orchestrator turns these
     # into the terminal ErrorEvent.
     error_message: str = ""
