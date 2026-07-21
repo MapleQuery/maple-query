@@ -41,6 +41,7 @@ EventType = Literal[
     "verification",
     "plan_hint",
     "turn_record",
+    "derivation",
 ]
 
 PhaseName = Literal["triage", "memory", "research", "verify", "answer"]
@@ -343,6 +344,34 @@ class TurnRecordEvent(_EventBase):
         return "turn_record"
 
 
+@dataclass(frozen=True)
+class DerivationEvent(_EventBase):
+    """A curated 'how I got this number' record for a numeric answer.
+
+    The projection of a captured `Derivation` a user would want to audit
+    — source, computation, scope, value, units, and any suspect flags —
+    deliberately omitting the raw SQL and row content (an operator
+    concern, already on the trace). Additive and purely informational:
+    a consumer that skips it loses nothing."""
+
+    dataset_titles: list[str]
+    source_packages: list[str]
+    aggregation: str
+    value_columns: list[str]
+    scope: str
+    row_count: int
+    source_row_estimate: int
+    result_value: float | None
+    result_label: str | None
+    unit_scale: str
+    unit_source: str
+    flags: list[str]
+
+    @property
+    def event_type(self) -> EventType:
+        return "derivation"
+
+
 AgentEvent = (
     TurnStart
     | CacheHit
@@ -368,6 +397,7 @@ AgentEvent = (
     | Verification
     | PlanHint
     | TurnRecordEvent
+    | DerivationEvent
 )
 
 
@@ -396,6 +426,7 @@ _EVENT_CLASSES: dict[str, type[_EventBase]] = {
     "verification": Verification,
     "plan_hint": PlanHint,
     "turn_record": TurnRecordEvent,
+    "derivation": DerivationEvent,
 }
 
 

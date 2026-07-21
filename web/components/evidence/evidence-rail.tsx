@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   Sparkles,
+  Sigma,
   AlertTriangle,
   Clock,
   CheckCircle2,
@@ -22,6 +23,7 @@ import { cn, formatElapsed } from "@/lib/utils";
 import type {
   ColumnCandidateT,
   DatasetCandidateT,
+  DerivationT,
 } from "@/lib/types";
 
 export type RailCard =
@@ -82,6 +84,11 @@ export type RailCard =
       kind: "turn_timeout";
       elapsed_ms: number;
       cap_ms: number;
+    }
+  | {
+      id: string;
+      kind: "derivation";
+      derivation: DerivationT;
     };
 
 export interface EvidenceRailProps {
@@ -302,10 +309,91 @@ function RailItem({ card, index }: { card: RailCard; index: number }) {
         </RailShell>
       );
 
+    case "derivation":
+      return <DerivationCard index={index} derivation={card.derivation} />;
+
     default:
       // exhaustiveness for TS
       return null;
   }
+}
+
+const FLAG_LABELS: Record<string, string> = {
+  cross_source_sum: "summed across multiple datasets",
+  unknown_units: "units unverified",
+  ungrounded: "figure not tied to a computed total",
+};
+
+function formatDerivedValue(d: DerivationT): string {
+  if (d.result_value === null) return "computed figure";
+  const scaleNote =
+    d.unit_scale === "unknown"
+      ? " (units unverified)"
+      : d.unit_scale !== "dollars" && d.unit_scale !== "count"
+        ? ` (column reported in ${d.unit_scale})`
+        : "";
+  const abs = Math.abs(d.result_value);
+  const magnitude =
+    abs >= 1e9
+      ? `${(d.result_value / 1e9).toFixed(1)}B`
+      : abs >= 1e6
+        ? `${(d.result_value / 1e6).toFixed(1)}M`
+        : abs >= 1e3
+          ? `${(d.result_value / 1e3).toFixed(1)}K`
+          : `${d.result_value}`;
+  const prefix = d.unit_scale === "count" ? "" : "$";
+  return `${prefix}${magnitude}${scaleNote}`;
+}
+
+function DerivationCard({
+  index,
+  derivation: d,
+}: {
+  index: number;
+  derivation: DerivationT;
+}) {
+  const how = `${d.aggregation}${
+    d.value_columns.length ? ` of ${d.value_columns.join(", ")}` : ""
+  }`;
+  return (
+    <RailShell
+      index={index}
+      icon={<Sigma className="h-4 w-4 text-body" />}
+      title="How I got this number"
+      meta={formatDerivedValue(d)}
+    >
+      <dl className="mt-1 space-y-1 text-xs text-body">
+        {d.dataset_titles.length > 0 && (
+          <div>
+            <dt className="inline font-medium text-muted">From: </dt>
+            <dd className="inline">{d.dataset_titles.join(", ")}</dd>
+          </div>
+        )}
+        <div>
+          <dt className="inline font-medium text-muted">How: </dt>
+          <dd className="inline">{how}</dd>
+        </div>
+        <div>
+          <dt className="inline font-medium text-muted">Over: </dt>
+          <dd className="inline">
+            ~{d.source_row_estimate.toLocaleString()} rows
+          </dd>
+        </div>
+      </dl>
+      {d.flags.length > 0 && (
+        <ul className="mt-2 flex flex-wrap gap-1">
+          {d.flags.map((flag) => (
+            <li
+              key={flag}
+              className="rounded-full border border-hairline bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700"
+            >
+              {FLAG_LABELS[flag] ?? flag}
+            </li>
+          ))}
+        </ul>
+      )}
+    </RailShell>
+  );
 }
 
 function RailShell({
