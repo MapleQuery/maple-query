@@ -34,6 +34,10 @@ import jinja2
 
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import agent_events
+from semantic_enrich.core.agent.magnitude import (
+    MagnitudeVerdict,
+    evaluate_magnitude,
+)
 from semantic_enrich.core.agent.phases import (
     ResearchResult,
     SystemHint,
@@ -163,6 +167,53 @@ def compose_retry_hint(*, gap: str, retry_hint: str | None) -> str:
     return text
 
 
+# ── magnitude gate composition (deterministic) ──
+
+
+def _magnitude_action(
+    mag: MagnitudeVerdict, *, retry_available: bool
+) -> str:
+    """The disposition a magnitude finding maps to, independent of mode
+    (the event records this as the would-be action even in shadow)."""
+    if mag.finding is None:
+        return "answer"
+    if mag.is_hard and retry_available:
+        return "retry"
+    return "caveat"
+
+
+def _magnitude_hint(mag: MagnitudeVerdict) -> str:
+    finding = mag.finding
+    if finding is not None and finding.hint:
+        return finding.hint
+    return "your computed total looks implausible; re-examine the column and scope"
+
+
+def _compose_magnitude(
+    mag: MagnitudeVerdict, fit: Verdict, result: ResearchResult
+) -> Verdict:
+    """Prepend the magnitude caveat to the fit disposition. Caveats
+    compose (both prepend); a fit retry/clarify wins (the numeric caveat
+    is moot on a discarded or replaced answer)."""
+    finding = mag.finding
+    assert finding is not None
+    if fit.action == "retry" or fit.outcome_override == "clarified":
+        return fit
+    base = (
+        fit.composed_message
+        if fit.composed_message is not None
+        else result.candidate_answer
+    )
+    real_answer = any(r.get("status") == "ok" for r in result.sql_runs)
+    return Verdict(
+        action="accept",
+        events=fit.events,
+        composed_message=finding.caveat + base,
+        outcome_override=fit.outcome_override
+        or ("answered_with_caveat" if real_answer else None),
+    )
+
+
 # ── the phase ──
 
 
@@ -183,12 +234,48 @@ class AnswerFitVerifier:
         final: bool = False,
     ) -> Verdict:
         settings = ctx.deps.settings
-        mode = settings.agent_verify_mode
-        if mode == "off":  # dispatch wires the stub; guard anyway
+        if settings.agent_verify_mode == "off":  # dispatch wires the stub
             return Verdict(action="accept")
 
-        started = time.monotonic()
         events: list[agent_events.AgentEvent] = []
+        # Deterministic magnitude/units gate runs first, before the
+        # fit-checker's model call. It consumes the captured derivation
+        # (7.1) + grounding (7.2); no new model call, no confidence to
+        # demote — a "1,000 rows summed to $8" is arithmetic, not a
+        # judgement call.
+        mag = evaluate_magnitude(result.derivations, result.grounding, settings)
+        mag_enforce = settings.agent_magnitude_mode == "act"
+        retry_available = not final and ctx.retries_remaining()
+        mag_action = _magnitude_action(mag, retry_available=retry_available)
+        if mag.finding is not None:
+            self._emit_magnitude(
+                mag, mag_action, events=events, enforced=mag_enforce
+            )
+        # A hard finding with a retry available discards this candidate
+        # before the fit-checker call is even spent.
+        if mag_enforce and mag_action == "retry":
+            return Verdict(
+                action="retry",
+                events=events,
+                hints=[SystemHint(text=_magnitude_hint(mag))],
+            )
+
+        fit = self._fit_check(ctx, result, final, events=events)
+        if mag_enforce and mag.finding is not None:
+            return _compose_magnitude(mag, fit, result)
+        return fit
+
+    def _fit_check(
+        self,
+        ctx: TurnContext,
+        result: ResearchResult,
+        final: bool,
+        *,
+        events: list[agent_events.AgentEvent],
+    ) -> Verdict:
+        settings = ctx.deps.settings
+        mode = settings.agent_verify_mode
+        started = time.monotonic()
         inputs = assemble_inputs(ctx, result)
         check, fail_open_reason = self._run_checker(
             ctx, inputs=inputs, events=events
@@ -381,6 +468,38 @@ class AnswerFitVerifier:
             fail_open_reason=fail_open_reason,
             demotions=demotions or [],
             elapsed_ms=int((time.monotonic() - started) * 1000),
+        )
+
+    def _emit_magnitude(
+        self,
+        mag: MagnitudeVerdict,
+        action: str,
+        *,
+        events: list[agent_events.AgentEvent],
+        enforced: bool,
+    ) -> None:
+        """Surface the deterministic numeric verdict on the existing
+        verification event (fits=False, confidence=1.0 — no model). In
+        `log` mode `enforced=False` and the answer is untouched: this is
+        the shadow data for the act-flip precision gate."""
+        finding = mag.finding
+        assert finding is not None
+        events.append(
+            agent_events.Verification(
+                fits=False,
+                action=action,
+                confidence=1.0,
+                reason=f"{finding.tag}: {finding.detail}",
+                enforced=enforced,
+                kind="magnitude",
+            )
+        )
+        _LOG.info(
+            "magnitude",
+            tag=finding.tag,
+            severity=finding.severity,
+            action=action,
+            enforced=enforced,
         )
 
 

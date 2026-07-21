@@ -269,6 +269,26 @@ class Settings(BaseSettings):
     # derivations empty and the pipeline otherwise byte-identical.
     agent_derivation_capture: bool = True
 
+    # ── numeric-trust: magnitude + units plausibility (loop v2) ──
+    # Deterministic bounds gate inside the verify phase, consuming the
+    # captured derivation + grounding. Separate from agent_verify_mode
+    # so the numeric gate can soak in shadow while fit-verify stays in
+    # act (and be demoted alone if a bound misfires). "off" skips it;
+    # "log" computes + emits but never alters the answer; "act" enforces
+    # caveat/retry. Default "log": flip to "act" only after the fixture
+    # (7.5) shows the precision gate met. Note: agent_verify_mode="off"
+    # wires the stub verifier and disables this too (one hard off switch).
+    agent_magnitude_mode: Literal["off", "log", "act"] = "log"
+    # Absurd-floor: a monetary SUM/AVG drawn from >= floor_min_rows input
+    # rows whose normalized total is below this (dollars) is very likely
+    # summing a change column rather than an amount (the $8 class).
+    agent_mag_absurd_floor: float = 1_000.0
+    agent_mag_floor_min_rows: int = 50
+    # Coarse sanity ceiling (dollars, normalized): comfortably above any
+    # real single federal annual aggregate, so it catches gross scale /
+    # double-count errors, not correctness.
+    agent_mag_ceiling: float = 3_000_000_000_000.0
+
     # ── answer-fit verification phase (loop v2) ──
     # "off" wires the always-fits stub (kill switch); "log" is shadow
     # mode — check and emit verification events but never alter the
