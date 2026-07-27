@@ -288,7 +288,10 @@ def test_followup_with_record_gets_plan_hint_and_no_summarization() -> None:
     assert "retrieval_started" not in kinds
     assert "tool_error" not in kinds
     assert "documents_listed" in kinds
-    assert outcome.final_message == "still $100."
+    # The turn listed documents without searching, so the evidence
+    # footer names the plan's package by id.
+    assert outcome.final_message.startswith("still $100.")
+    assert "`pkg-travel`" in outcome.final_message
     assert outcome.tool_call_count == 1
     # The hint reached the model as a system message naming the plan.
     first_call_messages = openai2.chat_calls[0]["messages"]

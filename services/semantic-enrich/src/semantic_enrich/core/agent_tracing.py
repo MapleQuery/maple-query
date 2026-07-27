@@ -26,6 +26,7 @@ import time
 from collections import OrderedDict
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
+from typing import Any
 
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import agent_events
@@ -92,6 +93,10 @@ class TurnObserver:
         self.top_similarities: list[float | None] = []
         # Number of reformulation events (v2 loop only).
         self.reformulations = 0
+        # The turn record as emitted (v2 loop only). Carries the
+        # outcome tag, the packages listed, and every search tried —
+        # the inputs the guided-recovery baseline is computed from.
+        self.turn_record: dict[str, Any] | None = None
 
     def observe(self, event: agent_events.AgentEvent) -> None:
         if isinstance(event, agent_events.TurnStart):
@@ -112,6 +117,8 @@ class TurnObserver:
             )
             self._prev_tokens_in = event.tokens_in_total
             self._prev_tokens_out = event.tokens_out_total
+        elif isinstance(event, agent_events.TurnRecordEvent):
+            self.turn_record = event.record
         elif isinstance(event, agent_events.TriageResult):
             self.triage = {
                 "category": event.category,
