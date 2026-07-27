@@ -274,6 +274,11 @@ def run_agent_eval(
                     "top_similarities": observer.top_similarities,
                     "reformulations": observer.reformulations,
                     "verify": observer.verify,
+                    "outcome": _record_field(observer, "outcome"),
+                    "packages_listed": _record_field(observer, "packages"),
+                    "searches_tried": _record_field(
+                        observer, "searches_tried"
+                    ),
                 },
             }
         )
@@ -309,6 +314,7 @@ def run_agent_eval(
             results, floor=settings.agent_search_similarity_floor
         ),
         "verify_fit": _verify_fit(results),
+        "guided_recovery": _guided_recovery(results),
         "questions": results,
     }
 
@@ -380,6 +386,90 @@ def _verify_fit(results: list[dict[str, Any]]) -> dict[str, Any]:
         else:
             bucket["unfit_ids"].append(r["id"])
     return by_outcome
+
+
+def _record_field(observer: TurnObserver, key: str) -> Any:
+    """One turn-record field, or None when the loop emitted no record
+    (the v1 loop, or a turn that errored before the finish step)."""
+    record = observer.turn_record
+    return record.get(key) if record else None
+
+
+# Guided recovery's premise is that a surrender usually has evidence
+# behind it. The evidence footer is worth shipping either way, but the
+# interaction surfaces built on top of it are not — so this measures
+# how often a surrender has anything worth offering, before any effort
+# goes into them.
+_EXPLOITABLE_PROCEED = 0.4
+_EXPLOITABLE_RECONSIDER = 0.2
+
+
+def _guided_recovery(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """The go/no-go rider: of the turns that surrendered, how many had
+    both a listed dataset and at least one search that cleared the
+    retrieval floor.
+
+    A surrender with neither has nothing to offer the user beyond the
+    honest "I don't have this" it already gives; a surrender with both
+    is one a next-step suggestion could have rescued. The fraction
+    with both is `exploitable_rate`.
+
+    `search_queries` is captured verbatim for every turn — the second
+    question this run answers is whether real model-authored queries
+    read like terms a user would recognise in a chip label.
+    """
+    surrenders = [
+        r for r in results if r["run"].get("outcome") == "no_data"
+    ]
+    with_packages = [r for r in surrenders if r["run"].get("packages_listed")]
+    with_ok = [
+        r
+        for r in surrenders
+        if any(
+            s.get("retrieval_quality") == "ok"
+            for s in (r["run"].get("searches_tried") or [])
+        )
+    ]
+    ok_ids = {r["id"] for r in with_ok}
+    exploitable = [r for r in with_packages if r["id"] in ok_ids]
+    rate = len(exploitable) / len(surrenders) if surrenders else 0.0
+    return {
+        "turns": len(results),
+        "surrenders": len(surrenders),
+        "surrender_ids": [r["id"] for r in surrenders],
+        "surrenders_with_packages": len(with_packages),
+        "surrenders_with_ok_retrieval": len(with_ok),
+        "exploitable_rate": round(rate, 4),
+        "exploitable_ids": [r["id"] for r in exploitable],
+        "verdict": _exploitable_verdict(rate, surrenders=len(surrenders)),
+        # Direct evidence the footer fired live, not only on fakes.
+        "surrenders_with_footer": sum(
+            1
+            for r in surrenders
+            if "**What I searched:**" in str(r["run"].get("final_message"))
+        ),
+        "search_queries": [
+            {
+                "id": r["id"],
+                "outcome": r["run"].get("outcome"),
+                "queries": [
+                    s.get("query")
+                    for s in (r["run"].get("searches_tried") or [])
+                ],
+            }
+            for r in results
+        ],
+    }
+
+
+def _exploitable_verdict(rate: float, *, surrenders: int) -> str:
+    if surrenders == 0:
+        return "no_surrenders"
+    if rate >= _EXPLOITABLE_PROCEED:
+        return "proceed"
+    if rate >= _EXPLOITABLE_RECONSIDER:
+        return "proceed_after_revisiting_gating"
+    return "stop_and_reconsider"
 
 
 def _terminal_counts(results: list[dict[str, Any]]) -> dict[str, int]:

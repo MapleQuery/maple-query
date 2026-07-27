@@ -14,10 +14,14 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Generator, Iterator
 from dataclasses import dataclass, field
-from typing import Any
 
 from semantic_enrich.core import agent_events, agent_history
-from semantic_enrich.core.agent import grounding, records, research
+from semantic_enrich.core.agent import (
+    evidence,
+    grounding,
+    records,
+    research,
+)
 from semantic_enrich.core.agent.phases import (
     PipelineDeps,
     ResearchResult,
@@ -148,7 +152,7 @@ def run_turn(
 
     yield from _finish(
         ctx,
-        message=_compose(result, verdict),
+        message=_verdict_message(result, verdict),
         result=result,
         record=record,
         outcome_override=verdict.outcome_override,
@@ -333,10 +337,7 @@ def _skip_verify(ctx: TurnContext, result: ResearchResult) -> bool:
     question is not a claim to check."""
     if result.terminal_reason != "final_answer":
         return True
-    return (
-        _outcome(ctx, message=result.candidate_answer, result=result)
-        == "clarified"
-    )
+    return _candidate_is_clarify(ctx, result)
 
 
 def _skip_grounding(ctx: TurnContext, result: ResearchResult) -> bool:
@@ -347,17 +348,62 @@ def _skip_grounding(ctx: TurnContext, result: ResearchResult) -> bool:
     ground)."""
     if result.terminal_reason not in ("final_answer", "budget_forced"):
         return True
+    return _candidate_is_clarify(ctx, result)
+
+
+def _candidate_is_clarify(ctx: TurnContext, result: ResearchResult) -> bool:
+    """Both skip gates ask the same question of the raw candidate — is
+    the model's own text a clarifying question rather than a claim."""
     return (
         _outcome(ctx, message=result.candidate_answer, result=result)
         == "clarified"
     )
 
 
-def _compose(result: ResearchResult, verdict: Verdict) -> str:
+def _verdict_message(result: ResearchResult, verdict: Verdict) -> str:
     # The verify phase never rewrites the model's text: it either
     # ships the candidate unchanged, wraps it under a template caveat,
     # or replaces a surrender with a clarifying question.
     return verdict.composed_message or result.candidate_answer
+
+
+def _compose(
+    ctx: TurnContext,
+    *,
+    message: str,
+    result: ResearchResult | None,
+    outcome: str,
+) -> str:
+    """The single funnel every shipping message passes through, and the
+    only place the evidence footer is appended.
+
+    The obvious hook for a footer is `verify.compose_caveat`, since the
+    surrender the milestone was written against carries a caveat
+    header. That would be wrong: the caveat composer covers one of the
+    five paths that ship a surrender. A verify `fits=True` on a no-data
+    answer, verify in `off`/`log` mode, and a budget- or timeout-forced
+    answer all ship the model's raw text — and those are precisely the
+    paths carrying the "check with the relevant departments" ending
+    this footer exists to follow. Only the clarify path is excluded,
+    and it is excluded by the outcome gate below rather than by where
+    the hook sits.
+
+    `outcome` is computed by the caller on the *pre-footer* message.
+    That ordering matters: `_outcome` detects a clarify partly by
+    testing `"?" in message`, so gating the footer on an outcome
+    derived from the footered message would be circular.
+    """
+    if outcome != "no_data":
+        # `answered` / `answered_with_caveat` already give the user
+        # something to act on. `clarified` only fires when retrieval was
+        # weak, so a dataset list under the question would invite the
+        # user to pick something the loop already scored as irrelevant.
+        return message
+    if not ctx.deps.settings.agent_evidence_footer:
+        return message
+    return message + evidence.compose_footer(
+        evidence.collect_evidence(ctx, result)
+    )
 
 
 def _finish(
@@ -378,6 +424,12 @@ def _finish(
             )
         )
         ctx.turn_start_emitted = True
+    # Computed once, on the pre-footer message, and shared between the
+    # footer decision and the turn record. See `_compose`.
+    outcome = outcome_override or _outcome(
+        ctx, message=message, result=result
+    )
+    message = _compose(ctx, message=message, result=result, outcome=outcome)
     yield record(agent_events.PhaseStart(phase="answer"))
     if message:
         yield record(agent_events.MessageDelta(delta=message))
@@ -385,11 +437,8 @@ def _finish(
         yield record(event)
     yield record(
         agent_events.TurnRecordEvent(
-            record=_turn_record(
-                ctx,
-                message=message,
-                result=result,
-                outcome_override=outcome_override,
+            record=records.build(
+                ctx, message=message, result=result, outcome=outcome
             )
         )
     )
@@ -436,18 +485,3 @@ def _outcome(
     ):
         return "clarified"
     return "answered" if sql_succeeded else "no_data"
-
-
-def _turn_record(
-    ctx: TurnContext,
-    *,
-    message: str,
-    result: ResearchResult | None,
-    outcome_override: str | None = None,
-) -> dict[str, Any]:
-    outcome = outcome_override or _outcome(
-        ctx, message=message, result=result
-    )
-    return records.build(
-        ctx, message=message, result=result, outcome=outcome
-    )

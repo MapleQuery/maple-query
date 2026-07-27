@@ -466,6 +466,8 @@ uv run semantic-enrich eval --agent-mode --loop-impl v2 \
 
 The fixture (`eval/questions-agent-traces.yaml`) is derived from real agent traffic: every entry carries the verbatim user question, `expected.triage` (`in_scope | off_scope | meta | clarify`) and `expected.outcome` (`answered | no_data | deflected | clarify`) labels, optional `packages_any_of` / `must_caveat`, and an `observed_v1` record of what the loop actually did in the source traces. The report records terminal state, final message, tool-call count, dollars, and per-call token series per question — no automatic grading; it is the denominator for before/after comparisons of loop changes. This is a manual, occasional capture (14 questions, well under $1) — do not schedule repeated runs.
 
+The report's `guided_recovery` block summarises the surrender population: how many turns recorded `no_data`, how many of those listed at least one package, how many had at least one search come back `retrieval_quality: "ok"`, and `exploitable_rate` — the fraction satisfying both, i.e. how often a surrender has anything worth offering the user beyond the honest "I don't have this". `search_queries` records the verbatim model-authored query per turn. Both are read from the `turn_record` event, so the block is empty under the v1 loop. Committed baseline: `eval/reports/guided-recovery-baseline.json`.
+
 ## Agent span tracing
 
 With a Braintrust key configured, the agent loop emits a full span tree per conversation instead of disconnected per-call roots:
@@ -538,6 +540,24 @@ Skips: triage short-circuits, cache replays, clarifying-question candidates, and
 **Cutover parity harness** (`semantic-enrich parity [--runs N] [--dry-run]`): three suites against both impls from one build — the 20-question retrieval fixture as the agent-mode regression floor, the labeled trace fixture as the improvement measure, and `eval/scenarios-multiturn.yaml` (five scripted 2-5-turn conversations: identical-question replay, plan reuse, clarify→answer, mid-conversation off-scope, turns-2-5 stability) with real history + turn-record carryover. v2 runs with triage/verify in `act`. Gates G1-G7 (answered-rate parity, <15% in-scope surrender, deflection precision, zero uncaveated wrong-fit + ≥95% verify precision, 100% replay hit, cost ≤ v1 + ≤1.3K prompt tokens, p50 latency ≤ v1+1.5s) computed on medians across runs; report written to `eval/reports/m5-parity-<date>.json`, non-zero exit on any red gate. Runbook: flip modes back individually (`WHENRICH_AGENT_TRIAGE_MODE=log`, `WHENRICH_AGENT_VERIFY_MODE=log`) or the loop entirely (`WHENRICH_AGENT_LOOP_IMPL=v1`) — config-only, same image. The turn span carries `metadata.verify = {fits_first, action_first, fits_final, retried}`; a caveated turn's record is tagged `outcome: "answered_with_caveat"`, a verify-composed question `outcome: "clarify"` (feeding the same follow-up-turn hint flow as retrieval resilience).
 
 Tests: `tests/unit/test_verify_phase.py` (verdict→disposition mapping, all act-mode gates, fail-open, shadow mode), `test_verify_inputs.py` (evidence assembly, literal stripping), `test_caveat_composition.py` (pure templates), `tests/integration/test_verify_pipeline.py` (retry→caveat flow end to end, skip conditions, budget accounting).
+
+## Evidence-bearing surrender (`agent_evidence_footer`, v2 only)
+
+A surrender used to end by referring the user out of the product ("check with the relevant government departments") while holding the package ids, titles, and column inventories of everything it had just opened. `core/agent/evidence.py` turns that held state into a deterministic footer appended to the message:
+
+```markdown
+**What I searched:** *Supplementary Estimates B, 2025-26* (312 columns) · *Public Accounts of Canada, Volume II* (89 columns) · +2 more
+
+**Search terms tried:** "air travel expenditures", "travel costs 2025-26"
+```
+
+`collect_evidence(ctx, result)` is pure — packages come from `TurnTrace.packages_researched` unioned with `LoopState.search_results[*].candidates`, column counts from `LoopState.doc_columns` via `doc_package`, queries from `TurnTrace.searches`. No model call, no query, no new state. Packages the loop actually **listed** come first (those are the ones it opened and can describe), ranked-but-unopened candidates follow in retrieval order, capped at 4 with the remainder counted as `+N more`. Titles truncate at 70 chars, queries dedupe and cap at 3. A package that was ranked but never listed renders without a count — never an estimated one. Zero packages renders nothing at all, header included.
+
+**Where it attaches.** Not `verify.compose_caveat`: that composer covers one of the five paths that ship a surrender. A verify `fits=true` on a no-data answer, verify in `off`/`log` mode, and a budget- or timeout-forced answer all ship the research model's raw text, and those are precisely the paths carrying the external-referral ending. The footer therefore attaches in `pipeline._compose`, the funnel every non-clarify message passes through, gated on the turn outcome: appended on `no_data`, skipped on `answered`, `answered_with_caveat`, `clarified`, `deflected`, and `error`. `clarified` is excluded deliberately — a clarify only fires when retrieval was weak, so listing datasets under the question would invite the user to pick something the loop already scored as irrelevant.
+
+`_outcome` detects a clarify partly by testing `"?" in message`, so `_finish` computes the outcome **once, on the pre-footer message**, and threads it to both the footer decision and the turn record; `tests/unit/test_outcome_stability.py` pins the invariant that the footer cannot flip a tag, and the composer strips `?` from rendered titles and queries so that holds by construction rather than by luck. The model's own text is never rewritten — the referral sentence stays, the evidence follows it.
+
+Kill switch `WHENRICH_AGENT_EVIDENCE_FOOTER=false` reproduces the pre-PRD build byte for byte. Cost: zero. Tests: `tests/unit/test_evidence_collect.py`, `test_evidence_compose.py`, `test_outcome_stability.py`, `tests/integration/test_surrender_paths.py` (one scripted turn per shipping path, plus the two that must stay bare, plus the kill switch).
 
 ## Session memory (v2 only)
 

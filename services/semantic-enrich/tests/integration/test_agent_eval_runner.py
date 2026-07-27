@@ -11,6 +11,7 @@ from typing import Any
 
 from semantic_enrich.clients.openai import ChatCompletionResult
 from semantic_enrich.config.settings import Settings
+from semantic_enrich.core.agent.phases import PipelineDeps
 from semantic_enrich.core.agent_cache import ResponseCache
 from semantic_enrich.core.agent_eval import (
     AgentEvalRequest,
@@ -82,3 +83,51 @@ def test_run_agent_eval_writes_baseline_report(tmp_path: Path) -> None:
     on_disk = json.loads(written.read_text(encoding="utf-8"))
     assert on_disk["run_id"] == "testrun-123"
     assert len(on_disk["questions"]) == 3
+    # The v1 loop emits no turn record, so the guided-recovery block is
+    # present but empty rather than absent or wrong.
+    assert on_disk["guided_recovery"]["surrenders"] == 0
+    assert on_disk["guided_recovery"]["verdict"] == "no_surrenders"
+
+
+def test_guided_recovery_block_reads_the_v2_turn_record(
+    tmp_path: Path,
+) -> None:
+    """The go/no-go rider's inputs come from the `turn_record` event, so
+    the wiring only exists on v2. A canned answer with no tool calls is
+    a surrender with nothing behind it — the honest zero."""
+    settings = Settings().model_copy(
+        update={
+            "eval_questions_path": FIXTURE,
+            "eval_reports_dir": tmp_path,
+            "agent_triage_mode": "off",
+            "agent_verify_mode": "off",
+        }
+    )
+    deps = PipelineDeps(
+        bq=object(),  # type: ignore[arg-type]
+        openai_client=_CannedOpenAI(),  # type: ignore[arg-type]
+        settings=settings,
+        system_prompt="test prompt",
+        prompt_hash="ph-test",
+        cache=ResponseCache(
+            max_entries=4, max_value_bytes=100_000, ttl_seconds=60
+        ),
+        snapshot_hash_provider=lambda: "snap-test",
+    )
+    report = run_agent_eval(
+        request=AgentEvalRequest(
+            run_id="v2run-123", limit=2, output_override=None
+        ),
+        settings=settings,
+        deps=deps,
+        loop_impl="v2",
+    )
+
+    summary = report["guided_recovery"]
+    assert summary["turns"] == 2
+    assert summary["surrenders"] == 2
+    assert summary["surrenders_with_packages"] == 0
+    assert summary["surrenders_with_ok_retrieval"] == 0
+    assert summary["exploitable_rate"] == 0.0
+    assert summary["verdict"] == "stop_and_reconsider"
+    assert [q["queries"] for q in summary["search_queries"]] == [[], []]

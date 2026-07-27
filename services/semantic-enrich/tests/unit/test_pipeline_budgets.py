@@ -125,7 +125,9 @@ def test_tool_budget_is_shared_across_verify_retry() -> None:
         deps=deps,
     )
 
-    assert outcome.final_message == "final answer."
+    # `startswith`, because a no-SQL turn also carries the evidence
+    # footer; the budget is what this file is about.
+    assert outcome.final_message.startswith("final answer.")
     assert outcome.tool_call_count == 3  # never exceeds the global cap
     over = [
         e
@@ -175,7 +177,7 @@ def test_budget_block_forces_final_answer() -> None:
     types = [e.event_type for e in outcome.events]
     assert "budget_exceeded" in types
     assert outcome.tool_call_count == 1
-    assert outcome.final_message == "answering from what I have."
+    assert outcome.final_message.startswith("answering from what I have.")
     assert types[-1] == "done"
     # The forced-answer nudge went in as a synthetic user message.
     final_messages = openai.chat_calls[-1]["messages"]

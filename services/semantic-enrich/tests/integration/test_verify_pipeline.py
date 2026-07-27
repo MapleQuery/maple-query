@@ -122,8 +122,10 @@ def test_retry_then_caveat_flow() -> None:
     deps = _deps(settings=settings, bq=bq, openai=openai)
     outcome = run_turn_collected(request=_request(), deps=deps)
 
-    # Second candidate shipped, under the second check's caveat.
-    assert outcome.final_message == (
+    # Second candidate shipped, under the second check's caveat. The
+    # turn ran no SQL, so the evidence footer follows — asserted in
+    # test_surrender_paths; what this pins is verify's composition.
+    assert outcome.final_message.startswith(
         "**Partial answer:** this does not cover the territories.\n\n"
         "per-province totals were $Y."
     )
@@ -200,7 +202,9 @@ def test_budget_forced_answer_skips_verification() -> None:
     outcome = run_turn_collected(request=_request(), deps=deps)
 
     assert openai.structured_calls == []
-    assert outcome.final_message == "best effort from what I have."
+    # Unchanged by verify; the evidence footer that follows is the
+    # pipeline's, not the checker's.
+    assert outcome.final_message.startswith("best effort from what I have.")
 
 
 def test_log_mode_ships_unchanged_with_shadow_event() -> None:
@@ -226,7 +230,7 @@ def test_log_mode_ships_unchanged_with_shadow_event() -> None:
     deps = _deps(settings=settings, bq=bq, openai=openai)
     outcome = run_turn_collected(request=_request(), deps=deps)
 
-    assert outcome.final_message == "national total was $X."
+    assert outcome.final_message.startswith("national total was $X.")
     verifications = [
         e
         for e in outcome.events

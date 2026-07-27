@@ -35,6 +35,12 @@ V2_ONLY_TYPES = {
 
 
 def _settings(**overrides: Any) -> Settings:
+    # The evidence footer is a v2-only addition that appends to the
+    # message payload rather than adding an event, so unlike the other
+    # v2-only surfaces it cannot be stripped from the comparison. It is
+    # neutralized here for the same reason the intelligent phases are
+    # stubbed: this file pins that the *extraction* changed nothing.
+    overrides.setdefault("agent_evidence_footer", False)
     return Settings(
         gcp_project_id="proj",
         openai_api_key="sk-test",  # type: ignore[arg-type]

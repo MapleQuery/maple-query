@@ -356,6 +356,14 @@ class Settings(BaseSettings):
     # priced out by the budget already spent on the failed attempt.
     agent_max_reformulations: int = 1
 
+    # ── guided recovery: evidence-bearing surrender (loop v2) ──
+    # Append a deterministic footer naming the datasets the turn
+    # actually searched (with column counts where known) to every
+    # no-data surrender. Pure string composition over state already in
+    # memory: no model call, no query, no measurable latency. Kill
+    # switch only; False reproduces the pre-PRD build byte for byte.
+    agent_evidence_footer: bool = True
+
     # Model cost accounting (observability only; not enforced).
     # $/1K tokens; defaults match gpt-4o's published rates.
     agent_model_input_rate: float = 0.0025
