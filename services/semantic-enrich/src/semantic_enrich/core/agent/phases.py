@@ -26,6 +26,7 @@ from semantic_enrich.clients.bq import BqClient
 from semantic_enrich.clients.openai import OpenAIClient
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import agent_events, agent_history, agent_tools
+from semantic_enrich.core.agent import scope
 from semantic_enrich.core.agent.derivation import Derivation
 from semantic_enrich.core.agent.grounding import GroundingReport
 from semantic_enrich.core.agent_cache import (
@@ -192,6 +193,11 @@ class TurnContext:
     # Stamped by the orchestrator after the triage phase so the turn
     # record carries the routing decision.
     triage_category: str = "in_scope"
+    # The request's package scope after validation, or empty for an
+    # ordinary turn. Sanitized once at `begin` so every downstream
+    # predicate reads the same tuple rather than re-validating
+    # client-supplied input.
+    scope_package_ids: tuple[str, ...] = ()
     turn_start_emitted: bool = False
     history_messages: list[dict[str, Any]] = field(default_factory=list)
     trace: TurnTrace = field(default_factory=TurnTrace)
@@ -213,6 +219,11 @@ class TurnContext:
         state.prior_clarify = (
             last_clarify_record(request.turn_records) is not None
         )
+        scope_ids = (
+            scope.sanitize(request.scope_package_ids)
+            if deps.settings.agent_scoped_turns
+            else ()
+        )
         return cls(
             request=request,
             deps=deps,
@@ -220,6 +231,7 @@ class TurnContext:
             started_monotonic=time.monotonic(),
             snapshot_hash=deps.snapshot_hash_provider(),
             state=state,
+            scope_package_ids=scope_ids,
         )
 
     # ── shared meters ──

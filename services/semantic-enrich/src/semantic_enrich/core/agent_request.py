@@ -23,9 +23,16 @@ class ChatRequest:
     `turn_records` settles the wire shape for client-persisted turn
     memory ahead of the phase that consumes it: accepted by both loop
     implementations, currently ignored by both.
+
+    `scope_package_ids` narrows a turn to specific datasets — an
+    exploration accepted from a UI affordance. Wire-neutral like
+    `turn_records`: both loops accept it, only v2 acts on it. Untrusted
+    and validated defensively by `agent.scope.sanitize`; a bad scope
+    degrades to an ordinary unscoped turn, never to an error.
     """
 
     conversation_id: str
     history: list[dict[str, Any]]
     question: str
     turn_records: list[dict[str, Any]] = field(default_factory=list)
+    scope_package_ids: tuple[str, ...] = ()

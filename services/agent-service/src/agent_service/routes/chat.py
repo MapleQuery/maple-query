@@ -41,6 +41,11 @@ class ChatBody(BaseModel):
     # Client-persisted turn memory. Wire shape settled ahead of the
     # phase that consumes it; accepted and ignored by both loops.
     turn_records: list[dict[str, Any]] = Field(default_factory=list)
+    # Optional package scope for an exploration turn. Untrusted and
+    # validated inside the loop (`agent.scope.sanitize`), so the only
+    # job here is a crude length bound — a malformed scope must degrade
+    # to an unscoped turn, never to a 422.
+    scope_package_ids: list[str] = Field(default_factory=list, max_length=16)
 
 
 @router.post("/chat", dependencies=[BearerAuth])
@@ -54,6 +59,7 @@ async def chat(
         history=body.history,
         question=body.question,
         turn_records=body.turn_records,
+        scope_package_ids=tuple(body.scope_package_ids),
     )
 
     # Session-span parent lookup is a no-op (None) when tracing is off;

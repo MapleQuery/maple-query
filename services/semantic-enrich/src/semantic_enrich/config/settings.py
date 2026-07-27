@@ -364,6 +364,16 @@ class Settings(BaseSettings):
     # switch only; False reproduces the pre-PRD build byte for byte.
     agent_evidence_footer: bool = True
 
+    # ── guided recovery: scoped exploration turns (loop v2) ──
+    # Honour `ChatRequest.scope_package_ids`: render the scope as a
+    # research hint, admit it to the tool whitelist, bypass verify and
+    # grounding on *descriptive* scoped turns (scoped AND no successful
+    # SQL), and tag them `explored`. False ignores the field entirely
+    # and reproduces the current build. Net cost is negative on a
+    # descriptive turn: it skips the verify checker call it used to pay
+    # for a check that could only harm it.
+    agent_scoped_turns: bool = True
+
     # Model cost accounting (observability only; not enforced).
     # $/1K tokens; defaults match gpt-4o's published rates.
     agent_model_input_rate: float = 0.0025

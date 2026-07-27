@@ -37,6 +37,11 @@ OUTCOMES = frozenset(
         "no_data",
         "deflected",
         "clarified",
+        # A scoped descriptive turn — the user explored named datasets
+        # rather than asking a question that failed. Distinct from
+        # `no_data` on purpose: an exploration is not a surrender, and
+        # conflating them would corrupt the surrender-rate metric.
+        "explored",
         "error",
     }
 )
