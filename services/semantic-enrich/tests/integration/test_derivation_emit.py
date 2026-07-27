@@ -200,6 +200,42 @@ def test_ungrounded_numeric_answer_emits_unverified_trace() -> None:
     assert derivs[0].result_value == 500e9
 
 
+def test_budget_forced_numeric_answer_emits_unverified_trace() -> None:
+    # The loop ran out of tool budget before computing anything, then
+    # shipped a number anyway. That is the least-trusted answer of all,
+    # so the unverified trace must still appear — it used to vanish
+    # because grounding was gated on the same skip as verify.
+    bq = FakeBqClient()
+    for _ in range(2):
+        bq.register_query(
+            "VECTOR_SEARCH",
+            [{"package_id": "pkg-1", "title": "Estimates 2024-25",
+              "summary": "s", "grain": None, "measures": [],
+              "dimensions": [], "distance": 0.1}],
+        )
+    openai = FakeOpenAIClient(
+        vector_factory=_unit_vec,
+        chat_script=[
+            _call("s1", "search_datasets", {"query": "estimates"}),
+            _call("s2", "search_datasets", {"query": "estimates again"}),
+            {"content": "The total is about $500 billion."},
+        ],
+    )
+    outcome = run_turn_collected(
+        request=ChatRequest(conversation_id="c1", history=[], question="total?"),
+        deps=_deps(
+            settings=_settings(agent_max_tool_calls=1), bq=bq, openai=openai
+        ),
+    )
+    derivs = [
+        e for e in outcome.events if isinstance(e, agent_events.DerivationEvent)
+    ]
+    assert len(derivs) == 1
+    assert derivs[0].flags == ["unverified"]
+    assert derivs[0].aggregation == "none"
+    assert derivs[0].result_value == 500e9
+
+
 def test_non_numeric_turn_emits_no_derivation_event() -> None:
     bq = FakeBqClient()
     bq.register_query("VECTOR_SEARCH", [])
