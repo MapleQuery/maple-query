@@ -118,7 +118,7 @@ def run_turn(
         yield record(_terminal_error_event(result))
         return
 
-    # ── grounding (deterministic; feeds verify) ──
+    # ── grounding (deterministic; feeds verify + the trace) ──
     _attach_grounding(ctx, result)
 
     # ── verify ──
@@ -285,10 +285,14 @@ def _packages_and_titles(result: ResearchResult) -> list[str]:
 
 def _attach_grounding(ctx: TurnContext, result: ResearchResult) -> None:
     """Compute the deterministic grounding report over the candidate
-    answer and stash it on the result for the verify phase. Runs on the
-    same set of turns verify does (research-produced, non-clarify
-    answers); always logged, never alters the answer here."""
-    if _skip_verify(ctx, result):
+    answer and stash it on the result. Grounding is pure and free (no
+    model call), so it runs on every real candidate answer — including
+    budget-forced ones. Those carry the least-trusted numbers (the loop
+    ran out of room before it could tie the figure to a computed total),
+    so they are exactly the answers that most need the unverified trace;
+    gating grounding on `_skip_verify` used to drop it for them. Verify
+    itself still skips forced answers — this only feeds the trace."""
+    if _skip_grounding(ctx, result):
         return
     report = grounding.build_grounding_report(
         result.candidate_answer, result.derivations
@@ -328,6 +332,20 @@ def _skip_verify(ctx: TurnContext, result: ResearchResult) -> bool:
     framing (delaying them further is worse), and a clarifying
     question is not a claim to check."""
     if result.terminal_reason != "final_answer":
+        return True
+    return (
+        _outcome(ctx, message=result.candidate_answer, result=result)
+        == "clarified"
+    )
+
+
+def _skip_grounding(ctx: TurnContext, result: ResearchResult) -> bool:
+    """Grounding feeds the trace, not just verify, so it runs on a wider
+    set of turns than `_skip_verify`: every answer that makes a claim,
+    forced or not. It skips only non-answers (error/timeout ship an
+    error event, no claim) and clarifying questions (not a claim to
+    ground)."""
+    if result.terminal_reason not in ("final_answer", "budget_forced"):
         return True
     return (
         _outcome(ctx, message=result.candidate_answer, result=result)
