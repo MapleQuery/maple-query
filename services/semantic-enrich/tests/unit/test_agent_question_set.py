@@ -29,9 +29,35 @@ def test_committed_fixture_parses_and_is_fully_labeled() -> None:
         assert q.expected_outcome in ALLOWED_OUTCOMES
         assert q.source == "braintrust-export-2026-07-02"
         assert q.observed_outcome  # every entry records the v1 behaviour
-    # Every triage class is represented — the labels double as the
-    # triage classifier's training/eval set.
-    assert {q.expected_triage for q in questions} == set(ALLOWED_TRIAGE)
+    # Every triage class the export could contain is represented — the
+    # labels double as the triage classifier's training/eval set.
+    # `explore` is deliberately absent: the export predates the category
+    # and this fixture is pinned at its 14 real turns, so explore
+    # coverage lives in `questions-explore-shadow.yaml` instead.
+    assert {q.expected_triage for q in questions} == set(
+        ALLOWED_TRIAGE
+    ) - {"explore"}
+
+
+def test_explore_fixture_covers_the_category_and_its_controls() -> None:
+    """The explore-shadow set exists to collect act-flip precision data,
+    so what matters is that it exercises the boundary rather than only
+    the easy cases — a set of unambiguous explores would report a
+    precision the classifier has not earned."""
+    explore_path = FIXTURE.parent / "questions-explore-shadow.yaml"
+    questions = load_agent_question_set(explore_path)
+
+    assert len(questions) >= 15
+    assert len({q.id for q in questions}) == len(questions)
+    by_triage = {q.expected_triage for q in questions}
+    assert "explore" in by_triage
+    # Controls that must NOT route to explore. Misrouting a figure
+    # request into a description is the costly direction, so the fixture
+    # has to be able to catch it.
+    assert {"in_scope", "meta"} <= by_triage
+    for q in questions:
+        assert q.expected_outcome in ALLOWED_OUTCOMES
+        assert q.observed_note
 
 
 def _write(tmp_path: Path, content: str) -> Path:

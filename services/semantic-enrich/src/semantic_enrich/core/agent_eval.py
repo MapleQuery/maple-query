@@ -40,8 +40,12 @@ from semantic_enrich.core.agent_tracing import (
 )
 from semantic_enrich.providers.logging import get_logger
 
-ALLOWED_TRIAGE = frozenset({"in_scope", "off_scope", "meta", "clarify"})
-ALLOWED_OUTCOMES = frozenset({"answered", "no_data", "deflected", "clarify"})
+ALLOWED_TRIAGE = frozenset(
+    {"in_scope", "off_scope", "meta", "clarify", "explore"}
+)
+ALLOWED_OUTCOMES = frozenset(
+    {"answered", "no_data", "deflected", "clarify", "explored"}
+)
 
 
 @dataclass(frozen=True)
@@ -274,7 +278,9 @@ def run_agent_eval(
                     "top_similarities": observer.top_similarities,
                     "reformulations": observer.reformulations,
                     "verify": observer.verify,
+                    "verify_explore": observer.verify_explore,
                     "outcome": _record_field(observer, "outcome"),
+                    "triage_category": _record_field(observer, "category"),
                     "packages_listed": _record_field(observer, "packages"),
                     "searches_tried": _record_field(
                         observer, "searches_tried"
@@ -315,6 +321,7 @@ def run_agent_eval(
         ),
         "verify_fit": _verify_fit(results),
         "guided_recovery": _guided_recovery(results),
+        "explore_shadow": _explore_shadow(results),
         "questions": results,
     }
 
@@ -386,6 +393,58 @@ def _verify_fit(results: list[dict[str, Any]]) -> dict[str, Any]:
         else:
             bucket["unfit_ids"].append(r["id"])
     return by_outcome
+
+
+def _explore_shadow(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Act-flip precision data for the descriptive rubric.
+
+    The gate is precision on the unfit side: every `caveat` the rubric
+    would have enforced must be one a human agrees with. A single false
+    caveat on a faithful description is worse than several missed bad
+    ones, because it teaches users to distrust descriptions that are
+    fine — so the flip decision reads `unfit_reasons` by eye, not just
+    the rate.
+    """
+    checked = [r for r in results if r["run"].get("verify_explore")]
+    unfit = [
+        r for r in checked if not r["run"]["verify_explore"].get("fits")
+    ]
+    routed = [
+        r for r in results if r["run"].get("outcome") == "explored"
+    ]
+    return {
+        "explore_turns": len(routed),
+        "rubric_checked": len(checked),
+        "fits": len(checked) - len(unfit),
+        "unfit": len(unfit),
+        "would_caveat_rate": (
+            round(len(unfit) / len(checked), 4) if checked else 0.0
+        ),
+        # Read these by eye before flipping: a wrong gap is a false
+        # caveat waiting to ship.
+        "unfit_reasons": [
+            {
+                "id": r["id"],
+                "question": r["question"],
+                "gap": r["run"]["verify_explore"].get("reason"),
+                "confidence": r["run"]["verify_explore"].get("confidence"),
+                "answer": str(r["run"].get("final_message"))[:400],
+            }
+            for r in unfit
+        ],
+        "misrouted": [
+            {
+                "id": r["id"],
+                "question": r["question"],
+                "expected": r["expected"]["outcome"],
+                "observed": r["run"].get("outcome"),
+                "category": r["run"].get("triage_category"),
+            }
+            for r in results
+            if r["expected"]["outcome"] == "explored"
+            and r["run"].get("outcome") != "explored"
+        ],
+    }
 
 
 def _record_field(observer: TurnObserver, key: str) -> Any:

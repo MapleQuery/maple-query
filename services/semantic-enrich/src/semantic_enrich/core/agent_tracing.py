@@ -88,6 +88,10 @@ class TurnObserver:
         self.triage: dict[str, object] | None = None
         # Set when the turn emitted verification events (v2 loop only).
         self.verify: dict[str, object] | None = None
+        # Descriptive-rubric verdicts, kept apart from the fit metric:
+        # the two checkers judge different things and averaging them
+        # would make the act-flip precision gate meaningless.
+        self.verify_explore: dict[str, object] | None = None
         # top_similarity of every datasets_ranked event, in call order.
         # Feeds the similarity-floor calibration report.
         self.top_similarities: list[float | None] = []
@@ -123,6 +127,16 @@ class TurnObserver:
             self.triage = {
                 "category": event.category,
                 "confidence": event.confidence,
+                "enforced": event.enforced,
+            }
+        elif isinstance(event, agent_events.Verification) and (
+            event.kind == "explore"
+        ):
+            self.verify_explore = {
+                "fits": event.fits,
+                "action": event.action,
+                "confidence": event.confidence,
+                "reason": event.reason,
                 "enforced": event.enforced,
             }
         elif isinstance(event, agent_events.Verification) and (
