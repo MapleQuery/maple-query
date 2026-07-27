@@ -34,6 +34,7 @@ import jinja2
 
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import agent_events
+from semantic_enrich.core.agent.grounding import extract_numbers
 from semantic_enrich.core.agent.magnitude import (
     MagnitudeVerdict,
     evaluate_magnitude,
@@ -43,6 +44,7 @@ from semantic_enrich.core.agent.phases import (
     SystemHint,
     TurnContext,
     Verdict,
+    is_descriptive,
 )
 from semantic_enrich.core.sql_normalize import _mask_string_literals
 from semantic_enrich.providers.logging import get_logger
@@ -67,6 +69,30 @@ CHECK_SCHEMA: dict[str, Any] = {
 }
 
 
+# The explore rubric's dispositions are restricted *structurally*, not
+# by runtime demotion. `clarify` and `retry` are absent from the enum
+# rather than demoted away — and that is the safety property that makes
+# the rubric strictly better than the bypass it replaces. The fit
+# checker guards `clarify` with a demotion, and that demotion failing to
+# fire is precisely the bug this milestone exists to close; an absent
+# enum value depends on nothing firing correctly. Even a badly
+# miscalibrated explore checker cannot replace a summary with a question
+# or spend a second research leg.
+_EXPLORE_ACTIONS = frozenset({"answer", "caveat"})
+
+EXPLORE_CHECK_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["fits", "confidence", "gap", "action"],
+    "properties": {
+        "fits": {"type": "boolean"},
+        "confidence": {"type": "number"},
+        "gap": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "action": {"type": "string", "enum": sorted(_EXPLORE_ACTIONS)},
+    },
+}
+
+
 @dataclass(frozen=True)
 class _CheckResult:
     fits: bool
@@ -74,6 +100,25 @@ class _CheckResult:
     gap: str | None
     action: str
     retry_hint: str | None
+
+
+def load_verify_explore_template(
+    settings: Settings,
+) -> jinja2.Template | None:
+    """The descriptive rubric's template. Unlike the fit prompt this
+    returns None when missing rather than raising: the explore path
+    degrades to the bypass it replaced, which is a safe posture, while a
+    missing fit prompt has no safe fallback."""
+    path = settings.agent_verify_explore_prompt_path
+    if not path.exists():
+        return None
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(path.parent)),
+        autoescape=False,
+        undefined=jinja2.StrictUndefined,
+        keep_trailing_newline=True,
+    )
+    return env.get_template(path.name)
 
 
 def load_verify_template(settings: Settings) -> jinja2.Template:
@@ -128,19 +173,68 @@ def assemble_inputs(
     }
 
 
-def _datasets_used(
-    ctx: TurnContext, result: ResearchResult
-) -> list[dict[str, str | None]]:
+def _package_titles(ctx: TurnContext) -> dict[str, str | None]:
     titles: dict[str, str | None] = {}
     for payload in ctx.state.search_results.values():
         for candidate in payload.get("candidates", []):
             pid = str(candidate.get("package_id", ""))
             if pid:
                 titles.setdefault(pid, candidate.get("title"))
+    for doc_id, pid in ctx.state.doc_package.items():
+        titles.setdefault(pid, ctx.state.doc_title.get(doc_id))
+    return titles
+
+
+def _datasets_used(
+    ctx: TurnContext, result: ResearchResult
+) -> list[dict[str, str | None]]:
+    titles = _package_titles(ctx)
     return [
         {"package_id": pid, "title": titles.get(pid)}
         for pid in result.packages_cited
     ]
+
+
+def assemble_explore_inputs(
+    ctx: TurnContext, result: ResearchResult
+) -> dict[str, Any]:
+    """Evidence for a descriptive turn.
+
+    Deliberately a different shape from `assemble_inputs`: the fit
+    checker's block is built for numeric answers (`sql_shapes`,
+    `row_count`, `null_ratio_warning`) and feeding descriptions through
+    it would degrade both. Two small prompts beat one prompt with a mode
+    flag.
+    """
+    titles = _package_titles(ctx)
+    return {
+        "question": ctx.request.question,
+        "candidate_answer": result.candidate_answer,
+        "scope_packages": [
+            {"package_id": pid, "title": titles.get(pid)}
+            for pid in ctx.scope_package_ids
+        ],
+        "packages_described": list(result.packages_cited),
+        "columns_surfaced": len(ctx.state.doc_columns),
+        "documents_listed": len(ctx.state.known_document_ids),
+        "tools_used": sorted(
+            {str(call.get("tool")) for call in ctx.trace.tool_calls}
+        ),
+        # Deterministic, not a model judgement: reuses the same monetary
+        # extractor the numeric-trust work uses, so "did this answer
+        # state a figure" never becomes a matter of opinion.
+        "claims_a_total": bool(
+            extract_numbers(result.candidate_answer).monetary
+        ),
+    }
+
+
+def compose_explore_caveat(*, gap: str, answer: str) -> str:
+    gap_text = gap.strip().rstrip(".")
+    return (
+        f"**Note:** this description does not cover {gap_text}."
+        f"\n\n{answer}"
+    )
 
 
 def compose_caveat(*, gap: str, answer: str) -> str:
@@ -223,12 +317,21 @@ def _compose_magnitude(
 class AnswerFitVerifier:
     """`VerifyPhase` implementation backed by the mini fit checker."""
 
-    def __init__(self, *, template: jinja2.Template) -> None:
+    def __init__(
+        self,
+        *,
+        template: jinja2.Template,
+        explore_template: jinja2.Template | None = None,
+    ) -> None:
         self._template = template
+        self._explore_template = explore_template
 
     @classmethod
     def from_settings(cls, settings: Settings) -> AnswerFitVerifier:
-        return cls(template=load_verify_template(settings))
+        return cls(
+            template=load_verify_template(settings),
+            explore_template=load_verify_explore_template(settings),
+        )
 
     def check(
         self,
@@ -239,6 +342,11 @@ class AnswerFitVerifier:
         settings = ctx.deps.settings
         if settings.agent_verify_mode == "off":  # dispatch wires the stub
             return Verdict(action="accept")
+        if is_descriptive(ctx, result):
+            # A description is judged on description. The numeric gates
+            # below (magnitude, fit) are calibrated against answers that
+            # ran SQL and would misfire here.
+            return self._explore_check(ctx, result)
 
         events: list[agent_events.AgentEvent] = []
         # Deterministic magnitude/units gate runs first, before the
@@ -267,6 +375,76 @@ class AnswerFitVerifier:
         if mag_enforce and mag.finding is not None:
             return _compose_magnitude(mag, fit, result)
         return fit
+
+    def _explore_check(
+        self, ctx: TurnContext, result: ResearchResult
+    ) -> Verdict:
+        """The descriptive rubric. Fail-open like every other gate here,
+        and structurally incapable of `clarify` or `retry`."""
+        settings = ctx.deps.settings
+        mode = settings.agent_verify_explore_mode
+        started = time.monotonic()
+        events: list[agent_events.AgentEvent] = []
+        if mode == "off" or self._explore_template is None:
+            return Verdict(action="accept")
+
+        inputs = assemble_explore_inputs(ctx, result)
+        check, fail_open_reason = self._run_checker(
+            ctx,
+            inputs=inputs,
+            events=events,
+            template=self._explore_template,
+            schema=EXPLORE_CHECK_SCHEMA,
+            schema_name="verify_explore",
+            actions=_EXPLORE_ACTIONS,
+        )
+        if check is None:
+            self._log(
+                mode=mode,
+                action="answer",
+                fits=True,
+                enforced=False,
+                fail_open_reason=fail_open_reason,
+                started=started,
+            )
+            return Verdict(action="accept", events=events)
+
+        action = "answer" if check.fits else check.action
+        gap = (check.gap or "").strip()
+        enforced = mode == "act"
+        if enforced and action == "caveat" and not gap:
+            # Every corrective disposition composes from the gap; a
+            # checker naming none has nothing to enforce.
+            action = "answer"
+        events.append(
+            agent_events.Verification(
+                fits=check.fits,
+                action=action,
+                confidence=round(check.confidence, 3),
+                reason=gap,
+                enforced=enforced,
+                kind="explore",
+            )
+        )
+        self._log(
+            mode=mode,
+            action=action,
+            fits=check.fits,
+            enforced=enforced,
+            fail_open_reason=None,
+            started=started,
+        )
+        if not enforced or action == "answer":
+            return Verdict(action="accept", events=events)
+        return Verdict(
+            action="accept",
+            events=events,
+            composed_message=compose_explore_caveat(
+                gap=gap, answer=result.candidate_answer
+            ),
+            # No outcome override: a caveated exploration is still an
+            # exploration, and `_outcome` already tags it `explored`.
+        )
 
     def _fit_check(
         self,
@@ -406,11 +584,20 @@ class AnswerFitVerifier:
         *,
         inputs: dict[str, Any],
         events: list[agent_events.AgentEvent],
+        template: jinja2.Template | None = None,
+        schema: dict[str, Any] | None = None,
+        schema_name: str = "verify",
+        actions: frozenset[str] = _ACTIONS,
     ) -> tuple[_CheckResult | None, str | None]:
         """One checker call under a hard deadline. Returns
-        `(check, None)` or `(None, fail_open_reason)`."""
+        `(check, None)` or `(None, fail_open_reason)`.
+
+        `actions` bounds what the response may name. An out-of-enum
+        action fails validation and therefore fails open to `answer` —
+        which is what keeps the explore path's restriction real even if
+        the vendor ignores the schema."""
         settings = ctx.deps.settings
-        prompt = self._template.render(
+        prompt = (template or self._template).render(
             evidence=json.dumps(inputs, indent=1, default=str)
         )
         timeout_s = settings.agent_verify_timeout_ms / 1000.0
@@ -418,8 +605,8 @@ class AnswerFitVerifier:
         def call() -> Any:
             return ctx.deps.openai_client.generate_structured(
                 prompt=prompt,
-                schema=CHECK_SCHEMA,
-                schema_name="verify",
+                schema=schema or CHECK_SCHEMA,
+                schema_name=schema_name,
                 model=settings.agent_verify_model,
                 temperature=0.0,
                 max_tokens=300,
@@ -446,7 +633,7 @@ class AnswerFitVerifier:
                 tokens_in=result.tokens_in, tokens_out=result.tokens_out
             )
         )
-        check = _validate(result.parsed)
+        check = _validate(result.parsed, actions=actions)
         if check is None:
             return None, "invalid_output"
         return check, None
@@ -506,7 +693,9 @@ class AnswerFitVerifier:
         )
 
 
-def _validate(parsed: dict[str, Any]) -> _CheckResult | None:
+def _validate(
+    parsed: dict[str, Any], *, actions: frozenset[str] = _ACTIONS
+) -> _CheckResult | None:
     fits = parsed.get("fits")
     if not isinstance(fits, bool):
         return None
@@ -519,7 +708,7 @@ def _validate(parsed: dict[str, Any]) -> _CheckResult | None:
     if not 0.0 <= confidence <= 1.0:
         return None
     action = parsed.get("action")
-    if not isinstance(action, str) or action not in _ACTIONS:
+    if not isinstance(action, str) or action not in actions:
         return None
 
     def _opt_str(key: str) -> str | None:

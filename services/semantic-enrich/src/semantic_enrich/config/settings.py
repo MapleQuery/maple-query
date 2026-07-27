@@ -373,6 +373,24 @@ class Settings(BaseSettings):
     # descriptive turn: it skips the verify checker call it used to pay
     # for a check that could only harm it.
     agent_scoped_turns: bool = True
+    # The descriptive-fit rubric that replaces the blunt verify bypass
+    # on exploration turns. "off" keeps the bypass (verification skipped
+    # entirely — the interim posture); "log" runs the checker and emits
+    # an unenforced `verification` event, leaving the answer untouched
+    # (shadow data for the act-flip); "act" prepends a caveat. Default
+    # "log": no gate in this codebase has enforced on its first merge.
+    # Costs one cheap-model call per descriptive turn in log/act, which
+    # the bypass did not — "off" exists for exactly that reason.
+    agent_verify_explore_mode: Literal["off", "log", "act"] = "log"
+    agent_verify_explore_prompt_path: Path = Field(
+        default_factory=lambda: (
+            _find_service_dir()
+            / "agent"
+            / "prompts"
+            / "v2"
+            / "verify_explore.j2"
+        )
+    )
 
     # Model cost accounting (observability only; not enforced).
     # $/1K tokens; defaults match gpt-4o's published rates.

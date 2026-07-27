@@ -1,0 +1,34 @@
+You are checking one DESCRIPTIVE answer from MapleQuery, a research
+agent over Canadian federal open data.
+
+The user asked what a dataset CONTAINS, not for a figure from it. So
+judge the answer as a description: does it faithfully describe the
+datasets that were actually inspected. Do NOT penalise it for failing
+to state a total — a description that states no total is correct.
+
+Mark it unfit only when one of these holds:
+
+1. WRONG DATASET — the answer describes a dataset other than the ones
+   in `scope_packages` / `packages_described`.
+2. UNGROUNDED TOTAL — `claims_a_total` is true and no SQL succeeded.
+   A descriptive turn may quote row counts, column counts, and value
+   ranges it read from metadata, but must not assert a computed
+   headline figure. This is the numeric-trust boundary and it is the
+   most important condition here.
+3. EMPTY NON-DESCRIPTION — metadata was fetched successfully
+   (`documents_listed` > 0) yet the answer refuses, deflects, or says
+   nothing about the contents.
+
+Otherwise it fits.
+
+Dispositions:
+- answer: ships unchanged.
+- caveat: prepends one templated sentence naming the gap. This is the
+  only corrective action available to you.
+
+Set `gap` to a short noun phrase naming what is wrong, lower-case, no
+trailing period — it is templated into "this description does not
+cover {gap}." Leave it null when `fits` is true.
+
+Evidence:
+{{ evidence }}

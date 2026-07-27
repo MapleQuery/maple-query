@@ -198,6 +198,13 @@ class TurnContext:
     # predicate reads the same tuple rather than re-validating
     # client-supplied input.
     scope_package_ids: tuple[str, ...] = ()
+    # Whether this turn is asking what a dataset *contains* rather than
+    # for a figure from it. Set once by the orchestrator after triage,
+    # from either signal that can carry the intent: a clicked chip's
+    # package scope, or a typed exploratory question the classifier
+    # recognised. The single source of truth for "is this a
+    # description" — predicates key on this, never on scope alone.
+    turn_intent: Literal["answer", "explore"] = "answer"
     turn_start_emitted: bool = False
     history_messages: list[dict[str, Any]] = field(default_factory=list)
     trace: TurnTrace = field(default_factory=TurnTrace)
@@ -283,6 +290,32 @@ class TurnContext:
             * settings.agent_model_output_rate
             / 1000.0
         )
+
+
+def sql_succeeded(result: ResearchResult | None) -> bool:
+    if result is None:
+        return False
+    return any(run.get("status") == "ok" for run in result.sql_runs)
+
+
+def is_descriptive(
+    ctx: TurnContext, result: ResearchResult | None
+) -> bool:
+    """An exploration that ran no successful SQL — the turn shape judged
+    on description rather than on answer fit.
+
+    Both halves matter. The intent half generalises the earlier
+    scope-only rule so a *typed* exploratory question routes the same
+    way a clicked chip does. The `sql_succeeded` half is the one that is
+    not negotiable: a numeric follow-up ("now sum these columns") is
+    also an explore-intent turn, so dropping it would strip the
+    derivation, grounding, and magnitude protection from exactly the
+    answers guided recovery exists to produce.
+
+    Shared by the orchestrator and the verify phase so the two cannot
+    disagree about what a descriptive turn is.
+    """
+    return ctx.turn_intent == "explore" and not sql_succeeded(result)
 
 
 def last_clarify_record(

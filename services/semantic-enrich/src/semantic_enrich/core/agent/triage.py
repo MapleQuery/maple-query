@@ -38,7 +38,15 @@ from semantic_enrich.providers.logging import get_logger
 
 _LOG = get_logger("semantic_enrich.agent.triage")
 
-_CATEGORIES = frozenset({"in_scope", "off_scope", "meta", "clarify"})
+_CATEGORIES = frozenset(
+    {"in_scope", "off_scope", "meta", "clarify", "explore"}
+)
+
+# Categories that let the turn proceed to research. Unlike every other
+# non-`in_scope` category, `explore` does not terminate the turn with a
+# templated reply — exploration needs the research loop, with real tool
+# calls, so the category carries *intent* and nothing else.
+_CONTINUE_CATEGORIES = frozenset({"in_scope", "explore"})
 
 _OFF_SCOPE_REASONS = (
     "provincial",
@@ -203,7 +211,7 @@ class QueryTriage:
             category = classification.category
             confidence = classification.confidence
             if mode == "act":
-                if category == "in_scope":
+                if category in _CONTINUE_CATEGORIES:
                     enforced = True
                 elif confidence < settings.agent_triage_min_confidence:
                     fail_open_reason = "low_confidence"

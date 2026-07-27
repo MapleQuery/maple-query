@@ -13,9 +13,17 @@ Categories:
 - meta: about the system or corpus itself (what it is, how much data
   it holds, how fresh it is, what model it runs on).
 - clarify: in scope but too under-specified to route.
+- explore: asks what a specific dataset or dataset class CONTAINS,
+  rather than for a figure from it.
 
 Rules:
 - If in doubt between in_scope and anything else, answer in_scope.
+- meta vs explore: corpus-wide is meta, a named dataset or dataset
+  class is explore, a figure is in_scope. Misrouting explore to meta
+  gives a corpus summary instead of a dataset summary — wrong but
+  harmless. Misrouting in_scope to explore answers a figure request
+  with a description, which is the costly direction, so any question
+  asking how much, how many, or for a total is in_scope.
 - Questions mixing federal with provincial scope are in_scope; the
   answer will state the federal boundary.
 - Spending and expenses by FEDERAL politicians, officials, and
@@ -62,7 +70,14 @@ Q: what's the latest update on tariffs and the trade war -> clarify
 Q: compare things -> clarify ("What would you like compared — which
   datasets, measures, or time periods?")
 Q: how many rows of data do you have access to? -> meta
+Q: how many datasets cover transport -> meta (corpus-wide count)
 Q: what model are you using -> meta
+Q: what's in the Supplementary Estimates? -> explore (names a
+  dataset class, asks what it contains)
+Q: what columns does this dataset have -> explore
+Q: summarize what data is in the Public Accounts -> explore
+Q: how much did the government spend on air travel -> in_scope
+  (asks for a figure, not for contents)
 
 {% if context_hint %}Previous topic: {{ context_hint }}
 {% endif %}Question: {{ question }}
