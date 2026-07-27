@@ -21,10 +21,12 @@ from semantic_enrich.core.agent import (
     grounding,
     records,
     research,
+    scope,
 )
 from semantic_enrich.core.agent.phases import (
     PipelineDeps,
     ResearchResult,
+    SystemHint,
     TurnContext,
     Verdict,
 )
@@ -116,7 +118,7 @@ def run_turn(
     # ── research ──
     yield record(agent_events.PhaseStart(phase="research"))
     result = yield from _record_stream(
-        ctx, research.run(ctx, hints=recall.hints)
+        ctx, research.run(ctx, hints=_hints(ctx, recall.hints))
     )
     if _is_terminal_error(result):
         yield record(_terminal_error_event(result))
@@ -189,6 +191,38 @@ def run_turn_collected(
         events=events,
         cache_hit=cache_hit,
     )
+
+
+def _hints(
+    ctx: TurnContext, recalled: list[SystemHint]
+) -> list[SystemHint]:
+    """The recalled hints plus the package scope, if this turn carries
+    one — and the whitelist admission the scope hint needs to mean
+    anything.
+
+    `LoopState.known_package_ids` is empty at the start of every turn
+    and populated only by `search_datasets`, while `list_documents` and
+    `search_columns` reject ids that are not in it. So a model that
+    *obeys* the scope hint, reaching for `list_documents` as its first
+    move, would take a tool error and quietly fall back to a broad
+    search: the turn completes, ships a plausible answer, and the scope
+    does nothing, invisibly. `memory.recall` already admits plan-hint
+    packages for exactly this reason; this is the same step for the same
+    cause. Admission widens nothing — the scope reaches only packages
+    the user could already retrieve by searching, and `list_documents`
+    still resolves every id against the warehouse.
+
+    Lives here rather than in the memory phase so a scoped turn behaves
+    the same under `SessionMemory` and `NoopMemory`.
+    """
+    if not ctx.scope_package_ids:
+        return recalled
+    ctx.state.known_package_ids.update(ctx.scope_package_ids)
+    text = scope.render_hint(
+        ctx.scope_package_ids,
+        titles=scope.titles_from_records(ctx.request.turn_records),
+    )
+    return [*recalled, SystemHint(text=text)] if text else recalled
 
 
 def _record_stream(
@@ -337,6 +371,8 @@ def _skip_verify(ctx: TurnContext, result: ResearchResult) -> bool:
     question is not a claim to check."""
     if result.terminal_reason != "final_answer":
         return True
+    if _is_descriptive_scope(ctx, result):
+        return True
     return _candidate_is_clarify(ctx, result)
 
 
@@ -344,11 +380,52 @@ def _skip_grounding(ctx: TurnContext, result: ResearchResult) -> bool:
     """Grounding feeds the trace, not just verify, so it runs on a wider
     set of turns than `_skip_verify`: every answer that makes a claim,
     forced or not. It skips only non-answers (error/timeout ship an
-    error event, no claim) and clarifying questions (not a claim to
-    ground)."""
+    error event, no claim), clarifying questions (not a claim to
+    ground), and descriptive scoped turns.
+
+    That last one is not symmetry for its own sake. `_derivation_events`
+    emits an explicit "unverified" trace whenever grounding comes back
+    `ungrounded`, and a dataset summary quoting a monetary range — "the
+    amounts run from $1,000 to $2.5M" — yields monetary numbers with no
+    derivation behind them. It would ground as `ungrounded` and paint a
+    "no computation behind this number" panel on a turn that never
+    claimed a total. (A summary quoting only row and column counts is
+    already safe: `extract_numbers` keys on monetary values, so it lands
+    on `no_numeric_claim`. The false panel needs a dollar sign, which
+    dataset summaries routinely have.)"""
     if result.terminal_reason not in ("final_answer", "budget_forced"):
         return True
+    if _is_descriptive_scope(ctx, result):
+        return True
     return _candidate_is_clarify(ctx, result)
+
+
+def _sql_succeeded(result: ResearchResult | None) -> bool:
+    if result is None:
+        return False
+    return any(run.get("status") == "ok" for run in result.sql_runs)
+
+
+def _is_descriptive_scope(
+    ctx: TurnContext, result: ResearchResult | None
+) -> bool:
+    """A scoped turn that ran no successful SQL is an exploration, and
+    exploration is judged on description rather than on answer fit.
+
+    The `sql_succeeded` half is the important half and is not
+    negotiable. The obvious rule — scoped turn, skip verify — would be a
+    regression: a numeric follow-up ("now sum these columns") is *also*
+    a scoped turn, so keying the bypass on scope alone would strip the
+    derivation, grounding, and magnitude protection from exactly the
+    answers guided recovery exists to produce. A numeric follow-up runs
+    SQL, so it takes the full path unchanged.
+
+    This also closes the clarify-replacement failure at its root rather
+    than by adding a demotion: a descriptive turn never reaches verify,
+    so `clarify` cannot fire on it and `compose_clarify` cannot replace
+    a dataset summary with a question back to the user.
+    """
+    return bool(ctx.scope_package_ids) and not _sql_succeeded(result)
 
 
 def _candidate_is_clarify(ctx: TurnContext, result: ResearchResult) -> bool:
@@ -475,13 +552,20 @@ def _outcome(
         )
     if result.terminal_reason in ("error", "timeout"):
         return "error"
-    sql_succeeded = any(
-        run.get("status") == "ok" for run in result.sql_runs
-    )
+    sql_succeeded = _sql_succeeded(result)
     if (
         ctx.state.clarify_steer_issued
         and not sql_succeeded
         and "?" in message
     ):
         return "clarified"
+    if _is_descriptive_scope(ctx, result):
+        # A first-class tag, not reused `no_data`: it is what lets the
+        # fixture assert "explorations are never recorded as
+        # surrenders", and what keeps the surrender-rate metric honest
+        # once exploration is common. Registered in `records.OUTCOMES`
+        # in the same commit — `records.build` coerces unknown tags to
+        # "error" silently, so splitting the two edits would record
+        # every exploration as a failure with nothing raised.
+        return "explored"
     return "answered" if sql_succeeded else "no_data"
