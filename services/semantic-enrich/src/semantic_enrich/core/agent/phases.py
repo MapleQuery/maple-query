@@ -75,6 +75,12 @@ class TriageOutcome:
     # Final answer text when triage terminates the turn without
     # research (out-of-scope, meta questions). None = proceed.
     short_circuit: str | None = None
+    # Set when the classifier produced nothing and `category` is the
+    # fail-open default rather than a verdict. Load-bearing: the default
+    # is `in_scope`, which is indistinguishable downstream from a real
+    # in_scope ruling, and everything that keys on intent then proceeds
+    # as though the question had been classified.
+    fail_open_reason: str | None = None
 
 
 @dataclass
@@ -205,6 +211,10 @@ class TurnContext:
     # recognised. The single source of truth for "is this a
     # description" — predicates key on this, never on scope alone.
     turn_intent: Literal["answer", "explore"] = "answer"
+    # True when triage fell open, so `turn_intent` is a default rather
+    # than a reading of the question. Checks that depend on knowing what
+    # was asked must not enforce on this turn.
+    turn_intent_known: bool = True
     turn_start_emitted: bool = False
     history_messages: list[dict[str, Any]] = field(default_factory=list)
     trace: TurnTrace = field(default_factory=TurnTrace)

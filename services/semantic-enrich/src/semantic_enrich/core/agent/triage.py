@@ -246,7 +246,10 @@ class QueryTriage:
             elapsed_ms=elapsed_ms,
         )
         return TriageOutcome(
-            category=category, events=events, short_circuit=short_circuit
+            category=category,
+            events=events,
+            short_circuit=short_circuit,
+            fail_open_reason=fail_open_reason,
         )
 
     # ── classifier call ──

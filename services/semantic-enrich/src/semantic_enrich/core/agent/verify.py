@@ -474,6 +474,20 @@ class AnswerFitVerifier:
     ) -> Verdict:
         settings = ctx.deps.settings
         mode = settings.agent_verify_mode
+        # The fit check asks "does this answer the question asked", which
+        # presupposes knowing what was asked. When triage falls open the
+        # category is a default, not a reading, and a descriptive turn
+        # lands here instead of at the rubric — where the checker judges
+        # a dataset description by whether it produced data, says no, and
+        # prepends a caveat that the answer beneath it then contradicts.
+        #
+        # Observed live: "Partial answer: this does not cover a summary of
+        # the datasets", above a summary of the datasets.
+        #
+        # Demoted to shadow rather than skipped, so the verdict is still
+        # recorded and the turn stays visible in the fits-rate.
+        if not ctx.turn_intent_known and mode == "act":
+            mode = "log"
         started = time.monotonic()
         inputs = assemble_inputs(ctx, result)
         check, fail_open_reason = self._run_checker(

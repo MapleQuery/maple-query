@@ -641,6 +641,24 @@ Eight cases pinning the milestone's promises, in two tiers. `RecoveryCase` decla
 
 **Deterministic tier** (`tests/unit/test_recovery_eval.py`): six cases on scripted `FakeOpenAI` + fake BQ. Free, offline, runs on every change — the milestone's promises are shape promises, and a lock priced at a dollar a run is a lock that gets skipped. **Live tier** (`tests/integration/test_recovery_eval_live.py`, `WHENRICH_RUN_LIVE_EVALS=1`, ~$1) covers only what fakes cannot: real triage classification on the two boundary questions, and whether the research model produces a genuine description on a scoped turn. It grades outcome leniently for retrieval-dependent cases — a question that fails for vocabulary reasons is a *correct* outcome here as long as it fails informatively — but treats clarify-replacement and missing derivations as hard failures regardless. It writes `eval/reports/guided-recovery-eval.json` carrying `ACT_FLIP_CRITERIA` for `agent_verify_explore_mode`, so the go/no-go is a lookup: ≥30 shadow explore turns, **zero** false-positive caveats, ≥1 true positive, p95 added latency ≤400 ms. The zero is deliberate — a rubric that caveats faithful descriptions is strictly worse than the bypass it replaces, and the bypass is free to keep.
 
+## Triage fail-open and turn intent
+
+`QueryTriage` runs on a 3.5-second deadline and, when the classifier returns nothing, falls through to `category="in_scope", confidence=0.0`. That default was **indistinguishable downstream from a real `in_scope` ruling** — the reason was logged and then dropped at the return — so a typed descriptive question stopped being routed to the descriptive rubric and was judged by the answer-fit checker instead. The checker asks whether the turn produced data, correctly answers no, and prepends a caveat that the answer beneath it then contradicts:
+
+> **Partial answer:** this does not cover a summary of the datasets, including their specific contents…
+>
+> I found two relevant datasets on federal employee travel: 1. Proactive Disclosure – Travel Expenses…
+
+Observed live. ~7% of production triage calls hit the timeout (`fail_open_reason=classifier_timeout`, 7 of 96 over 30 days), and the same fixture question flipped category between two runs — a race, not a model disagreeing with itself.
+
+`TriageOutcome` now carries `fail_open_reason`, and the pipeline stamps `TurnContext.turn_intent_known=False` when the classifier failed and no scope carries the intent instead. **A clicked chip is unaffected**: its intent lives in `scope_package_ids`, which survives a classifier failure — which is why the guard keys on both signals rather than the fail-open alone.
+
+The fit check then **demotes itself to shadow for that turn**: it still runs, still emits, still counts in the fits-rate, but does not enforce. Demoted rather than skipped, so these turns stay visible in the metric that would show the problem. `turn_intent` itself is left at its `answer` default — the point is not to guess the other way, it is to stop treating a guess as knowledge.
+
+**The magnitude gate is deliberately not demoted.** `SUM` over 1,400 rows equalling $8 is wrong whether or not anyone knows what was asked; only the fit check depends on knowing the question.
+
+Tests: `test_triage_fail_open_intent.py` (real verifier), plus wiring tests in `test_triage_phase.py` and `test_pipeline_phases.py`. An earlier draft reimplemented the pipeline's intent stamp inside the test file, which would have passed regardless of what the pipeline did.
+
 ## Shadow-gate telemetry
 
 Two gates ship in `log` and are meant to accumulate evidence for an act-flip. Neither was reaching anywhere the evidence survives, which is why both soaked for a milestone without being decided:
