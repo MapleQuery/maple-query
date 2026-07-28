@@ -111,6 +111,11 @@ from semantic_enrich.core.eval_runner import (
     PreconditionError,
     run_eval,
 )
+from semantic_enrich.core.header_recovery_report import build_report
+from semantic_enrich.core.header_recovery_scan import (
+    ScanResult,
+    scan_affected_documents,
+)
 from semantic_enrich.core.reembed import (
     ColumnsReembedRequest,
     DatasetsReembedRequest,
@@ -962,6 +967,91 @@ def _build_loop_handle_cli(
     except RuntimeError as exc:
         log.error("prompt_load_failed", error=str(exc))
         raise typer.Exit(3) from exc
+
+
+@app.command("header-recovery-report")
+def header_recovery_report(
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        help=(
+            "Report path. Default "
+            "eval/reports/header-recovery-<date>.json."
+        ),
+    ),
+    max_bytes: int = typer.Option(
+        10 * 1024**3,
+        "--max-bytes",
+        help=(
+            "Scan budget. The affected corpus is ~5.3k documents and a "
+            "full pass is hundreds of GB, so the scan dry-runs first and "
+            "halves the document list until it fits."
+        ),
+    ),
+    limit: int | None = typer.Option(
+        None, "--limit", help="Cap the document population before sampling."
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run/--no-dry-run",
+        help="Harness self-test: writes an empty report, touches no BigQuery.",
+    ),
+) -> None:
+    """Measure the header detector across the affected corpus.
+
+    No model calls; one bounded, cluster-pruned read per document. The
+    report is the artefact — whoever revisits this needs the decline
+    reasons and the sample rows, not a rate and a verdict.
+
+    Precision is the gate and it is not automatable: `sample` ships 50
+    recovered documents with the rows either side of each header so a
+    person can read them and fill in `wrong_names_observed`.
+    """
+    configure_logging()
+    log = get_logger("semantic_enrich.entrypoint")
+    settings = Settings()
+
+    if dry_run:
+        scan = ScanResult(documents=[], bytes_scanned=0, affected_documents=0)
+    else:
+        project_id = settings.gcp_project_id
+        if not project_id:
+            raise typer.BadParameter(
+                "WHENRICH_GCP_PROJECT_ID must be set to run the report"
+            )
+        bq = RealBqClient.for_project(project_id)
+        scan = scan_affected_documents(
+            bq=bq, settings=settings, max_bytes=max_bytes, limit=limit
+        )
+
+    report = build_report(
+        scan.documents,
+        scan_rows=settings.agent_header_scan_rows,
+        min_density=settings.agent_header_min_density,
+        bytes_scanned=scan.bytes_scanned,
+        sampled_from=scan.affected_documents,
+    )
+    report["generated_at"] = datetime.now(UTC).isoformat()
+
+    destination = output or (
+        settings.eval_questions_path.parent
+        / "reports"
+        / f"header-recovery-{datetime.now(UTC).date().isoformat()}.json"
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    log.info(
+        "header_recovery_report_written",
+        path=str(destination),
+        documents_scanned=report["documents_scanned"],
+        recovered=report["recovered"],
+        recovery_rate=report["recovery_rate"],
+        bytes_scanned=report["bytes_scanned"],
+    )
+    typer.echo(
+        f"{report['recovered']}/{report['documents_scanned']} recovered "
+        f"({report['recovery_rate']:.0%}) -> {destination}"
+    )
 
 
 @app.command("parity")

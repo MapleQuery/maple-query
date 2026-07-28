@@ -726,6 +726,22 @@ This module also owns `extract_json_path_columns` and `extract_inlined_document_
 
 Tests: `test_sql_alias_translation.py`, `test_sql_preamble_exclusion.py`, `test_sql_alias_ordering.py`.
 
+### Measuring it (`semantic-enrich header-recovery-report`)
+
+`core/header_recovery_report.py` is pure — detector over already-read documents → report dict. `core/header_recovery_scan.py` is the warehouse half. Splitting them keeps the measurement testable without BigQuery.
+
+**Cost drives the design.** The affected population is ~5,307 documents across 791 packages, and `raw.rows` is clustered on `document_id`, so a full pass dry-runs at ~82 GB. The scan therefore **dry-runs first and halves the document list until it fits `--max-bytes`** (default 10 GB), then reports `documents_scanned` alongside `sampled_from_documents`. A recovery rate over a sample reported as if it were the whole corpus is a lie, so the share fields are named `unnamed_share_scanned_*` rather than `corpus_*`.
+
+`decline_reasons` is the field that pays for the next iteration, and `decline_reason_classes` splits it three ways: `config_fixable` (a wider scan window would fix it), `no_header_present` (the stored rows contain no header — no amount of tuning recovers that), and `detector_declined` (a header exists and the detector refused it — the only bucket worth tuning against).
+
+**The gate is precision, and it is not automatable.** `GATE` carries `wrong_names_max: 0` — zero, not a percentage, because one wrong name in fifty implies ~2% of a 5k-document corpus carries a confidently wrong column that nothing downstream catches. The report ships 50 recovered documents with the rows either side of each header so review is a reading task, and `gate_result.wrong_names_verdict` starts at `pending_human_review` rather than inventing a pass. `recovery_rate_min: 0.3` is the soft half — below it, read the decline reasons before shipping rather than after.
+
+`agent_header_recovery` ships **off**, unlike every other gate in the codebase, which ship in `log` and flip to `act`. Recovery has no useful in-turn shadow mode: computing names and not showing them changes nothing observable. The offline report is the shadow evidence and it covers thousands of documents rather than whatever a live run happens to touch.
+
+**Re-enriching `semantic.columns` with recovered names is deliberately deferred**, and that is the decision rather than an omission. It would improve column-level retrieval, but it converts a reversible config flip into a warehouse backfill, and package-level and document-level column sets already diverge — writing recovered names into a package-level table would deepen that rather than fix it. Revisit once the report shows a stable rate across two runs and the flag has been on long enough to surface complaints.
+
+Tests: `test_header_recovery_report.py`, `test_header_recovery_gate.py`. Reports land in `eval/reports/` (gitignored).
+
 ## How the library API is used
 
 ```py
