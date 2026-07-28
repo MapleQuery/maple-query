@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MapleQuery · Explorer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/atlas.css" />
+  <script>
+    function tok(v){return function(o){o=o||{};return "rgb(var(--"+v+") / "+(o.opacityValue==null?1:o.opacityValue)+")";};}
+    var T=["canvas","paper","raised","ink","ink-soft","muted","faint","line","line-strong","accent","accent-press","ok","warn","graph-1","graph-2"];
+    var colors={};T.forEach(function(t){colors[t]=tok(t);});
+    tailwind.config={theme:{extend:{colors:colors,fontFamily:{display:['"Space Grotesk"','system-ui','sans-serif'],sans:['Inter','system-ui','sans-serif'],mono:['"JetBrains Mono"','ui-monospace','monospace']},boxShadow:{orbit:"var(--shadow-orbit)",lens:"var(--shadow-lens)",card:"var(--shadow-card)",pop:"var(--shadow-pop)"}}}};
+  </script>
+</head>
+<body class="font-sans min-h-screen bg-canvas text-ink-soft">
+
+  <!-- NAV -->
+  <header class="sticky top-0 z-30 border-b border-line bg-canvas/80 backdrop-blur">
+    <div class="mx-auto flex h-14 max-w-[1400px] items-center gap-6 px-4 md:px-6">
+      <a href="notebook.html" class="flex items-center gap-2">
+        <span class="grid h-7 w-7 place-items-center rounded-lg bg-accent text-white shadow-card"><svg viewBox="0 0 80 80" class="h-4 w-4" fill="none"><circle cx="34" cy="34" r="20" stroke="currentColor" stroke-width="5"/><line x1="48" y1="48" x2="66" y2="66" stroke="currentColor" stroke-width="6" stroke-linecap="round"/></svg></span>
+        <span class="font-display text-[15px] font-semibold tracking-tight text-ink">MapleQuery</span>
+      </a>
+      <nav class="ml-auto flex items-center gap-1">
+        <a href="chat.html" class="rounded-md px-3 py-1.5 text-sm font-medium text-muted hover:bg-raised hover:text-ink">Ask</a>
+        <a href="notebook.html" class="rounded-md px-3 py-1.5 text-sm font-medium text-muted hover:bg-raised hover:text-ink">Notebook</a>
+        <a href="explorer.html" class="rounded-md bg-accent/10 px-3 py-1.5 text-sm font-medium text-accent">Explorer</a>
+        <a href="datasets.html" class="rounded-md px-3 py-1.5 text-sm font-medium text-muted hover:bg-raised hover:text-ink">Datasets</a>
+      </nav>
+      <a href="../auth.html" class="ml-2 rounded-lg border border-line bg-raised px-3 py-1.5 text-sm font-medium text-ink hover:border-accent">Sign in</a>
+    </div>
+  </header>
+
+  <!-- LAYOUT: step chain + result -->
+  <div class="flex h-[calc(100vh-3.5rem)] min-h-0">
+
+    <!-- Sessions history sidebar -->
+    <aside class="hidden w-56 shrink-0 flex-col border-r border-line bg-raised/60 lg:flex">
+      <div class="p-3">
+        <button id="newSessionBtn" class="flex w-full items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-press cursor-pointer">
+          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          New session
+        </button>
+      </div>
+      <p class="px-4 pb-1 font-mono text-[10px] uppercase tracking-wider text-faint">Recent</p>
+      <div id="sessionList" class="flex-1 overflow-y-auto px-2 space-y-0.5"></div>
+    </aside>
+
+    <!-- Step chain sidebar -->
+    <section class="flex w-[400px] shrink-0 flex-col border-r border-line bg-raised/40">
+      <div class="border-b border-line p-4">
+        <h2 class="font-display text-lg font-semibold text-ink">Step chain</h2>
+        <p class="text-xs text-muted">Ask a question, review the SQL, then edit it directly. Every run goes through the guard.</p>
+      </div>
+      <div id="steps" class="flex-1 space-y-3 overflow-y-auto px-4 py-4"></div>
+      <div id="stepsEmpty" class="flex-1 grid place-items-center px-4">
+        <div class="rounded-xl border border-dashed border-line bg-canvas/60 p-6 text-center">
+          <svg viewBox="0 0 24 24" class="mx-auto mb-2 h-5 w-5 text-accent" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.7 4.8L18.5 9.5l-4.8 1.7L12 16l-1.7-4.8L5.5 9.5l4.8-1.7L12 3Z"/></svg>
+          <p class="text-sm text-ink">Ask a question to seed the chain.</p>
+        </div>
+      </div>
+      <!-- Prompt input -->
+      <div class="border-t border-line p-3">
+        <form id="promptForm" class="flex items-end gap-2 rounded-xl border border-line bg-paper p-2 focus-within:border-accent">
+          <textarea id="promptInput" rows="1" placeholder="Ask a question." class="min-h-[40px] max-h-32 flex-1 resize-none bg-transparent px-2 py-1.5 text-[14px] text-ink placeholder:text-faint focus:outline-none"></textarea>
+          <button type="submit" class="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg bg-accent text-white hover:bg-accent-press">
+            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          </button>
+        </form>
+        <button id="resetBtn" class="mt-2 flex items-center gap-1 text-xs text-muted hover:text-ink cursor-pointer">
+          <svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/></svg> Reset session
+        </button>
+      </div>
+    </section>
+
+    <!-- Active step result -->
+    <section id="resultArea" class="flex min-w-0 flex-1 flex-col overflow-y-auto p-6">
+      <div id="resultEmpty" class="grid flex-1 place-items-center">
+        <div class="max-w-md rounded-2xl border border-dashed border-line bg-paper/60 p-8 text-center">
+          <svg viewBox="0 0 24 24" class="mx-auto mb-2 h-5 w-5 text-accent" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h10M4 17h7"/></svg>
+          <p class="text-sm text-ink">Ask a question or pick a step to see its rows here.</p>
+        </div>
+      </div>
+      <div id="resultContent" class="hidden mx-auto w-full max-w-4xl space-y-4">
+        <header class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p class="font-mono text-[10px] uppercase tracking-wider text-muted">Active step</p>
+            <h2 id="resultHeading" class="font-display text-2xl font-semibold text-ink"></h2>
+            <p id="resultMeta" class="font-mono text-[11px] text-muted"></p>
+          </div>
+          <button id="editSqlBtn" class="inline-flex items-center gap-1 rounded-lg border border-line bg-paper px-3 py-1.5 text-sm text-ink hover:border-accent cursor-pointer">
+            <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg> Edit SQL
+          </button>
+        </header>
+        <!-- SQL display / editor -->
+        <div id="sqlDisplay">
+          <pre id="sqlCode" class="overflow-x-auto rounded-xl bg-ink p-4 font-mono text-[13px] leading-relaxed text-canvas"></pre>
+        </div>
+        <div id="sqlEditor" class="hidden">
+          <textarea id="sqlTextarea" spellcheck="false" class="w-full min-h-[200px] resize-y rounded-xl border border-line bg-canvas p-4 font-mono text-[13px] leading-relaxed text-ink focus:border-accent focus:outline-none"></textarea>
+          <div class="mt-2 flex gap-2">
+            <button id="cancelEditBtn" class="rounded-lg border border-line bg-paper px-3 py-1.5 text-sm text-ink hover:bg-raised cursor-pointer">Cancel</button>
+            <button id="runEditBtn" class="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-press cursor-pointer">
+              <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Run
+            </button>
+          </div>
+        </div>
+        <!-- Rows table -->
+        <div id="resultTable" class="overflow-x-auto rounded-xl border border-line">
+          <table class="w-full text-left text-sm"><thead id="rHead" class="border-b border-line bg-raised text-muted"></thead><tbody id="rBody" class="text-ink"></tbody></table>
+        </div>
+        <p id="resultCaption" class="font-mono text-[10px] text-muted"></p>
+      </div>
+    </section>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/store.js"></script>
+  <script>
+  (function(){
+    var store=MQ.store,api=MQ.api;
+    var $=function(s){return document.querySelector(s);};
+    var session={id:store.uid("exp"),title:"Explorer session",createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),steps:[],activeStepId:null};
+    var busy=false;
+
+    function init(){
+      initTheme();
+      $("#promptForm").addEventListener("submit",function(e){e.preventDefault();askQuestion();});
+      $("#promptInput").addEventListener("keydown",function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();askQuestion();}});
+      $("#resetBtn").addEventListener("click",resetSession);
+      $("#newSessionBtn").addEventListener("click",resetSession);
+      $("#editSqlBtn").addEventListener("click",showEditor);
+      $("#cancelEditBtn").addEventListener("click",hideEditor);
+      $("#runEditBtn").addEventListener("click",runEdited);
+      // Load most recent saved session, or seed the demo
+      var list=getSessionList();
+      if(list.length>0){ session=list[0]; }
+      else { seedDemoSteps(); saveSession(); }
+      loadSessionList();
+      render();
+    }
+
+    // ---- Persistence ----
+    function saveSession(){
+      if(!session.steps || session.steps.length===0) return;
+      session.updatedAt=new Date().toISOString();
+      // Title = first prompt's text
+      var firstPrompt=session.steps.find(function(s){return s.type==="prompt";});
+      session.title=firstPrompt?firstPrompt.text.slice(0,60):"Explorer session";
+      try{ localStorage.setItem("mq_exp_"+session.id, JSON.stringify(session)); }catch(e){}
+      loadSessionList();
+    }
+    function getSessionList(){
+      var items=[];
+      for(var i=0;i<localStorage.length;i++){
+        var k=localStorage.key(i);
+        if(k && k.indexOf("mq_exp_")===0){
+          try{ var d=JSON.parse(localStorage.getItem(k)); if(d && d.id) items.push(d); }catch(e){}
+        }
+      }
+      items.sort(function(a,b){ return (b.updatedAt||"").localeCompare(a.updatedAt||""); });
+      return items;
+    }
+    function loadSessionList(){
+      var el=$("#sessionList"); if(!el) return;
+      var items=getSessionList();
+      el.innerHTML="";
+      items.slice(0,20).forEach(function(item){
+        var div=document.createElement("div");
+        div.className="group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm cursor-pointer "+(item.id===session.id?"bg-accent/10 text-ink font-medium":"text-muted hover:bg-canvas hover:text-ink");
+        div.innerHTML='<span class="min-w-0 flex-1 truncate">'+esc(item.title||"Session")+'</span>'+
+          '<button class="del-sess grid h-5 w-5 shrink-0 place-items-center rounded text-faint opacity-0 group-hover:opacity-100 hover:text-accent cursor-pointer"><svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>';
+        div.querySelector("span").addEventListener("click",function(){ loadSessionById(item.id); });
+        div.querySelector(".del-sess").addEventListener("click",function(e){
+          e.stopPropagation();
+          try{ localStorage.removeItem("mq_exp_"+item.id); }catch(ex){}
+          if(item.id===session.id) resetSession();
+          loadSessionList();
+        });
+        el.appendChild(div);
+      });
+    }
+    function loadSessionById(id){
+      try{
+        var d=JSON.parse(localStorage.getItem("mq_exp_"+id));
+        if(!d) return;
+        session=d; render(); loadSessionList();
+      }catch(e){}
+    }
+
+    function seedDemoSteps(){
+      session.steps=[
+        {type:"prompt",id:store.uid("s"),text:"Total federal IT-services contract spend by fiscal year, 2018\u20132024"},
+        {type:"sql",id:store.uid("s"),sql:"SELECT fiscal_year,\n       ROUND(SUM(amount_cad) / 1e9, 1) AS spend_b\nFROM   curated.contracts\nWHERE  object_code = 'IT_SERVICES'\n  AND  fiscal_year BETWEEN '2018-19' AND '2023-24'\nGROUP  BY fiscal_year\nORDER  BY fiscal_year;",rows:[{fiscal_year:"2018-19",spend_b:3.1},{fiscal_year:"2019-20",spend_b:3.5},{fiscal_year:"2020-21",spend_b:4.0},{fiscal_year:"2021-22",spend_b:4.5},{fiscal_year:"2022-23",spend_b:5.0},{fiscal_year:"2023-24",spend_b:5.4}],rowCount:6,status:"ok",reason:null,elapsedMs:820,bytesBilled:4200000,sourceStepId:null}
+      ];
+      session.activeStepId=session.steps[1].id;
+    }
+
+    function resetSession(){
+      session={id:store.uid("exp"),title:"Explorer session",createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),steps:[],activeStepId:null};
+      render();
+      loadSessionList();
+      $("#promptInput").focus();
+    }
+
+    function askQuestion(){
+      var q=$("#promptInput").value.trim();
+      if(!q||busy)return;
+      $("#promptInput").value="";
+      busy=true;
+
+      var promptStep={type:"prompt",id:store.uid("s"),text:q};
+      var sqlStep={type:"sql",id:store.uid("s"),sql:"",rows:[],rowCount:0,status:"ok",sourceStepId:promptStep.id};
+      session.steps.push(promptStep,sqlStep);
+      session.activeStepId=sqlStep.id;
+      render();
+
+      var sql="",rows=[],status="ok",reason=null,elapsedMs=null,bytesBilled=null;
+      api.streamChat({conversation_id:store.uid("c"),question:q,history:[]},{
+        onEvent:function(ev){
+          if(ev.name==="sql_guarded"){sql=ev.payload.sql_final;if(!ev.payload.accepted){status="guard_rejected";reason=ev.payload.reason;}}
+          if(ev.name==="sql_executed"){rows=ev.payload.sample_rows||[];elapsedMs=ev.payload.elapsed_ms;bytesBilled=ev.payload.bytes_billed;}
+          if(ev.name==="rows"&&rows.length===0)rows=ev.payload.rows||[];
+          if(ev.name==="tool_error"){status="execution_error";reason=ev.payload.message;}
+          if(ev.name==="budget_exceeded"){status="budget_exceeded";reason="Cap "+ev.payload.cap+" reached.";}
+        },
+        onDone:function(){
+          var step=session.steps.find(function(s){return s.id===sqlStep.id;});
+          if(step){step.sql=sql;step.rows=rows;step.rowCount=rows.length;step.status=status;step.reason=reason;step.elapsedMs=elapsedMs;step.bytesBilled=bytesBilled;}
+          busy=false;render();saveSession();
+        },
+        onError:function(err){
+          var step=session.steps.find(function(s){return s.id===sqlStep.id;});
+          if(step){step.status="execution_error";step.reason=err.message;}
+          busy=false;render();saveSession();
+        }
+      });
+    }
+
+    function runEdited(){
+      var sql=$("#sqlTextarea").value.trim();
+      if(!sql||busy)return;
+      busy=true;
+      api.runSql(sql).then(function(res){
+        var step=session.steps.find(function(s){return s.id===session.activeStepId;});
+        if(step&&step.type==="sql"){step.sql=res.sql_final||sql;step.rows=res.rows||[];step.rowCount=res.row_count||0;step.status=res.status;step.reason=res.reason;step.elapsedMs=res.elapsed_ms;step.bytesBilled=res.bytes_billed;}
+        busy=false;hideEditor();render();saveSession();
+      }).catch(function(err){busy=false;alert("Error: "+err.message);});
+    }
+
+    function showEditor(){
+      var step=getActiveStep();if(!step||step.type!=="sql")return;
+      $("#sqlTextarea").value=step.sql||"";
+      $("#sqlDisplay").classList.add("hidden");$("#sqlEditor").classList.remove("hidden");
+    }
+    function hideEditor(){$("#sqlEditor").classList.add("hidden");$("#sqlDisplay").classList.remove("hidden");}
+
+    function getActiveStep(){return session.steps.find(function(s){return s.id===session.activeStepId;});}
+
+    // --- Render ---
+    function render(){
+      renderSteps();
+      renderResult();
+    }
+
+    function renderSteps(){
+      var container=$("#steps"),empty=$("#stepsEmpty");
+      if(session.steps.length===0){empty.classList.remove("hidden");container.classList.add("hidden");return;}
+      empty.classList.add("hidden");container.classList.remove("hidden");
+      container.innerHTML="";
+      session.steps.forEach(function(step,i){
+        var isActive=step.id===session.activeStepId;
+        var div=document.createElement("button");
+        div.className="step-chip block w-full cursor-pointer rounded-xl border border-line bg-paper p-3 text-left "+(isActive?"active":"");
+        if(step.type==="prompt"){
+          div.innerHTML='<div class="flex items-center gap-2"><span class="font-mono text-[10px] text-muted">'+pad(i+1)+'</span><span class="rounded-full bg-accent/10 px-2 py-0.5 font-mono text-[10px] font-medium text-accent">Prompt</span></div><p class="mt-1 line-clamp-2 text-sm text-ink">'+esc(step.text)+'</p>';
+        }else{
+          var cls=step.status==="ok"?"step-ok":(step.status==="guard_rejected"||step.status==="execution_error")?"step-err":"step-warn";
+          div.innerHTML='<div class="flex items-center gap-2"><span class="font-mono text-[10px] text-muted">'+pad(i+1)+'</span><span class="step-chip-status '+cls+'">'+esc(step.status)+'</span></div>'+
+            '<pre class="mt-1 line-clamp-2 font-mono text-[11px] text-ink">'+(esc(step.sql)||"(streaming\u2026)")+'</pre>'+
+            '<p class="mt-1 font-mono text-[10px] text-muted">'+step.rowCount+' rows'+(step.elapsedMs?' \u00B7 '+fmtMs(step.elapsedMs):'')+'</p>';
+        }
+        div.addEventListener("click",function(){session.activeStepId=step.id;render();});
+        container.appendChild(div);
+      });
+    }
+
+    function renderResult(){
+      var step=getActiveStep();
+      var empty=$("#resultEmpty"),content=$("#resultContent");
+      if(!step||step.type!=="sql"){empty.classList.remove("hidden");content.classList.add("hidden");return;}
+      empty.classList.add("hidden");content.classList.remove("hidden");
+      hideEditor();
+
+      $("#resultHeading").textContent=step.status==="ok"?step.rowCount.toLocaleString()+" rows":step.reason||step.status;
+      $("#resultMeta").textContent=(step.elapsedMs?fmtMs(step.elapsedMs):"")+(step.bytesBilled?" \u00B7 "+step.bytesBilled+" bytes billed":"");
+      $("#sqlCode").textContent=step.sql||"-- awaiting SQL";
+
+      var head=$("#rHead"),body=$("#rBody");
+      head.innerHTML="";body.innerHTML="";
+      if(step.rows&&step.rows.length){
+        var cols=Object.keys(step.rows[0]);
+        head.innerHTML='<tr>'+cols.map(function(c){return'<th class="px-3 py-2 text-[11px] font-medium">'+esc(c)+'</th>';}).join("")+'</tr>';
+        step.rows.slice(0,100).forEach(function(r){
+          body.innerHTML+='<tr class="border-t border-line">'+cols.map(function(c){return'<td class="px-3 py-2 text-[12px]">'+esc(r[c])+'</td>';}).join("")+'</tr>';
+        });
+      }
+      $("#resultCaption").textContent=step.rows.length>100?"First 100 of "+step.rowCount+" rows":"";
+    }
+
+    // --- Helpers ---
+    function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+    function pad(n){return String(n).padStart(2,"0");}
+    function fmtMs(ms){return ms==null?"":ms>=1000?(ms/1000).toFixed(1)+"s":ms+"ms";}
+    function initTheme(){var s=null;try{s=localStorage.getItem("mq-atlas-theme");}catch(e){}document.documentElement.setAttribute("data-theme",s||(window.matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light"));}
+
+    if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init);else init();
+  })();
+  </script>
+</body>
+</html>
