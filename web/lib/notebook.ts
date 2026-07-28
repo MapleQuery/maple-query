@@ -28,9 +28,13 @@ export function hiddenBlockCount(nb: StoredNotebook): number {
 export function chartableSources(
   blocks: StoredNotebookBlock[],
 ): StoredNotebookBlockQuery[] {
+  // `rows?.length`, not `rows.length`: these blocks come back out of
+  // localStorage, whose shape is versioned by hand, and a result written
+  // by an older build (or half-written by an interrupted run) must not
+  // take the whole page down on read.
   return blocks.filter(
     (b): b is StoredNotebookBlockQuery =>
-      b.type === "query" && (b.result?.rows.length ?? 0) > 0,
+      b.type === "query" && (b.result?.rows?.length ?? 0) > 0,
   );
 }
 
@@ -45,6 +49,33 @@ export function chartSource(
 ): StoredNotebookBlockQuery | null {
   const source = blocks.find((b) => b.id === sourceBlockId);
   return source && source.type === "query" ? source : null;
+}
+
+/**
+ * Datasets a new block inserted at `atIndex` could reasonably be scoped
+ * to: the ones the nearest finished query block *above* it reached.
+ *
+ * Nearest-above rather than anywhere in the notebook, because an insert
+ * point sits in a line of argument — the relevant datasets are the ones
+ * the reader just saw, not every dataset the document has ever touched.
+ * Returns nothing when the block above has not run, which is also what
+ * keeps the menu quiet on a fresh notebook.
+ */
+export function quickScopeCandidates(
+  blocks: StoredNotebookBlock[],
+  atIndex: number,
+): { packageId: string; title?: string }[] {
+  for (let i = Math.min(atIndex, blocks.length) - 1; i >= 0; i--) {
+    const b = blocks[i];
+    if (b.type !== "query") continue;
+    const ids = b.result?.packageIds ?? [];
+    if (ids.length === 0) return [];
+    return ids.map((packageId) => ({
+      packageId,
+      title: b.result?.packageTitles?.[packageId],
+    }));
+  }
+  return [];
 }
 
 /**

@@ -30,7 +30,7 @@ web/
 │   │                    # CostBadge
 │   ├── chat/            # ChatContainer + composer + conversation switcher
 │   ├── notebook/        # NotebookContainer + ChartBlock + ScopePicker
-│   │                    # + MD/PDF export
+│   │                    # + ProseToolbar + MD/PDF/DOCX export
 │   └── explorer/        # ExplorerContainer + step chain
 ├── lib/
 │   ├── api.ts           # REST wrappers (datasets, columns, /sql/run)
@@ -40,7 +40,8 @@ web/
 │   ├── chart.ts         # rows → SVG string (inference + render), no deps
 │   ├── columns.ts       # recognises loader-generated `__col_N` names
 │   ├── notebook.ts      # block-shape helpers: export filter, chart source,
-│   │                    # inline-chart migration
+│   │                    # quick-scope candidates, inline-chart migration
+│   ├── prose.ts         # what a text block may contain + how it renders
 │   ├── result-rows.ts   # folds sql_executed's preview + the rows frames
 │   ├── storage.ts       # localStorage with per-collection LRU index (max 50)
 │   │                    # + quota-exceeded eviction
@@ -96,14 +97,23 @@ carry the visual distinction that separate serif / mono families would.
   rather than collapsed, and the header counts them (`5 blocks · 2 not
   exported`) so nothing goes missing quietly. Export is disabled when every
   block is hidden.
-- A single **Export** control with a format menu. Both formats build the
-  same Markdown document — every block, including SQL fenced blocks,
-  charts, and result tables (first 20 rows):
-  - **Markdown** downloads it as `.md`.
-  - **PDF** renders it with the same ReactMarkdown/remark-gfm pair used on
+- A single **Export** control with a format menu:
+  - **Markdown** (`.md`) and **PDF** build the same Markdown document —
+    every block, including SQL fenced blocks, charts, and result tables
+    (first 20 rows). PDF renders it with the same plugin set used on
     screen into an off-screen iframe and calls `print()` on that iframe,
     so the output is real text with real pagination. It lands on the
     browser's print dialog, where the user picks "Save as PDF".
+  - **Word** (`.docx`) builds from the stored notebook instead — see
+    "Word export" below.
+- Prose blocks have a formatting toolbar: headings, bold and italics as
+  ordinary Markdown, plus font size and colour. See "Prose formatting".
+- An insert point below a query block that has run offers that block's
+  datasets under **Ask about**, inserting a query block already scoped to
+  the one picked. The relevant datasets at any point in a notebook are
+  the ones the reader just saw, so the offer comes from the nearest
+  finished query *above* rather than from everything the document has
+  ever touched (`quickScopeCandidates`).
 - Dataset references (the `Scoped to:` and `Datasets:` rows, and the
   `Sources:` line in an export) are named by title, not package UUID. See
   "Dataset titles" below.
@@ -142,6 +152,61 @@ carry the visual distinction that separate serif / mono families would.
   on the client. Read-time header recovery is a property of a *turn* and
   is never written back to the enriched column table, so this browsing
   surface always shows the generated names.
+
+---
+
+## Prose formatting
+
+`lib/prose.ts` owns what a text block may contain and how it renders.
+
+Markdown carries headings, bold and italics natively. It has no spelling
+for size or colour, so those ride on one inline element —
+`<span style="color:…">`, `<span style="font-size:…em">` — which is
+ordinary Markdown-with-inline-HTML rather than a private syntax. That is
+what lets one stored string render on screen, through the print pipeline,
+and into Word without three dialects of formatting.
+
+Raw HTML in user-authored content passes **two independent filters**.
+`rehype-sanitize` runs against an allowlist that admits `span[style]` and
+nothing else new, so every default block on scripts, event handlers and
+frames stays. Then the `span` renderer re-emits only `color` and
+`font-size`, and only when the value matches `#rrggbb` / `<n>em`. A
+declaration that clears the allowlist but fails the pattern is dropped
+rather than trusted, so neither filter is load-bearing alone.
+
+Colours are a fixed palette of app tokens, not a picker: a report stays
+coherent when emphasis comes from a small set, and a closed set is what
+makes the Word mapping exact rather than approximate. Sizes are `em`, so
+they scale against the print stylesheet's point-based base.
+
+The toolbar is a set of pure string transforms over the Markdown source
+(`toggleWrap`, `setHeading`, `applySpanStyle`) — the textarea stays the
+editor and Markdown stays what is stored. A WYSIWYG surface would have to
+own the document model, and three renderers downstream all read that one
+string today. Toolbar controls `preventDefault` on mousedown so clicking
+one does not blur the textarea and destroy the selection being operated
+on, and the caret is restored explicitly after each edit.
+
+---
+
+## Word export
+
+`components/notebook/export-docx.ts`, built from the stored notebook
+rather than from the Markdown the other two exports share. A `.docx`
+wants real heading styles, real table cells and embedded image bytes, and
+re-parsing a rendered string to recover structure already in hand would
+be a second, worse document model. The *inline* vocabulary is still
+shared: `parseInline` is the one place `lib/prose.ts`'s bold / italic /
+size / colour set becomes Word runs.
+
+Charts are embedded as PNG. `docx` accepts SVG only alongside a raster
+fallback and Word's own SVG support is uneven, so the chart SVG — which
+is self-contained, hence safe to draw through a canvas without tainting
+it — is rasterised at 2× and embedded. A chart that will not rasterise
+returns null and the document is short one image rather than failing.
+
+The `docx` package is **dynamically imported**: a few hundred kilobytes
+of OOXML writer that only matters once someone picks the format.
 
 ---
 
