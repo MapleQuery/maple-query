@@ -26,6 +26,7 @@ import {
   type StoredNotebookBlockQuery,
 } from "@/lib/storage";
 import { streamChat } from "@/lib/sse";
+import type { SuggestionT } from "@/lib/types";
 import { truncate, uuid } from "@/lib/utils";
 import { SqlBlock } from "@/components/evidence/sql-block";
 import { RowsTable } from "@/components/evidence/rows-table";
@@ -98,6 +99,28 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
     const idx = atIndex ?? nb.blocks.length;
     const blocks = [...nb.blocks];
     blocks.splice(idx, 0, block);
+    persist({ ...nb, blocks });
+  };
+
+  // Accepting an offer inserts a *draft*, not a result. Notebooks are
+  // authored before they are executed, and a runnable draft keeps that
+  // rhythm — the user can reword before spending a turn. The new block
+  // gets its own fresh conversationId and empty history like every
+  // other block; the only thing it inherits is the package scope.
+  const insertFollowUp = (afterBlockId: string, s: SuggestionT) => {
+    if (!nb) return;
+    const idx = nb.blocks.findIndex((b) => b.id === afterBlockId);
+    if (idx === -1) return;
+    const block: StoredNotebookBlock = {
+      type: "query",
+      id: uuid(),
+      question: s.question,
+      conversationId: uuid(),
+      state: "idle",
+      scopePackageIds: s.package_ids,
+    };
+    const blocks = [...nb.blocks];
+    blocks.splice(idx + 1, 0, block);
     persist({ ...nb, blocks });
   };
 
@@ -253,6 +276,7 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
                     onMove={(d) => moveBlock(b.id, d)}
                     onRemove={() => removeBlock(b.id)}
                     onUpdate={updateBlock}
+                    onInsertFollowUp={insertFollowUp}
                   />
                 </React.Fragment>
               ))}
@@ -345,6 +369,7 @@ function NotebookBlock({
   onMove,
   onRemove,
   onUpdate,
+  onInsertFollowUp,
 }: {
   block: StoredNotebookBlock;
   canMoveUp: boolean;
@@ -355,6 +380,7 @@ function NotebookBlock({
     id: string,
     mutator: (b: StoredNotebookBlock) => StoredNotebookBlock,
   ) => void;
+  onInsertFollowUp: (afterBlockId: string, s: SuggestionT) => void;
 }) {
   return (
     <div className="group relative rounded-xl border border-hairline bg-white p-5 shadow-sm">
@@ -369,7 +395,11 @@ function NotebookBlock({
       {block.type === "prose" ? (
         <ProseBlock block={block} onUpdate={onUpdate} />
       ) : (
-        <QueryBlock block={block} onUpdate={onUpdate} />
+        <QueryBlock
+          block={block}
+          onUpdate={onUpdate}
+          onInsertFollowUp={onInsertFollowUp}
+        />
       )}
     </div>
   );
@@ -466,12 +496,14 @@ function ProseBlock({
 function QueryBlock({
   block,
   onUpdate,
+  onInsertFollowUp,
 }: {
   block: StoredNotebookBlockQuery;
   onUpdate: (
     id: string,
     m: (b: StoredNotebookBlock) => StoredNotebookBlock,
   ) => void;
+  onInsertFollowUp: (afterBlockId: string, s: SuggestionT) => void;
 }) {
   const [draft, setDraft] = React.useState(block.question);
   const [assistantText, setAssistantText] = React.useState("");
@@ -486,10 +518,18 @@ function QueryBlock({
     let rows: Record<string, unknown>[] = [];
     const pkgIds = new Set<string>();
     let localAssistantText = "";
+    let offers: SuggestionT[] = [];
 
     onUpdate(block.id, (b) =>
       b.type === "query"
-        ? { ...b, question, state: "running", result: undefined, errorMessage: undefined }
+        ? {
+            ...b,
+            question,
+            state: "running",
+            result: undefined,
+            suggestions: undefined,
+            errorMessage: undefined,
+          }
         : b,
     );
 
@@ -501,6 +541,14 @@ function QueryBlock({
           conversation_id: block.conversationId,
           question,
           history: [],
+          // Re-sending the pinned scope on every run is what makes a
+          // saved block reproducible. Scope is a preference rather than
+          // a filter server-side, so a block whose datasets were
+          // re-ingested still produces a sensible turn rather than an
+          // empty one.
+          ...(block.scopePackageIds && block.scopePackageIds.length > 0
+            ? { scope_package_ids: block.scopePackageIds }
+            : {}),
         },
         {
           onEvent: (event) => {
@@ -521,6 +569,9 @@ function QueryBlock({
                 localAssistantText += event.payload.delta;
                 setAssistantText(localAssistantText);
                 break;
+              case "suggestions":
+                offers = event.payload.items;
+                break;
             }
           },
           onDone: () => {
@@ -529,6 +580,7 @@ function QueryBlock({
                 ? {
                     ...b,
                     state: "done",
+                    suggestions: offers,
                     result: {
                       assistantText: localAssistantText,
                       sql,
@@ -563,6 +615,35 @@ function QueryBlock({
       <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
         Query · single-turn
       </p>
+      {block.scopePackageIds && block.scopePackageIds.length > 0 && (
+        // A pinned scope the user cannot see or escape would make a
+        // saved notebook mysteriously narrow months later.
+        <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+          <span>Scoped to:</span>
+          {block.scopePackageIds.map((p) => (
+            <Link
+              key={p}
+              href={`/datasets/${p}`}
+              className="rounded bg-surface-soft px-1.5 py-0.5 font-mono text-[10px] text-navy hover:underline"
+            >
+              {truncate(p, 24)}
+            </Link>
+          ))}
+          <button
+            type="button"
+            onClick={() =>
+              onUpdate(block.id, (b) =>
+                b.type === "query"
+                  ? { ...b, scopePackageIds: undefined }
+                  : b,
+              )
+            }
+            className="rounded px-1 text-[11px] text-muted underline hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+          >
+            drop scope
+          </button>
+        </p>
+      )}
       <div className="flex items-end gap-2">
         <Textarea
           value={draft}
@@ -622,6 +703,36 @@ function QueryBlock({
           )}
         </div>
       )}
+
+      {block.state === "done" &&
+        block.suggestions &&
+        block.suggestions.length > 0 && (
+          // Uncapped by design, unlike the chat chips. Each step here
+          // costs an insert *and* a run, and the chain stays on the page
+          // as a document being built. A cap would also have to count
+          // preceding scoped blocks, making the affordance
+          // order-dependent — drag a block up and the row reappears.
+          <div className="space-y-2 border-t border-hairline pt-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">
+              Next steps
+            </p>
+            <ul className="flex flex-wrap gap-2">
+              {block.suggestions.slice(0, 3).map((s, i) => (
+                <li key={`${s.kind}-${s.package_ids.join(",")}-${i}`}>
+                  <button
+                    type="button"
+                    onClick={() => onInsertFollowUp(block.id, s)}
+                    aria-label={`Insert follow-up block: ${s.question}`}
+                    className="flex max-w-full items-center gap-1.5 rounded-md border border-hairline bg-white px-3 py-1.5 text-left text-sm text-ink transition-colors hover:bg-surface-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                  >
+                    <Plus className="h-3.5 w-3.5 shrink-0 text-muted" />
+                    {s.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
       {block.state === "error" && (
         <div className="rounded-lg border border-error/30 bg-error/10 px-4 py-3 text-sm text-error">

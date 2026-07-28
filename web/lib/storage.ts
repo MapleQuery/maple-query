@@ -126,7 +126,7 @@ function isQuotaError(err: unknown): boolean {
 // Typed façades per collection
 // ---------------------------------------------------------------------------
 
-import type { HistoryMessage } from "./types";
+import type { HistoryMessage, SuggestionT } from "./types";
 
 export interface EvidenceCard {
   id: string;
@@ -165,6 +165,20 @@ export interface StoredNotebookBlockQuery {
   question: string;
   conversationId: string;
   state: "idle" | "running" | "done" | "error";
+  /** Datasets this block is scoped to, pinned at insert time.
+   *
+   * Pinned to the *block* rather than chained through a parent's
+   * conversation history, because blocks are reorderable and deletable
+   * and a parent→child link breaks silently the moment one is dragged
+   * or removed. A block that carries its own scope stays independently
+   * re-runnable, which is the property that makes a notebook a notebook
+   * rather than a transcript.
+   *
+   * Optional: pre-scope notebooks load unchanged. */
+  scopePackageIds?: string[];
+  /** Offers from the last run; drives the follow-up affordance.
+   * Optional for the same reason. */
+  suggestions?: SuggestionT[];
   result?: {
     assistantText: string;
     sql: string;
