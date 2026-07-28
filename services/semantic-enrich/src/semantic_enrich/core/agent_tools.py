@@ -33,6 +33,11 @@ from semantic_enrich.clients.bq import BqClient
 from semantic_enrich.clients.openai import OpenAIClient
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import agent_events
+
+# What counts as a synthesised positional name is owned by
+# `header_recovery`, which also has to reason about it; this module keeps
+# the import so callers that already reach for it here still resolve.
+from semantic_enrich.core.header_recovery import generated_header_ratio
 from semantic_enrich.core.retrieval import (
     embed_question,
     retrieve_columns,
@@ -1184,21 +1189,6 @@ def _scalar_aggregate_columns(sql: str) -> set[str]:
             if has_scalar_agg:
                 names.add(name)
     return names
-
-
-# ── list_documents quality flag ──
-
-
-_GENERATED_COL_RE = re.compile(r"__col_\d+")
-
-
-def generated_header_ratio(columns: tuple[str, ...] | list[str]) -> float:
-    if not columns:
-        return 0.0
-    generated = sum(
-        1 for c in columns if _GENERATED_COL_RE.fullmatch(c) is not None
-    )
-    return generated / len(columns)
 
 
 # ── Doc/column pairing check ──

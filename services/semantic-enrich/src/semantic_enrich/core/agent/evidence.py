@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from semantic_enrich.config.settings import Settings
-from semantic_enrich.core.agent_tools import generated_header_ratio
+from semantic_enrich.core.header_recovery import generated_header_ratio
 
 if TYPE_CHECKING:  # circular-import guard: phases imports stay type-only
     from semantic_enrich.core.agent.phases import (

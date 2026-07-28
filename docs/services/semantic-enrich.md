@@ -668,6 +668,32 @@ The floor default is calibrated from the agent eval: the report (`eval --agent-m
 
 Tests: `tests/unit/test_search_quality_envelope.py` (verdict boundary, guidance switching, dup guard, empty-after-filter), `tests/integration/test_reformulation_policy.py` (free retry, dup billed, cap steer, inert-when-strong), `test_clarify_flow.py` (record tagging, follow-up hint, second-clarify suppression), `test_surrender_contract.py` (record carries the fit-check inputs).
 
+## Header recovery (`core/header_recovery.py`)
+
+16.4% of the corpus's columns have no name. They are called `__col_1`, `__col_7`, and the loop cannot query a column it cannot name — those datasets are effectively read-only prose. The cause is not a parser bug in the ordinary sense: Canadian federal statistical releases routinely ship spreadsheets with a **preamble above the header row** (a title, a blank line, sometimes a footnote marker), the CSV reader takes the first line as the header, that line is mostly blank, so the columns get positional names and the real header survives as an ordinary data row. Nothing needs re-ingesting — `raw.rows` holds correct values in correct positions, and the header text is already in the tool payload, which is why the model can *describe* columns it cannot *sum*.
+
+This module is the pure half of the fix: `detect_header(rows, generated_columns) -> HeaderRecovery | None`, a deterministic function over row bodies already in memory. No I/O, no query, no model call — column names have to be reproducible and auditable, and a heuristic over other people's spreadsheets needs to be re-tunable against a fixture rather than against the warehouse. It is also where `GENERATED_COL_RE` and `generated_header_ratio` live, since this is the module that owns what a synthesised positional name *is*.
+
+**The gate is conjunctive — all five, each with a veto.** A weighted score would let a very dense preamble outvote a failed contrast test, and each signal rejects a specific real failure:
+
+| signal | rule | what it rejects |
+| -- | -- | -- |
+| `positional` | above the first row carrying a number or a date | a header-looking row *inside* the data |
+| `all_text` | every filled cell is text, or a bare year | a data row that happens to be sparse |
+| `density` | ≥ `HEADER_MIN_DENSITY` (0.6) of positions filled | a preamble title, which occupies one cell |
+| `distinctness` | filled values are unique | `COUNT COUNT COUNT SUM SUM`, `(#) (#) ($) ($)`, a banner smeared across merged cells |
+| `contrast` | the rows below hold values where the candidate holds labels | a sheet of prose where nothing is a header |
+
+The last qualifying row wins, because the header sits immediately above the data and a preamble may contain a qualifying text row above it. But two *adjacent* qualifiers are a two-tier header (`2023 | 2024` over `Applicants | Amount`) where either row alone is a wrong name, so that declines.
+
+**Bias toward declining, always.** A wrong name is strictly worse than no name: with `__col_3` the model knows it does not understand the column and says so; with a wrong name it believes it does, writes SQL against it, and produces a number that is wrong for a reason nobody can see from the answer. Recall is a measurement; precision is the gate. Multi-row headers, merged cells, sheets with no header, and preambles deeper than `HEADER_SCAN_ROWS` (8) all decline by design, and none of that should be reported as a failure.
+
+`explain_header` returns the same result plus the five measurements and a closed-vocabulary `reason`, kept on declines as well as accepts — so a rollout report can say which gate did the declining, and so moving a threshold is an argument about a distribution rather than about intuition. `HeaderRecovery` also carries `preamble_rows`, since the recovered header row stays in `raw.rows` and inflates `COUNT(*)` by the preamble depth even though its text values drop out of any `SAFE_CAST` aggregate.
+
+Recovery is **per document**. Package-level and document-level column sets diverge, so a name recovered here belongs to the document it came from, not to its package.
+
+Tests: `tests/unit/test_header_detect.py` (29 real documents from 23 publishers — 15 accepts with human-read header row indices, 14 declines), `tests/unit/test_header_detect_signals.py` (signal population, reason vocabulary, and property tests asserting names are always verbatim from a single row and never synthesised). The fixture is `tests/fixtures/header_recovery_documents.json`: real warehouse rows, not paraphrases.
+
 ## How the library API is used
 
 ```py
