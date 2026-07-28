@@ -65,7 +65,7 @@ def collect_evidence(
         if pid and pid not in listed:
             listed.append(pid)
 
-    titles = _titles_by_package(ctx)
+    titles = titles_by_package(ctx)
     columns = _column_counts_by_package(ctx)
 
     ordered = list(listed)
@@ -115,10 +115,17 @@ def compose_footer(evidence: SearchEvidence) -> str:
 # ── extraction helpers ──
 
 
-def _titles_by_package(ctx: TurnContext) -> dict[str, str | None]:
-    """package_id → title over every search this turn ranked, in
-    retrieval order. Same resolution `records._packages` uses: the
-    trace stores ids, titles live in the tool payloads."""
+def titles_by_package(ctx: TurnContext) -> dict[str, str | None]:
+    """package_id → title, from every tool payload that carries one.
+
+    Two sources, and both are needed. `search_datasets` results give
+    titles in retrieval order, which is most turns. But a *scoped* turn
+    has no search at all — a clicked chip goes straight to
+    `list_documents` — so on those the only title available is the one
+    `list_documents` recorded per document. Reading search results alone
+    made every scoped turn render raw package uuids in place of names,
+    in the footer and in the chips built from it.
+    """
     titles: dict[str, str | None] = {}
     for payload in ctx.state.search_results.values():
         for candidate in payload.get("candidates", []):
@@ -128,6 +135,10 @@ def _titles_by_package(ctx: TurnContext) -> dict[str, str | None]:
             title = candidate.get("title")
             cleaned = _clean(title) if isinstance(title, str) else ""
             titles.setdefault(pid, cleaned or None)
+    for doc_id, pid in ctx.state.doc_package.items():
+        raw = ctx.state.doc_title.get(doc_id)
+        cleaned = _clean(raw) if isinstance(raw, str) else ""
+        titles.setdefault(pid, cleaned or None)
     return titles
 
 

@@ -35,6 +35,7 @@ import jinja2
 
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import agent_events
+from semantic_enrich.core.agent.evidence import titles_by_package
 from semantic_enrich.core.agent.grounding import extract_numbers
 from semantic_enrich.core.agent.magnitude import (
     MagnitudeVerdict,
@@ -174,22 +175,10 @@ def assemble_inputs(
     }
 
 
-def _package_titles(ctx: TurnContext) -> dict[str, str | None]:
-    titles: dict[str, str | None] = {}
-    for payload in ctx.state.search_results.values():
-        for candidate in payload.get("candidates", []):
-            pid = str(candidate.get("package_id", ""))
-            if pid:
-                titles.setdefault(pid, candidate.get("title"))
-    for doc_id, pid in ctx.state.doc_package.items():
-        titles.setdefault(pid, ctx.state.doc_title.get(doc_id))
-    return titles
-
-
 def _datasets_used(
     ctx: TurnContext, result: ResearchResult
 ) -> list[dict[str, str | None]]:
-    titles = _package_titles(ctx)
+    titles = titles_by_package(ctx)
     return [
         {"package_id": pid, "title": titles.get(pid)}
         for pid in result.packages_cited
@@ -207,7 +196,7 @@ def assemble_explore_inputs(
     it would degrade both. Two small prompts beat one prompt with a mode
     flag.
     """
-    titles = _package_titles(ctx)
+    titles = titles_by_package(ctx)
     inputs: dict[str, Any] = {
         "question": ctx.request.question,
         "candidate_answer": result.candidate_answer,
