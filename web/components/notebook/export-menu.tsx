@@ -1,12 +1,19 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, Download, FileDown, FileText } from "lucide-react";
+import {
+  ChevronDown,
+  Download,
+  FileDown,
+  FileText,
+  FileType2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface ExportMenuProps {
   onExportMarkdown: () => void;
   onExportPdf: () => void;
+  onExportDocx: () => void;
   disabled?: boolean;
 }
 
@@ -15,6 +22,7 @@ export interface ExportMenuProps {
 export function ExportMenu({
   onExportMarkdown,
   onExportPdf,
+  onExportDocx,
   disabled,
 }: ExportMenuProps) {
   const [open, setOpen] = React.useState(false);
@@ -76,6 +84,15 @@ export function ExportMenu({
             label="PDF"
             hint=".pdf"
             onSelect={() => choose(onExportPdf)}
+          />
+          {/* First in intent if not in order: a PDF is where editing
+              stops, and this is the one export a journalist can keep
+              writing in. */}
+          <ExportMenuItem
+            icon={<FileType2 className="h-3.5 w-3.5 text-muted" />}
+            label="Word"
+            hint=".docx"
+            onSelect={() => choose(onExportDocx)}
           />
         </div>
       )}

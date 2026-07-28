@@ -46,14 +46,24 @@ import { DatasetChip } from "@/components/evidence/dataset-chip";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { exportNotebookAsMarkdown } from "./export";
+import { exportNotebookAsDocx } from "./export-docx";
 import { ExportMenu } from "./export-menu";
 import { printMarkdownAsPdf } from "./print-pdf";
 import { ScopePicker } from "./scope-picker";
+import { ProseToolbar } from "./prose-toolbar";
+import {
+  proseComponents,
+  proseRehypePlugins,
+  proseRemarkPlugins,
+  type EditResult,
+  type Selection,
+} from "@/lib/prose";
 import { ChartBlock, ChartIcon } from "./chart-block";
 import {
   chartableSources,
   hiddenBlockCount,
   migrateInlineCharts,
+  quickScopeCandidates,
 } from "@/lib/notebook";
 
 export interface NotebookContainerProps {
@@ -96,6 +106,20 @@ function newBlock(
     id: uuid(),
     sourceBlockId: (above ?? sources[sources.length - 1]).id,
   };
+}
+
+/** Save `blob` as `<slugified title>.<ext>`. */
+function downloadBlob(blob: Blob, title: string, ext: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const safe = (title || "notebook")
+    .replace(/[^a-z0-9-]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+  a.href = url;
+  a.download = `${safe || "notebook"}.${ext}`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function NotebookContainer({ notebookId }: NotebookContainerProps) {
@@ -180,6 +204,21 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
     updateBlock(blockId, (b) => ({ ...b, hidden: !b.hidden }));
   };
 
+  /** A blank query block at `atIndex`, already scoped to one dataset. */
+  const insertQuickScoped = (atIndex: number, packageId: string) => {
+    if (!nb) return;
+    const blocks = [...nb.blocks];
+    blocks.splice(atIndex, 0, {
+      type: "query",
+      id: uuid(),
+      question: "",
+      conversationId: uuid(),
+      state: "idle",
+      scopePackageIds: [packageId],
+    });
+    persist({ ...nb, blocks });
+  };
+
   // Accepting an offer inserts a *draft*, not a result. Notebooks are
   // authored before they are executed, and a runnable draft keeps that
   // rhythm — the user can reword before spending a turn. The new block
@@ -230,15 +269,19 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
   const handleExportMarkdown = () => {
     if (!nb) return;
     const md = exportNotebookAsMarkdown(nb, getCachedDatasetTitles());
-    const blob = new Blob([md], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const safe = (nb.title || "notebook").replace(/[^a-z0-9-]+/gi, "-").toLowerCase();
-    a.href = url;
-    a.download = `${safe}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(new Blob([md], { type: "text/markdown" }), nb.title, "md");
     toast.show("Downloaded Markdown export", "success");
+  };
+
+  const handleExportDocx = async () => {
+    if (!nb) return;
+    try {
+      const blob = await exportNotebookAsDocx(nb, getCachedDatasetTitles());
+      downloadBlob(blob, nb.title, "docx");
+      toast.show("Downloaded Word export", "success");
+    } catch {
+      toast.show("Could not build the Word document", "error");
+    }
   };
 
   const handleExportPdf = async () => {
@@ -350,6 +393,7 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
             <ExportMenu
               onExportMarkdown={handleExportMarkdown}
               onExportPdf={() => void handleExportPdf()}
+              onExportDocx={() => void handleExportDocx()}
               // Every block hidden means an export with nothing in it,
               // which is worth refusing rather than delivering.
               disabled={nb.blocks.length === 0 || exportableCount === 0}
@@ -365,6 +409,8 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
                   <BlockInsert
                     onAdd={(kind) => addBlock(kind, i)}
                     canChart={canChart}
+                    quickScope={quickScopeCandidates(nb.blocks, i)}
+                    onQuickScope={(pkg) => insertQuickScoped(i, pkg)}
                   />
                   <NotebookBlock
                     block={b}
@@ -383,6 +429,10 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
               <BlockInsert
                 onAdd={(kind) => addBlock(kind, nb.blocks.length)}
                 canChart={canChart}
+                quickScope={quickScopeCandidates(nb.blocks, nb.blocks.length)}
+                onQuickScope={(pkg) =>
+                  insertQuickScoped(nb.blocks.length, pkg)
+                }
               />
             </div>
           )}
@@ -426,9 +476,15 @@ function NotebookEmpty({ onAdd }: { onAdd: (k: "prose" | "query") => void }) {
 function BlockInsert({
   onAdd,
   canChart,
+  quickScope,
+  onQuickScope,
 }: {
   onAdd: (k: BlockKind) => void;
   canChart: boolean;
+  /** Datasets the block above surfaced, offered as one-click scoped
+   * query blocks. Empty when the block above is not a finished query. */
+  quickScope: { packageId: string; title?: string }[];
+  onQuickScope: (packageId: string) => void;
 }) {
   const [open, setOpen] = React.useState(false);
   return (
@@ -477,6 +533,34 @@ function BlockInsert({
               >
                 <ChartIcon className="mr-1 inline h-3 w-3" /> Chart
               </button>
+            )}
+            {/* The datasets the previous block actually reached. Asking
+                a follow-up almost always means asking it of one of
+                those, and re-finding it through the picker is a search
+                for something the notebook already knows. */}
+            {quickScope.length > 0 && (
+              <div className="max-w-xs border-l border-hairline pl-1">
+                <p className="px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted">
+                  Ask about
+                </p>
+                {quickScope.map((d) => (
+                  <button
+                    key={d.packageId}
+                    type="button"
+                    title={d.title ?? d.packageId}
+                    onClick={() => {
+                      onQuickScope(d.packageId);
+                      setOpen(false);
+                    }}
+                    className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs text-ink hover:bg-surface-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+                  >
+                    <Crosshair className="h-3 w-3 shrink-0 text-muted" />
+                    <span className="truncate">
+                      {d.title ?? d.packageId}
+                    </span>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         )}
@@ -650,20 +734,62 @@ function ProseBlock({
   ) => void;
 }) {
   const [editing, setEditing] = React.useState(block.markdown === "");
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const [selection, setSelection] = React.useState<Selection>({
+    start: 0,
+    end: 0,
+  });
+
+  const trackSelection = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    setSelection({ start: el.selectionStart, end: el.selectionEnd });
+  };
+
+  // A toolbar edit rewrites the whole string, so the caret has to be put
+  // back deliberately — otherwise it jumps to the end and the next click
+  // formats the wrong text. Restored after paint, once React has
+  // committed the new value.
+  const applyEdit = (result: EditResult) => {
+    onUpdate(block.id, (b) =>
+      b.type === "prose" ? { ...b, markdown: result.markdown } : b,
+    );
+    setSelection(result.selection);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(result.selection.start, result.selection.end);
+    });
+  };
+
   return editing ? (
     <div>
-      <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted">
-        Prose · Markdown
-      </p>
+      <ProseToolbar
+        markdown={block.markdown}
+        selection={selection}
+        onApply={applyEdit}
+      />
       <Textarea
+        ref={textareaRef}
         autoFocus
         value={block.markdown}
-        onChange={(e) =>
+        onChange={(e) => {
           onUpdate(block.id, (b) =>
             b.type === "prose" ? { ...b, markdown: e.target.value } : b,
-          )
-        }
-        onBlur={() => setEditing(false)}
+          );
+          trackSelection();
+        }}
+        onSelect={trackSelection}
+        onKeyUp={trackSelection}
+        onClick={trackSelection}
+        // Only leave edit mode when focus lands outside the block —
+        // clicking a toolbar button must not close the editor.
+        onBlur={(e) => {
+          const next = e.relatedTarget as Node | null;
+          if (next && e.currentTarget.closest(".group")?.contains(next)) return;
+          setEditing(false);
+        }}
         rows={5}
         placeholder="Write in Markdown…"
         className="min-h-[110px] resize-y"
@@ -676,7 +802,13 @@ function ProseBlock({
       className="prose-body block w-full text-left text-body"
     >
       {block.markdown.trim() ? (
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.markdown}</ReactMarkdown>
+        <ReactMarkdown
+          remarkPlugins={proseRemarkPlugins}
+          rehypePlugins={proseRehypePlugins}
+          components={proseComponents}
+        >
+          {block.markdown}
+        </ReactMarkdown>
       ) : (
         <span className="text-muted">Empty prose block. Click to edit.</span>
       )}
@@ -922,15 +1054,15 @@ function QueryBlock({
             </div>
           )}
           {block.result.sql && <SqlBlock sql={block.result.sql} status="accepted" />}
-          {block.result.rows.length > 0 && (
+          {(block.result.rows?.length ?? 0) > 0 && (
             <RowsTable rows={block.result.rows} maxRows={20} />
           )}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            {block.result.packageIds.length > 0 && (
+            {(block.result.packageIds?.length ?? 0) > 0 && (
               <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
                 <Check className="h-3 w-3 text-success" />
                 Datasets:{" "}
-                {block.result.packageIds.map((p) => (
+                {block.result.packageIds?.map((p) => (
                   <DatasetChip key={p} packageId={p} title={titles[p]} />
                 ))}
               </p>

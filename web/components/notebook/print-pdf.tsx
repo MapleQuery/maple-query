@@ -3,7 +3,11 @@
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
-import remarkGfm from "remark-gfm";
+import {
+  proseComponents,
+  proseRehypePlugins,
+  proseRemarkPlugins,
+} from "@/lib/prose";
 
 /**
  * Charts travel as `data:image/svg+xml;base64,…` images, and
@@ -153,7 +157,15 @@ export async function printMarkdownAsPdf(
   // a concurrent render would let the dialog open on an empty page.
   flushSync(() => {
     root.render(
-      <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={printUrlTransform}>
+      // Same plugin set and span renderer as the screen, so a size or
+      // colour the author applied is in the PDF too rather than
+      // silently flattened.
+      <ReactMarkdown
+        remarkPlugins={proseRemarkPlugins}
+        rehypePlugins={proseRehypePlugins}
+        components={proseComponents}
+        urlTransform={printUrlTransform}
+      >
         {markdown}
       </ReactMarkdown>,
     );
