@@ -21,14 +21,11 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from semantic_enrich.config.settings import Settings
 from semantic_enrich.core.agent.derivation_units import is_monetary_column
 from semantic_enrich.core.agent.evidence import (
     EvidencePackage,
     SearchEvidence,
-    columns_by_package,
 )
-from semantic_enrich.core.agent_tools import generated_header_ratio
 
 if TYPE_CHECKING:  # circular-import guard: phases imports stay type-only
     from semantic_enrich.core.agent.phases import (
@@ -215,9 +212,7 @@ def _list_columns(
     recognising the bucket the question actually lives in, and that
     needs the inventory rather than a filter over it.
     """
-    settings = ctx.deps.settings
-    minimum = settings.agent_suggest_min_columns
-    columns = columns_by_package(ctx)
+    minimum = ctx.deps.settings.agent_suggest_min_columns
     for package in evidence.packages:
         if package.package_id not in listed:
             continue
@@ -227,9 +222,7 @@ def _list_columns(
             # to it returns. `None` means the package was never opened,
             # so its size is unknown and it is not eligible either.
             continue
-        if _mostly_generated_headers(
-            columns.get(package.package_id, []), settings
-        ):
+        if package.headers_unnamed:
             # The chip rests on one premise: a human scans the names and
             # recognises the bucket the question actually lives in. On a
             # document whose header row never parsed, the names are
@@ -310,21 +303,6 @@ def _group_total(
             package_ids=(package.package_id,),
         )
     return None
-
-
-def _mostly_generated_headers(
-    columns: list[str], settings: Settings
-) -> bool:
-    """Whether a package's column names are mostly auto-generated.
-
-    Reuses the same ratio and threshold `list_documents` uses to demote
-    a garbage-header document, so the chip and the tool agree on what
-    "unreadable" means rather than drifting apart.
-    """
-    if not columns:
-        return False
-    ratio: float = generated_header_ratio(columns)
-    return ratio > settings.agent_generated_header_ratio
 
 
 def _listed_packages(

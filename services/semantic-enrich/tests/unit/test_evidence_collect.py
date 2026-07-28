@@ -270,3 +270,55 @@ def test_documents_of_other_packages_are_not_counted() -> None:
         for p in collect_evidence(ctx, _result("pkg-1")).packages
     }
     assert counts == {"pkg-1": 2, "pkg-2": 3}
+
+
+def test_mostly_generated_headers_is_flagged() -> None:
+    """A dataset whose header row never parsed at ingest carries
+    `__col_N` placeholders instead of names. It is worth saying so: a
+    dataset whose columns cannot be named cannot be queried by name, and
+    a user who reads that in the footer is spared the three turns it
+    otherwise takes to discover it."""
+    ctx = _ctx()
+    ctx.state.search_results["q"] = _search(("pkg-1", "Housing Benefit"))
+    ctx.trace.packages_researched.append("pkg-1")
+    ctx.state.doc_package["d1"] = "pkg-1"
+    # The real shape, from the live package: 2 named, 7 generated.
+    ctx.state.doc_columns["d1"] = [
+        "Forward_Sortation_Area",
+        "Number_of_Unique_Applicants",
+        *[f"__col_{i}" for i in range(1, 8)],
+    ]
+
+    package = collect_evidence(ctx, _result("pkg-1")).packages[0]
+
+    assert package.column_count == 9
+    assert package.headers_unnamed is True
+
+
+def test_a_readable_package_is_not_flagged() -> None:
+    ctx = _ctx()
+    ctx.state.search_results["q"] = _search(("pkg-1", "Estimates"))
+    ctx.trace.packages_researched.append("pkg-1")
+    ctx.state.doc_package["d1"] = "pkg-1"
+    ctx.state.doc_columns["d1"] = ["Department", "Vote", "__col_1"]
+
+    package = collect_evidence(ctx, _result("pkg-1")).packages[0]
+
+    assert package.headers_unnamed is False
+
+
+def test_the_footer_the_chip_and_the_tool_share_one_threshold() -> None:
+    """Three consumers, one definition of "unnamed" — so they cannot
+    drift apart."""
+    ctx = _ctx(agent_generated_header_ratio=0.9)
+    ctx.state.search_results["q"] = _search(("pkg-1", "Estimates"))
+    ctx.trace.packages_researched.append("pkg-1")
+    ctx.state.doc_package["d1"] = "pkg-1"
+    # 0.8 generated: over the default 0.5, under this turn's 0.9.
+    ctx.state.doc_columns["d1"] = ["a", "b"] + [
+        f"__col_{i}" for i in range(8)
+    ]
+
+    package = collect_evidence(ctx, _result("pkg-1")).packages[0]
+
+    assert package.headers_unnamed is False

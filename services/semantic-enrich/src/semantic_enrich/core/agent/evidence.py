@@ -23,6 +23,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from semantic_enrich.config.settings import Settings
+from semantic_enrich.core.agent_tools import generated_header_ratio
+
 if TYPE_CHECKING:  # circular-import guard: phases imports stay type-only
     from semantic_enrich.core.agent.phases import (
         ResearchResult,
@@ -44,6 +47,13 @@ class EvidencePackage:
     package_id: str
     title: str | None
     column_count: int | None
+    # True when most of the package's column names are auto-generated
+    # placeholders (`__col_1 …`) because the source header row was
+    # never parsed at ingest. Worth surfacing rather than hiding: a
+    # dataset whose columns cannot be named cannot be queried by name,
+    # and a user who learns that from the footer has been spared the
+    # three turns it otherwise takes to find out.
+    headers_unnamed: bool = False
 
 
 @dataclass(frozen=True)
@@ -66,7 +76,8 @@ def collect_evidence(
             listed.append(pid)
 
     titles = titles_by_package(ctx)
-    columns = _column_counts_by_package(ctx)
+    by_package = columns_by_package(ctx)
+    counts = {pid: len(cols) for pid, cols in by_package.items()}
 
     ordered = list(listed)
     for pid in titles:
@@ -80,7 +91,10 @@ def collect_evidence(
         EvidencePackage(
             package_id=pid,
             title=titles.get(pid),
-            column_count=columns.get(pid),
+            column_count=counts.get(pid),
+            headers_unnamed=_mostly_unnamed(
+                by_package.get(pid, []), ctx.deps.settings
+            ),
         )
         for pid in ordered[:MAX_PACKAGES]
     )
@@ -171,14 +185,22 @@ def columns_by_package(ctx: TurnContext) -> dict[str, list[str]]:
     return out
 
 
-def _column_counts_by_package(ctx: TurnContext) -> dict[str, int]:
-    """package_id → how many distinct columns it holds. A package that
-    was ranked but never listed has no entry and renders without a
-    count — never a guessed one."""
-    return {
-        pid: len(columns)
-        for pid, columns in columns_by_package(ctx).items()
-    }
+def mostly_unnamed(ctx: TurnContext, package_id: str) -> bool:
+    """Whether this package's column names are mostly placeholders."""
+    return _mostly_unnamed(
+        columns_by_package(ctx).get(package_id, []), ctx.deps.settings
+    )
+
+
+def _mostly_unnamed(columns: list[str], settings: Settings) -> bool:
+    """Reuses the same ratio and threshold `list_documents` uses to
+    demote a garbage-header document, so the footer, the chip, and the
+    tool all agree on what "unnamed" means rather than growing three
+    definitions that drift."""
+    if not columns:
+        return False
+    ratio: float = generated_header_ratio(columns)
+    return ratio > settings.agent_generated_header_ratio
 
 
 def _queries_tried(ctx: TurnContext) -> tuple[str, ...]:
@@ -202,7 +224,8 @@ def _render_package(package: EvidencePackage) -> str:
     if package.column_count is None:
         return name
     unit = "column" if package.column_count == 1 else "columns"
-    return f"{name} ({package.column_count} {unit})"
+    note = ", most unnamed" if package.headers_unnamed else ""
+    return f"{name} ({package.column_count} {unit}{note})"
 
 
 def _truncate(text: str) -> str:

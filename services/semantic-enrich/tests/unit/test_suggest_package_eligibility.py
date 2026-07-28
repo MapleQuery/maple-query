@@ -62,9 +62,14 @@ def _ctx(*, listed: tuple[str, ...], **overrides: Any) -> TurnContext:
     return ctx
 
 
-def _pkg(pid: str, columns: int | None) -> EvidencePackage:
+def _pkg(
+    pid: str, columns: int | None, *, unnamed: bool = False
+) -> EvidencePackage:
     return EvidencePackage(
-        package_id=pid, title=f"Dataset {pid[:4]}", column_count=columns
+        package_id=pid,
+        title=f"Dataset {pid[:4]}",
+        column_count=columns,
+        headers_unnamed=unnamed,
     )
 
 
@@ -203,9 +208,7 @@ def test_browse_chip_declines_a_package_of_generated_headers() -> None:
     placeholders there is nothing to recognise, and "Show all N
     columns" would promise an inventory and deliver noise. Size alone
     cannot see this."""
-    ctx = _ctx(listed=(LISTED,))
-    ctx.state.doc_columns["doc-0"] = [f"__col_{i}" for i in range(30)]
-    out = _build(ctx, _pkg(LISTED, 30))
+    out = _build(_ctx(listed=(LISTED,)), _pkg(LISTED, 30, unnamed=True))
     kinds = [s.kind for s in out]
     assert "list_columns" not in kinds
     # The other kinds still apply — sample rows shows the *values*,
@@ -213,21 +216,6 @@ def test_browse_chip_declines_a_package_of_generated_headers() -> None:
     assert "sample_rows" in kinds
 
 
-def test_a_minority_of_generated_headers_is_still_browsable() -> None:
-    ctx = _ctx(listed=(LISTED,))
-    ctx.state.doc_columns["doc-0"] = [f"real_col_{i}" for i in range(24)] + [
-        f"__col_{i}" for i in range(6)
-    ]
-    out = _build(ctx, _pkg(LISTED, 30))
+def test_a_readable_package_is_still_browsable() -> None:
+    out = _build(_ctx(listed=(LISTED,)), _pkg(LISTED, 30, unnamed=False))
     assert "list_columns" in [s.kind for s in out]
-
-
-def test_the_chip_and_the_tool_agree_on_unreadable() -> None:
-    """The gate reuses `list_documents`' own ratio and threshold rather
-    than a second definition that could drift from it."""
-    ctx = _ctx(listed=(LISTED,), agent_generated_header_ratio=0.9)
-    ctx.state.doc_columns["doc-0"] = [f"real_{i}" for i in range(6)] + [
-        f"__col_{i}" for i in range(24)
-    ]
-    # 0.8 generated — over the default 0.5, under this turn's 0.9.
-    assert "list_columns" in [s.kind for s in _build(ctx, _pkg(LISTED, 30))]

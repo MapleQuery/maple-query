@@ -122,3 +122,48 @@ def test_truncated_count_appends_a_more_marker() -> None:
         )
     )
     assert out.rstrip().endswith("· +5 more")
+
+
+def test_unnamed_headers_are_stated_in_the_footer() -> None:
+    """The whole point of saying it here: this note in turn 1 replaces
+    three turns of the user discovering that a dataset whose columns
+    have no names cannot be queried by name."""
+    out = compose_footer(
+        _evidence(
+            EvidencePackage(
+                package_id="p1",
+                title="One-time top-up to the Canada Housing Benefit",
+                column_count=9,
+                headers_unnamed=True,
+            )
+        )
+    )
+    assert (
+        "*One-time top-up to the Canada Housing Benefit* "
+        "(9 columns, most unnamed)" in out
+    )
+
+
+def test_a_readable_package_gets_no_note() -> None:
+    out = compose_footer(
+        _evidence(
+            EvidencePackage(
+                package_id="p1", title="Estimates B", column_count=312
+            )
+        )
+    )
+    assert "*Estimates B* (312 columns)" in out
+    assert "unnamed" not in out
+
+
+def test_no_note_without_a_count() -> None:
+    """A package that was ranked but never opened has neither a count
+    nor a readable/unreadable verdict — we have not seen its columns."""
+    out = compose_footer(
+        _evidence(
+            EvidencePackage(
+                package_id="p1", title="Ranked Only", column_count=None
+            )
+        )
+    )
+    assert out.strip() == "**What I searched:** *Ranked Only*"
