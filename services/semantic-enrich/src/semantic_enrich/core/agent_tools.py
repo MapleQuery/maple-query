@@ -16,7 +16,6 @@ per-turn mutable state.
 """
 from __future__ import annotations
 
-import re
 import threading
 import time
 import uuid
@@ -51,6 +50,11 @@ from semantic_enrich.core.retrieval import (
 )
 from semantic_enrich.core.sql_executor import execute as execute_sql
 from semantic_enrich.core.sql_guard import guard
+from semantic_enrich.core.sql_header_alias import (
+    apply_recovered_names,
+    extract_inlined_document_ids,
+    extract_json_path_columns,
+)
 
 # Normalization lives in `sql_normalize` so the eval runner shares it;
 # the `as` re-exports keep this module the import surface for tests
@@ -824,6 +828,67 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
             payload["normalizations"] = normalizations
         return payload
 
+    # Recovered column names → the positional keys the stored rows
+    # actually hold, and the preamble rows out of the row set. Both
+    # happen before the pairing check and the guard: a JSONPath to a
+    # key that does not exist returns NULL rather than failing, so a
+    # missed translation would pass the dry run and produce a silently
+    # all-NULL aggregate. With recovery off there is nothing on state
+    # and this is a no-op by construction.
+    alias = apply_recovered_names(
+        sql,
+        recovered_names=ctx.state.doc_recovered_names,
+        header_rows=ctx.state.doc_header_row,
+        doc_columns=ctx.state.doc_columns,
+    )
+    if alias.conflicts:
+        # Two inlined documents give the same recovered name different
+        # columns. Picking one would be a wrong number with nothing
+        # saying so; refusing makes the model narrow its scope.
+        detail = "; ".join(
+            f"'{c.name}' means "
+            + ", ".join(
+                f"{key} in document {doc}"
+                for doc, key in sorted(c.keys_by_document.items())
+            )
+            for c in alias.conflicts
+        )
+        short_reason = (
+            f"recovered_name_conflict: {len(alias.conflicts)} recovered "
+            "column name(s) resolve differently across the inlined documents"
+        )
+        ctx.emit(
+            agent_events.SqlGuarded(
+                accepted=False,
+                reason=short_reason,
+                sql_final=sql,
+                dry_run_bytes=None,
+            )
+        )
+        return _result(
+            {
+                "status": "recovered_name_conflict",
+                "reason": short_reason,
+                "message": (
+                    "These column names were recovered from each document's "
+                    "own header row, and they do not agree: "
+                    f"{detail}. Query one document at a time, or use the "
+                    "positional `__col_N` key you want explicitly."
+                ),
+                "conflicts": [
+                    {"name": c.name, "documents": dict(c.keys_by_document)}
+                    for c in alias.conflicts
+                ],
+            }
+        )
+    sql = alias.sql
+    if alias.translated:
+        normalizations["recovered_names_resolved"] = dict(alias.translated)
+    if alias.preamble_excluded:
+        normalizations["preamble_rows_excluded"] = dict(
+            alias.preamble_excluded
+        )
+
     # Doc/column pairing check. If every JSON_VALUE(..., '$.<col>')
     # reference doesn't line up with the `columns` list of every doc in
     # the WHERE IN, refuse before hitting the SQL guard so the model
@@ -1276,37 +1341,6 @@ def _scalar_aggregate_columns(sql: str) -> set[str]:
 # but this regex is the safety net for when the model doesn't). If a
 # bare `$.2020-21_Foo` sneaks through we still want to know the model
 # intended the key `2020-21_Foo` so we can pairing-check it.
-_JSONPATH_TOP_KEY_RE = re.compile(
-    r"""\$\.(?:"([^"]+)"|([A-Za-z0-9_][A-Za-z0-9_\-]*))"""
-)
-
-# Extract literal `document_id IN ('a', 'b', ...)` predicates. Only the
-# literal shape counts — a subquery IN or a JOIN is already rejected
-# by the sql_guard, so we don't need to defend against them here.
-_DOC_IDS_IN_RE = re.compile(
-    r"""document_id\s+IN\s*\(([^)]+)\)""", re.IGNORECASE
-)
-_ID_LITERAL_RE = re.compile(r"""['"]([^'"]+)['"]""")
-
-
-def _extract_json_path_columns(sql: str) -> set[str]:
-    keys: set[str] = set()
-    for m in _JSONPATH_TOP_KEY_RE.finditer(sql):
-        key = m.group(1) or m.group(2)
-        if key:
-            keys.add(key)
-    return keys
-
-
-def _extract_inlined_document_ids(sql: str) -> set[str]:
-    ids: set[str] = set()
-    for m in _DOC_IDS_IN_RE.finditer(sql):
-        inner = m.group(1)
-        for id_m in _ID_LITERAL_RE.finditer(inner):
-            ids.add(id_m.group(1))
-    return ids
-
-
 def _pairing_scopes(sql: str) -> list[str]:
     """Split a set-operation query into its arms so each SELECT is
     pairing-checked only against the documents it inlines.
@@ -1358,8 +1392,8 @@ def check_doc_column_pairing(
     violations: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for scope_sql in _pairing_scopes(sql):
-        columns_referenced = _extract_json_path_columns(scope_sql)
-        doc_ids_referenced = _extract_inlined_document_ids(scope_sql)
+        columns_referenced = extract_json_path_columns(scope_sql)
+        doc_ids_referenced = extract_inlined_document_ids(scope_sql)
 
         if not columns_referenced or not doc_ids_referenced:
             continue
@@ -1373,8 +1407,16 @@ def check_doc_column_pairing(
                 if col in available_set or (col, doc_id) in seen:
                     continue
                 seen.add((col, doc_id))
+                # A recovered name counts as "having" the column for the
+                # purpose of pointing the model somewhere useful: it was
+                # shown that name, and being told only that the column
+                # does not exist here is the confusing error this whole
+                # effort exists to remove.
                 other_docs = sorted(
-                    d for d, cols in state.doc_columns.items() if col in cols
+                    d
+                    for d, cols in state.doc_columns.items()
+                    if col in cols
+                    or col in state.doc_recovered_names.get(d, {}).values()
                 )
                 violations.append(
                     {

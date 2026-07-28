@@ -30,6 +30,7 @@ from semantic_enrich.core.agent.phases import (
     SystemHint,
     TurnContext,
 )
+from semantic_enrich.core.sql_header_alias import extract_json_path_columns
 from semantic_enrich.providers.logging import get_logger
 
 _LOG = get_logger("semantic_enrich.agent.research")
@@ -316,7 +317,7 @@ def _record_trace(
             entry["derivations"] = [d.to_dict() for d in derivs]
             ctx.trace.derivations.extend(derivs)
         ctx.trace.sql_runs.append(entry)
-        for col in sorted(agent_tools._extract_json_path_columns(sql)):
+        for col in sorted(extract_json_path_columns(sql)):
             if col not in ctx.trace.columns_referenced:
                 ctx.trace.columns_referenced.append(col)
 
