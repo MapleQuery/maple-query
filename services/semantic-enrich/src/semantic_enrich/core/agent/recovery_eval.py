@@ -87,11 +87,11 @@ CASES: tuple[RecoveryCase, ...] = (
     RecoveryCase(
         id="air-travel-summarize",
         question=(
-            "Summarize what data is in Supplementary Estimates B, "
+            "Summarize what data is in Supplementary Estimates (B) "
             "2025-26 — what it covers, its time range, and its main "
             "columns."
         ),
-        scope_package_ids=("0f3765d1-3375-4423-8fd6-6da7f382fa1a",),
+        scope_package_ids=("ec676496-a50d-4afa-9a2f-4d97748e79e5",),
         expect_outcome="explored",
         expect_footer=False,
         expect_suggestions=(0, 3),
@@ -105,24 +105,40 @@ CASES: tuple[RecoveryCase, ...] = (
     RecoveryCase(
         id="air-travel-total",
         question=(
-            "Total the Transportation and communications column in "
-            "Supplementary Estimates B, 2025-26."
+            "Total the Authorities_To_Date column in Supplementary "
+            "Estimates (B) 2025-26, grouped by Organization."
         ),
-        scope_package_ids=("0f3765d1-3375-4423-8fd6-6da7f382fa1a",),
+        # Verified against the warehouse rather than remembered: this
+        # package has 11 columns, *zero* generated headers, and
+        # `Authorities_To_Date` carries semantic_type currency_cad. The
+        # first draft scoped this to the housing package — wrong title,
+        # and the unnamed-columns one, so no total was ever possible.
+        scope_package_ids=("ec676496-a50d-4afa-9a2f-4d97748e79e5",),
         expect_outcome="answered",
         expect_footer=False,
         expect_suggestions=(0, 0),
         expect_derivation=True,
         notes=(
-            "The M6 non-regression case, and the most important row in "
-            "the fixture. A scoped *numeric* follow-up must keep its "
-            "derivation: if guided recovery ever becomes a route to an "
-            "untraced number, this is what catches it."
+            "The M6 non-regression case. A scoped *numeric* follow-up "
+            "must keep its derivation: if guided recovery ever becomes "
+            "a route to an untraced number, this is what catches it. "
+            "Note the live tier does not currently reach the numeric "
+            "path on this case — the column is real at *package* level "
+            "(semantic.columns) but absent from the documents "
+            "list_documents returns, so the scoped turn declines. The "
+            "unscoped `clean-total` case answers the same question "
+            "against the same package and does carry its derivation, "
+            "which is what actually proves the invariant live. See the "
+            "header-recovery milestone: package-level and "
+            "document-level column sets diverge."
         ),
     ),
     RecoveryCase(
         id="below-floor",
-        question="what is the vibe of canadian fiscal policy",
+        question=(
+            "how much did federal departments spend on office plants "
+            "in 2019-20?"
+        ),
         expect_outcome="clarified",
         expect_footer=False,
         expect_suggestions=(0, 0),
@@ -132,12 +148,24 @@ CASES: tuple[RecoveryCase, ...] = (
             "The false-invitation guard. Offering exploration over "
             "datasets that scored below the similarity floor is the "
             "failure most likely to teach users that every chip is "
-            "noise, and it is invisible unless tested directly."
+            "noise, and it is invisible unless tested directly. "
+            "Deliberately federal, specific and monetary in shape so "
+            "triage routes it in_scope — an earlier draft asked for the "
+            "'vibe' of fiscal policy, which deflects as opinion and "
+            "tests the wrong gate entirely. Live, this question still "
+            "retrieves above the floor and answers with a caveat — a "
+            "genuinely below-floor question is hard to pin against a "
+            "3.6k-package corpus, so the deterministic tier (which "
+            "scripts weak retrieval directly) is what actually holds "
+            "this guard."
         ),
     ),
     RecoveryCase(
         id="clean-total",
-        question="how much was spent on housing benefits in 2023?",
+        question=(
+            "What are the total proposed authorities to date in "
+            "Supplementary Estimates (B) 2025-26?"
+        ),
         expect_outcome="answered",
         expect_footer=False,
         expect_suggestions=(0, 0),

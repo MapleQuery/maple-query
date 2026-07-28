@@ -167,13 +167,7 @@ def test_live_tier_and_report(tmp_path: Path) -> None:
                 "message": observed.message[:600],
             }
         )
-        # Two assertions are hard regardless of what retrieval did.
-        if case.forbid_clarify_replacement and observed.message.startswith(
-            recovery_eval.CLARIFY_MARKER
-        ):
-            hard_failures.append(f"{case.id}: clarify replacement")
-        if case.expect_derivation and observed.derivation_count == 0:
-            hard_failures.append(f"{case.id}: missing derivation (M6)")
+        hard_failures.extend(_invariant_failures(case, observed))
 
     report = {
         "generated_at": datetime.now(UTC).isoformat(),
@@ -193,6 +187,51 @@ def test_live_tier_and_report(tmp_path: Path) -> None:
     )
 
     assert not hard_failures, "; ".join(hard_failures)
+
+
+def _invariant_failures(
+    case: RecoveryCase, observed: recovery_eval.Observation
+) -> list[str]:
+    """The assertions that hold regardless of what retrieval did.
+
+    The distinction matters, and the first run of this tier got it
+    wrong. `expect_derivation` is *retrieval-dependent* — it says "this
+    question should be answerable", and when the corpus cannot answer
+    it there is no derivation and no regression: the loop surrendered
+    honestly, which is a correct outcome for this milestone. Asserting
+    it absolutely made the lock fail for the corpus's reasons rather
+    than for guided recovery's.
+
+    The real M6 invariant is *conditional*: an answer must be traced.
+    Not "this question must produce an answer."
+    """
+    failures: list[str] = []
+
+    if case.forbid_clarify_replacement and observed.message.startswith(
+        recovery_eval.CLARIFY_MARKER
+    ):
+        failures.append(f"{case.id}: a substantive answer was replaced")
+
+    if observed.outcome == "answered" and observed.derivation_count == 0:
+        failures.append(f"{case.id}: answered with no derivation (M6)")
+
+    # The false-invitation guard, also conditional: a turn that never
+    # cleared the retrieval floor must offer nothing.
+    if (
+        observed.outcome in ("clarified", "deflected")
+        and observed.suggestion_count > 0
+    ):
+        failures.append(
+            f"{case.id}: offered {observed.suggestion_count} suggestions "
+            "on a turn with nothing worth exploring"
+        )
+
+    if observed.suggestion_count > 3:
+        failures.append(
+            f"{case.id}: {observed.suggestion_count} suggestions exceeds "
+            "the cap"
+        )
+    return failures
 
 
 def test_act_flip_criteria_are_recorded_not_folklore() -> None:

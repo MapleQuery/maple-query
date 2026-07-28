@@ -1,0 +1,129 @@
+{
+  "generated_at": "2026-07-28T04:49:31.152828+00:00",
+  "loop_impl": "v2",
+  "verify_explore_mode": "log",
+  "act_flip_criteria": {
+    "min_shadow_explore_turns": 30,
+    "max_false_positive_caveats": 0,
+    "min_true_positive_caveats": 1,
+    "max_p95_added_latency_ms": 400,
+    "no_go_behaviour": "stay in log; the scoped-turn bypass remains enforced and is safe indefinitely \u2014 nothing in the milestone depends on the flip"
+  },
+  "cases": [
+    {
+      "id": "air-travel-2025",
+      "question": "how much did the government spend on air travel in 2025?",
+      "passed": true,
+      "failures": [],
+      "observed": {
+        "outcome": "no_data",
+        "suggestions": 1,
+        "derivations": 0,
+        "footer": true
+      },
+      "message": "The supplementary estimates datasets for 2025-26 do not contain specific columns related to air travel expenditures. The closest columns relate to general financial adjustments, transfers, and proposed authorities, but none specifically address air travel.\n\nGiven the lack of specific data for air travel expenditures in 2025, it seems that the available datasets do not cover this information. The closest dataset, [Proactive Disclosure - Annual Expenditures on Travel, Hospitality and Conferences](/datasets/4ae27978-0931-49ab-9c17-0b119c0ba92f), only covers up to 2024.\n\n**What I searched:** *Proa"
+    },
+    {
+      "id": "air-travel-summarize",
+      "question": "Summarize what data is in Supplementary Estimates (B) 2025-26 \u2014 what it covers, its time range, and its main columns.",
+      "passed": true,
+      "failures": [],
+      "observed": {
+        "outcome": "explored",
+        "suggestions": 1,
+        "derivations": 0,
+        "footer": false
+      },
+      "message": "The \"Supplementary Estimates (B) 2025-26\" dataset contains detailed financial information related to the Canadian federal government's budgetary adjustments for the fiscal year 2025-26. It includes data on additional funding requirements, adjustments to existing authorities, and transfer payments across various government organizations.\n\nThe dataset is divided into three main documents, each with distinct columns:\n\n1. **Document 1**:\n   - **Columns**: Amount, Explanation_of_Requirements, Organization, Vote\n   - **Sample Data**: \n     - Amounts such as \"4,076,084.00\"\n     - Explanations like \"F"
+    },
+    {
+      "id": "air-travel-total",
+      "question": "Total the Authorities_To_Date column in Supplementary Estimates (B) 2025-26, grouped by Organization.",
+      "passed": false,
+      "failures": [
+        "outcome: expected 'answered', got 'explored'",
+        "suggestions: expected 0-0, got 1",
+        "derivation: expected present"
+      ],
+      "observed": {
+        "outcome": "explored",
+        "suggestions": 1,
+        "derivations": 0,
+        "footer": false
+      },
+      "message": "The dataset you specified does not contain a document with the \"Authorities_To_Date\" column in the context of \"Supplementary Estimates (B) 2025-26\" that can be used for your query. The documents available in this dataset do not satisfy the required columns for your request.\n\nIf you have any other dataset in mind or need assistance with a different query, please let me know!"
+    },
+    {
+      "id": "below-floor",
+      "question": "how much did federal departments spend on office plants in 2019-20?",
+      "passed": false,
+      "failures": [
+        "outcome: expected 'clarified', got 'answered_with_caveat'",
+        "suggestions: expected 0-0, got 3"
+      ],
+      "observed": {
+        "outcome": "answered_with_caveat",
+        "suggestions": 3,
+        "derivations": 0,
+        "footer": false
+      },
+      "message": "**Partial answer:** this does not cover specific expenditures on office plants.\n\nI searched the [Supplementary Estimates (A) 2019-20](/datasets/149db092-2d65-47a6-85ee-e7a510976a6c) dataset for expenditures related to office plants by federal departments for the fiscal year 2019-20. Unfortunately, there were no entries specifically mentioning office plant expenditures in the dataset. It seems that such specific expenditures might not be separately tracked or detailed in the available federal datasets."
+    },
+    {
+      "id": "clean-total",
+      "question": "What are the total proposed authorities to date in Supplementary Estimates (B) 2025-26?",
+      "passed": true,
+      "failures": [],
+      "observed": {
+        "outcome": "answered",
+        "suggestions": 0,
+        "derivations": 1,
+        "footer": false
+      },
+      "message": "The total proposed authorities to date in the Supplementary Estimates (B) for the fiscal year 2025-26 amount to approximately CAD 510.79 billion. This figure represents the financial allocations proposed for various programs and activities within the Canadian government for that fiscal year.\n\n[Supplementary Estimates (B) 2025-26](/datasets/ec676496-a50d-4afa-9a2f-4d97748e79e5)"
+    },
+    {
+      "id": "chain-cap",
+      "question": "how much did the government spend on air travel in 2025?",
+      "passed": true,
+      "failures": [],
+      "observed": {
+        "outcome": "no_data",
+        "suggestions": 0,
+        "derivations": 0,
+        "footer": true
+      },
+      "message": "**Partial answer:** this does not cover spending on air travel in 2025.\n\nThe datasets I found do not specifically cover government spending on air travel for the year 2025. The closest dataset, [Proactive Disclosure - Annual Expenditures on Travel, Hospitality and Conferences](/datasets/4ae27978-0931-49ab-9c17-0b119c0ba92f), includes data up to the fiscal year ending in 2024. Another dataset, [Proactive Disclosure - Travel Expenses](/datasets/009f9a49-c2d9-4d29-a6d4-1a228da335ce), also covers travel expenses up to 2024. Unfortunately, there is no data available for 2025 in these datasets.\n\n**W"
+    },
+    {
+      "id": "explore-typed",
+      "question": "what's in the supplementary estimates?",
+      "passed": true,
+      "failures": [],
+      "observed": {
+        "outcome": "explored",
+        "suggestions": 3,
+        "derivations": 0,
+        "footer": false
+      },
+      "message": "I attempted to find detailed information on the supplementary estimates, focusing on datasets that provide insights into the financial allocations, adjustments, and descriptions of requirements for various Canadian government organizations. However, the documents available did not satisfy the required columns for a comprehensive analysis.\n\nThe datasets I explored include:\n- [Supplementary Estimates (C) 2025-26](datasets/7d3bcb7b-d7b3-419f-a68f-1df76d045a28)\n- [Supplementary Estimates (B) 2025-26](datasets/ec676496-a50d-4afa-9a2f-4d97748e79e5)\n- [Supplementary Estimates (A) 2020-21](datasets/c5"
+    },
+    {
+      "id": "meta-boundary",
+      "question": "what data do you have?",
+      "passed": true,
+      "failures": [],
+      "observed": {
+        "outcome": "deflected",
+        "suggestions": 0,
+        "derivations": 0,
+        "footer": false
+      },
+      "message": "We have a total of 3,689 packages of Canadian federal open data, comprising 14,322 documents and 278,901,893 rows of data, all sourced from open.canada.ca."
+    }
+  ],
+  "summary": {
+    "total": 8,
+    "passed": 6
+  }
+}
