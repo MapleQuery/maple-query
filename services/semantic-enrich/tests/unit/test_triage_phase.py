@@ -309,4 +309,10 @@ def test_classifier_call_shape() -> None:
     assert call["model"] == "gpt-4o-mini"
     assert call["temperature"] == 0.0
     assert call["schema_name"] == "triage"
-    assert call["timeout_s"] == pytest.approx(2.0)
+    # Derived from the setting rather than hard-coded, so the deadline
+    # can be tuned without a test edit — it was raised once already when
+    # the taxonomy grew to five categories and the old 2s budget started
+    # timing out real classifications.
+    assert call["timeout_s"] == pytest.approx(
+        settings.agent_triage_timeout_ms / 1000.0
+    )

@@ -6,24 +6,27 @@ answer news or current events, opinions or rankings, provincial or
 municipal politics, other countries, or personal data.
 
 Categories:
-- in_scope: plausibly answerable from Canadian federal open data.
+- in_scope: asks for a figure, fact, or comparison drawn FROM
+  Canadian federal open data.
+- explore: asks what data CONTAINS — its columns, fields, coverage, or
+  structure. The answer describes a dataset rather than reporting a
+  value from inside one.
 - off_scope: not in the corpus by construction. Set off_scope_reason
   to one of: provincial, news, opinion, non_canada, personal,
   jailbreak, other.
 - meta: about the system or corpus itself (what it is, how much data
   it holds, how fresh it is, what model it runs on).
 - clarify: in scope but too under-specified to route.
-- explore: asks what a specific dataset or dataset class CONTAINS,
-  rather than for a figure from it.
 
 Rules:
-- If in doubt between in_scope and anything else, answer in_scope.
-- meta vs explore: corpus-wide is meta, a named dataset or dataset
-  class is explore, a figure is in_scope. Misrouting explore to meta
-  gives a corpus summary instead of a dataset summary — wrong but
-  harmless. Misrouting in_scope to explore answers a figure request
-  with a description, which is the costly direction, so any question
-  asking how much, how many, or for a total is in_scope.
+- If in doubt between in_scope and off_scope, meta, or clarify,
+  answer in_scope.
+- in_scope vs explore turns on the ANSWER, not the subject: a number,
+  count, or comparison is in_scope; a list of columns, a coverage
+  statement, or "what this data holds" is explore. Asking what data
+  EXISTS on a subject is explore even with no dataset named.
+- meta is the corpus as a whole (how many datasets, how fresh, what
+  model). A subject or named dataset is explore.
 - Questions mixing federal with provincial scope are in_scope; the
   answer will state the federal boundary.
 - Spending and expenses by FEDERAL politicians, officials, and
@@ -76,8 +79,13 @@ Q: what's in the Supplementary Estimates? -> explore (names a
   dataset class, asks what it contains)
 Q: what columns does this dataset have -> explore
 Q: summarize what data is in the Public Accounts -> explore
+Q: what kind of housing data do you have? -> explore (subject-scoped
+  contents question; not corpus-wide, so not meta)
+Q: show me what the trade data looks like -> explore
+Q: what time range does the contracts data cover -> explore
 Q: how much did the government spend on air travel -> in_scope
-  (asks for a figure, not for contents)
+Q: how many housing grants were approved in 2022 -> in_scope
+  (a count from the data, not a description of it)
 
 {% if context_hint %}Previous topic: {{ context_hint }}
 {% endif %}Question: {{ question }}

@@ -369,3 +369,84 @@ def test_numeric_follow_up_keeps_the_full_path() -> None:
         isinstance(e, agent_events.DerivationEvent) for e in outcome.events
     )
     assert _record(outcome)["outcome"] == "answered"
+
+
+# ── shadow-run fixes: the two evidence bugs the first run exposed ──
+
+
+def test_a_dollar_amount_inside_a_dataset_title_is_not_a_claim() -> None:
+    """The first shadow run flagged a faithful description as claiming
+    an ungrounded total. The only `$` in the answer was inside a dataset
+    *name* — "Dashboard for infrastructure projects worth $20 million
+    and over". A figure in a citation label is part of a title, not a
+    claim the answer is making."""
+    settings = _settings()
+    deps = _deps(settings=settings, bq=_bq(), openai=FakeOpenAIClient())
+    ctx = TurnContext.begin(
+        request=ChatRequest(
+            conversation_id="c",
+            history=[],
+            question="q",
+            scope_package_ids=(PKG,),
+        ),
+        deps=deps,
+    )
+    cited_only = (
+        "The infrastructure data includes [Dashboard for infrastructure "
+        "projects worth $20 million and over](/datasets/abc) and "
+        "[Programs under $5M](/datasets/def)."
+    )
+    real_claim = (
+        "The [Infrastructure dashboard](/datasets/abc) totals $4.2M "
+        "across all projects."
+    )
+    assert not assemble_explore_inputs(
+        ctx,
+        ResearchResult(
+            candidate_answer=cited_only, terminal_reason="final_answer"
+        ),
+    )["claims_a_total"]
+    # The narrowing must not blind the check to a genuine total stated
+    # alongside a citation — that is the whole numeric-trust boundary.
+    assert assemble_explore_inputs(
+        ctx,
+        ResearchResult(
+            candidate_answer=real_claim, terminal_reason="final_answer"
+        ),
+    )["claims_a_total"]
+
+
+def test_unscoped_explore_turn_omits_scope_packages_entirely() -> None:
+    """A typed exploratory question names no datasets. Sending
+    `scope_packages: []` invited the rubric to read the absence of a
+    scope as the answer having gone out of scope — which is what it did.
+    The key is absent instead, so the wrong-dataset condition is
+    unanswerable rather than falsely answerable."""
+    settings = _settings()
+    deps = _deps(settings=settings, bq=_bq(), openai=FakeOpenAIClient())
+    result = ResearchResult(
+        candidate_answer=SUMMARY, terminal_reason="final_answer"
+    )
+
+    unscoped = TurnContext.begin(
+        request=ChatRequest(
+            conversation_id="c", history=[], question="q"
+        ),
+        deps=deps,
+    )
+    unscoped.turn_intent = "explore"
+    scoped = TurnContext.begin(
+        request=ChatRequest(
+            conversation_id="c",
+            history=[],
+            question="q",
+            scope_package_ids=(PKG,),
+        ),
+        deps=deps,
+    )
+
+    assert "scope_packages" not in assemble_explore_inputs(unscoped, result)
+    scoped_inputs = assemble_explore_inputs(scoped, result)
+    assert scoped_inputs["scope_packages"] == [
+        {"package_id": PKG, "title": None}
+    ]

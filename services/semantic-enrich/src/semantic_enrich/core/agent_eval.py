@@ -278,6 +278,7 @@ def run_agent_eval(
                     "top_similarities": observer.top_similarities,
                     "reformulations": observer.reformulations,
                     "verify": observer.verify,
+                    "triage": observer.triage,
                     "verify_explore": observer.verify_explore,
                     "outcome": _record_field(observer, "outcome"),
                     "triage_category": _record_field(observer, "category"),

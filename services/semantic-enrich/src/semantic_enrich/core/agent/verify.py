@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import contextvars
 import json
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
@@ -207,13 +208,9 @@ def assemble_explore_inputs(
     flag.
     """
     titles = _package_titles(ctx)
-    return {
+    inputs: dict[str, Any] = {
         "question": ctx.request.question,
         "candidate_answer": result.candidate_answer,
-        "scope_packages": [
-            {"package_id": pid, "title": titles.get(pid)}
-            for pid in ctx.scope_package_ids
-        ],
         "packages_described": list(result.packages_cited),
         "columns_surfaced": len(ctx.state.doc_columns),
         "documents_listed": len(ctx.state.known_document_ids),
@@ -224,9 +221,40 @@ def assemble_explore_inputs(
         # extractor the numeric-trust work uses, so "did this answer
         # state a figure" never becomes a matter of opinion.
         "claims_a_total": bool(
-            extract_numbers(result.candidate_answer).monetary
+            extract_numbers(_prose_only(result.candidate_answer)).monetary
         ),
     }
+    # Present only on a genuinely scoped turn. A *typed* exploratory
+    # question names no datasets, so an empty list here is not "the
+    # answer went out of scope" — it is "there was no scope". Sending
+    # `[]` invited the rubric to read the absence as a defect, which is
+    # exactly what it did on the first shadow run. Omitting the key
+    # makes the prompt's wrong-dataset condition unanswerable rather
+    # than falsely answerable.
+    if ctx.scope_package_ids:
+        inputs["scope_packages"] = [
+            {"package_id": pid, "title": titles.get(pid)}
+            for pid in ctx.scope_package_ids
+        ]
+    return inputs
+
+
+# Dataset citations render as `[Title](/datasets/<id>)`, and federal
+# dataset titles routinely carry figures — "Dashboard for infrastructure
+# projects worth $20 million and over". A dollar sign inside a citation
+# label is part of a *name*, not a claim the answer is making.
+_MD_LINK_RE = re.compile(r"\[[^\]]*\]\([^)]*\)")
+
+
+def _prose_only(text: str) -> str:
+    """The answer with dataset citations removed.
+
+    Scoped deliberately to `claims_a_total`. The grounding report reads
+    the raw answer, and narrowing *that* would change calibrated numeric
+    behaviour for a benefit this rubric does not need — a title figure
+    matches no derivation either way.
+    """
+    return _MD_LINK_RE.sub(" ", text or "")
 
 
 def compose_explore_caveat(*, gap: str, answer: str) -> str:
