@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Copy, Check, Download, Loader2 } from "lucide-react";
 import { getDataset, getDatasetColumns, getDatasetDocuments } from "@/lib/api";
+import { rememberDatasetTitles } from "@/lib/dataset-titles";
 import type { ColumnInfo, DatasetSummary, DocumentInfo } from "@/lib/types";
 
 export default function DatasetDetailPage() {
@@ -43,6 +44,8 @@ export default function DatasetDetailPage() {
         setColumns(cols.columns);
         setDocuments(docs.documents);
         setSummary(ds);
+        // Free fill for the title cache the chips elsewhere read from.
+        rememberDatasetTitles([ds]);
       })
       .catch((err) => {
         if ((err as Error).name === "AbortError") return;

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Search, ArrowUpRight, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { listDatasets } from "@/lib/api";
+import { rememberDatasetTitles } from "@/lib/dataset-titles";
 import type { DatasetSummary } from "@/lib/types";
 import { cn, truncate } from "@/lib/utils";
 
@@ -33,6 +34,8 @@ export default function DatasetsPage() {
       .then((r) => {
         setItems(r.datasets);
         setTotal(r.total);
+        // Free fill for the title cache the chips elsewhere read from.
+        rememberDatasetTitles(r.datasets);
       })
       .catch((err) => {
         if ((err as Error).name === "AbortError") return;

@@ -184,6 +184,11 @@ export interface StoredNotebookBlockQuery {
     sql: string;
     rows: Record<string, unknown>[];
     packageIds: string[];
+    /** package_id → title, captured from the run that produced this
+     * result. Held with the block so a saved notebook still reads as
+     * names after the shared title cache is cleared. Optional: blocks
+     * saved before it existed fall back to the id. */
+    packageTitles?: Record<string, string>;
   };
   errorMessage?: string;
 }
