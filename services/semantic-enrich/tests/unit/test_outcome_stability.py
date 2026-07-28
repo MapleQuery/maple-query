@@ -127,7 +127,11 @@ def test_footer_never_changes_the_outcome(
 
     before = _outcome(ctx, message=message, result=result)
     composed = _compose(
-        ctx, message=message, result=result, outcome=before
+        ctx,
+        message=message,
+        result=result,
+        outcome=before,
+        search_evidence=collect_evidence(ctx, result),
     )
     after = _outcome(ctx, message=composed, result=result)
 
@@ -144,6 +148,7 @@ def test_the_footer_is_actually_exercised_by_the_invariant() -> None:
         message=result.candidate_answer,
         result=result,
         outcome="no_data",
+        search_evidence=collect_evidence(ctx, result),
     )
     assert "**What I searched:**" in composed
 

@@ -23,6 +23,7 @@ from semantic_enrich.core.agent import (
     records,
     research,
     scope,
+    suggest,
 )
 from semantic_enrich.core.agent.phases import (
     PipelineDeps,
@@ -435,6 +436,7 @@ def _compose(
     message: str,
     result: ResearchResult | None,
     outcome: str,
+    search_evidence: evidence.SearchEvidence,
 ) -> str:
     """The single funnel every shipping message passes through, and the
     only place the evidence footer is appended.
@@ -463,9 +465,7 @@ def _compose(
         return message
     if not ctx.deps.settings.agent_evidence_footer:
         return message
-    return message + evidence.compose_footer(
-        evidence.collect_evidence(ctx, result)
-    )
+    return message + evidence.compose_footer(search_evidence)
 
 
 def _finish(
@@ -491,12 +491,34 @@ def _finish(
     outcome = outcome_override or _outcome(
         ctx, message=message, result=result
     )
-    message = _compose(ctx, message=message, result=result, outcome=outcome)
+    # One extraction serves both consumers: the footer names what was
+    # searched, the suggestions offer next steps over the same packages
+    # in the same order.
+    search_evidence = evidence.collect_evidence(ctx, result)
+    message = _compose(
+        ctx,
+        message=message,
+        result=result,
+        outcome=outcome,
+        search_evidence=search_evidence,
+    )
     yield record(agent_events.PhaseStart(phase="answer"))
     if message:
         yield record(agent_events.MessageDelta(delta=message))
     for event in _derivation_events(result):
         yield record(event)
+    # Ordered after the derivations and before the record so a consumer
+    # reading the stream in order gets the answer, then its trace, then
+    # its offers.
+    offers = suggest.build_suggestions(
+        ctx, result, search_evidence, outcome
+    )
+    if offers:
+        yield record(
+            agent_events.Suggestions(
+                items=[s.to_dict() for s in offers]
+            )
+        )
     yield record(
         agent_events.TurnRecordEvent(
             record=records.build(

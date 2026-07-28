@@ -279,6 +279,7 @@ def run_agent_eval(
                     "reformulations": observer.reformulations,
                     "verify": observer.verify,
                     "triage": observer.triage,
+                    "suggestions": observer.suggestions,
                     "verify_explore": observer.verify_explore,
                     "outcome": _record_field(observer, "outcome"),
                     "triage_category": _record_field(observer, "category"),
@@ -323,6 +324,7 @@ def run_agent_eval(
         "verify_fit": _verify_fit(results),
         "guided_recovery": _guided_recovery(results),
         "explore_shadow": _explore_shadow(results),
+        "suggestions": _suggestions_summary(results),
         "questions": results,
     }
 
@@ -394,6 +396,52 @@ def _verify_fit(results: list[dict[str, Any]]) -> dict[str, Any]:
         else:
             bucket["unfit_ids"].append(r["id"])
     return by_outcome
+
+
+def _suggestions_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Did the amended suggestion rules produce sane offers on real
+    turns. Fakes can prove the rules behave as specified; only this can
+    show the specification matches the shapes real turns produce."""
+    offerable = [
+        r
+        for r in results
+        if r["run"].get("outcome") in ("no_data", "answered_with_caveat", "explored")
+    ]
+    with_offers = [r for r in offerable if r["run"].get("suggestions")]
+    counts: dict[int, int] = {}
+    kinds: dict[str, int] = {}
+    over_cap: list[str] = []
+    for r in with_offers:
+        items = r["run"]["suggestions"]
+        counts[len(items)] = counts.get(len(items), 0) + 1
+        for item in items:
+            kinds[str(item.get("kind"))] = kinds.get(str(item.get("kind")), 0) + 1
+            if len(str(item.get("label", ""))) > 60:
+                over_cap.append(str(item.get("label")))
+    return {
+        "offerable_turns": len(offerable),
+        # Should be ~1.0. Near 0.25 means the per-kind eligibility split
+        # silently reverted to listed-packages-only.
+        "turns_with_suggestion": len(with_offers),
+        "rate": (
+            round(len(with_offers) / len(offerable), 4) if offerable else 0.0
+        ),
+        "suggestions_per_turn": {str(k): v for k, v in sorted(counts.items())},
+        "kinds_emitted": kinds,
+        # Must be empty: the 60-char regression the removed term rule
+        # would have caused.
+        "labels_over_cap": over_cap,
+        # Live counts, so a zero `list_columns` tally can be diagnosed
+        # rather than guessed at.
+        "column_counts_seen": [
+            {"id": r["id"], "packages": r["run"].get("packages_listed")}
+            for r in offerable
+        ],
+        "payloads": [
+            {"id": r["id"], "question": r["question"], "items": r["run"]["suggestions"]}
+            for r in with_offers
+        ],
+    }
 
 
 def _explore_shadow(results: list[dict[str, Any]]) -> dict[str, Any]:

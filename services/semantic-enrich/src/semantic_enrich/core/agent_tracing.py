@@ -101,6 +101,8 @@ class TurnObserver:
         # outcome tag, the packages listed, and every search tried —
         # the inputs the guided-recovery baseline is computed from.
         self.turn_record: dict[str, Any] | None = None
+        # Offers emitted this turn (v2 loop only).
+        self.suggestions: list[dict[str, Any]] = []
 
     def observe(self, event: agent_events.AgentEvent) -> None:
         if isinstance(event, agent_events.TurnStart):
@@ -121,6 +123,8 @@ class TurnObserver:
             )
             self._prev_tokens_in = event.tokens_in_total
             self._prev_tokens_out = event.tokens_out_total
+        elif isinstance(event, agent_events.Suggestions):
+            self.suggestions = list(event.items)
         elif isinstance(event, agent_events.TurnRecordEvent):
             self.turn_record = event.record
         elif isinstance(event, agent_events.TriageResult):

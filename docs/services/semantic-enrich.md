@@ -589,6 +589,31 @@ Modes (`WHENRICH_AGENT_VERIFY_EXPLORE_MODE`): `off` — the blunt bypass, verifi
 
 Tests: `tests/unit/test_scope_validation.py`, `test_scope_hint.py`, `test_records_explored.py`, `test_verify_explore_schema.py`; `tests/integration/test_scoped_bypass.py` (the table above, and the clarify regression asserted in `act` mode), `test_explore_modes.py` (intent from either signal, all three modes, the M6 non-regression).
 
+## Next-step suggestions (`agent_suggestions_enabled`, v2 only)
+
+`core/agent/suggest.py` turns the same extraction the evidence footer uses into two or three concrete next questions, each already scoped to a package the loop inspected. Pure function over turn state — no model call, no I/O, nothing spent on the un-accepted path, which is most turns. Composed rather than generated: a model asked to phrase offers varies its wording every turn, cannot reliably attach a package scope, and the FE cannot render free text as an action.
+
+Each `Suggestion` is `{kind, label, question, package_ids}`. `label` is button text (plain, no markdown — a chip renders it literally), capped at 60 chars with only the *variable* part truncated. `question` is the full text of the follow-up turn, sent verbatim; `package_ids` becomes that turn's `scope_package_ids`. Keeping the question server-side means the wording, the scope, and the tool the turn will reach for are decided in one place and testable without a browser.
+
+| Kind | Label | Emitted when |
+| -- | -- | -- |
+| `summarize_dataset` | `Summarize {title}` | always, for the top package |
+| `list_columns` | `Show all {n} columns in {title}` | `column_count >= WHENRICH_AGENT_SUGGEST_MIN_COLUMNS` (20) |
+| `sample_rows` | `Sample rows from {title}` | the package has ≥1 listed document |
+| `group_total` | `Total {column} by department` | a monetary column is known on that package |
+
+Priority is table order, capped at `WHENRICH_AGENT_SUGGESTIONS_MAX` (3), deduped by `(kind, package_ids)`.
+
+**Package eligibility is per-kind, not global.** `summarize_dataset` may point at any package above the similarity floor, listed or merely ranked; the other three require a package the loop actually opened. A summary is honest over a ranked package — the explore turn's first move is `list_documents`, and an empty one produces "this dataset turned out to be empty" rather than a wrong answer — while the other kinds *promise contents*. The split is measured: on the 11.1 baseline retrieval was sound on 4/4 surrenders but a package had been opened on only 1, so a listed-only rule would have fired on a quarter of surrenders, screening out turns where the loop stopped one tool call short.
+
+**The column-browse chip carries no filter term.** Any term available here is derived from the searches this turn already ran — which are the searches that just failed — so a chip built on one re-runs the failure. The chip browses (`grouped by theme`) instead of searching, and gates on size rather than term availability: below 20 columns `summarize_dataset` already enumerates them, so the chip would return what the chip beside it returns. `column_count is None` means the package was never opened, so its size is unknown and it is not eligible.
+
+**Gating** — all must hold: the kill switch is on; outcome ∈ `{no_data, answered_with_caveat, explored}`; evidence has ≥1 package; **at least one search returned `retrieval_quality: "ok"`**; and fewer than `WHENRICH_AGENT_EXPLORE_CHAIN_MAX` (3) consecutive `explored` turns precede this one. The retrieval gate is the false-invitation guard — chips over datasets nothing scored as relevant would train users to ignore all chips. A *scoped* turn passes it without a search of its own: a clicked chip goes straight to `list_documents`, and its packages came from a previous turn's offers that already cleared the same gate. The chain cap is chat-only by construction (only that surface echoes turn records); notebook blocks send none, which is deliberate — per-step friction there already serves the purpose, and an order-dependent cap would fight block independence.
+
+**The event.** `Suggestions {items: [{kind, label, question, package_ids}]}`, emitted in `pipeline._finish` **after** the derivation events and **before** `turn_record`, so a consumer reading the stream in order gets the answer, then its trace, then its offers. At most one per turn; a turn with no offers emits **no event**, not an empty one. Additive and ignored by existing consumers — same posture as `DerivationEvent`. Parsed and validated in `web/lib/types.ts`; `ChatRequest.scope_package_ids` is the return path.
+
+Tests: `tests/unit/test_suggest_build.py` (templates, priority, cap, dedupe, label budget at the worst case), `test_suggest_gating.py` (one case per condition), `test_suggest_package_eligibility.py` (the per-kind split, the size gate, and that no emitted text is drawn from this turn's searches), `tests/integration/test_suggestions_event.py` (ordering, payload shape, kill switch, SSE round-trip, and the round-trip contract into a scoped request).
+
 ## Session memory (v2 only)
 
 `core/agent/records.py` + `core/agent/memory.py` implement the memory phase around one primitive — the deterministic **TurnRecord**, built by the pipeline's finish step from the turn trace with no LLM involved. Schema (v1): question + gist (casefold, punctuation/stopword-stripped), triage category, outcome (`answered | answered_with_caveat | no_data | deflected | clarified | error` — note `no_data` means a final answer with no successful SQL behind it), packages with titles, columns used, document ids, the final executed SQL verbatim, row count, searches tried with similarities, a 300-char answer digest, dollars, snapshot hash. Records ride to the client in the `turn_record` event and come back as `ChatRequest.turn_records`; the server stays stateless. Ingest validates defensively (version, types, length caps, 16 KB/record, newest `WHENRICH_AGENT_TURN_RECORDS_MAX` = 50 kept) — invalid records drop with a log, never a 400. Both the CLI (`--history-file` stores `{"_turn_record": …}` JSONL lines) and the web app (localStorage `turnRecords`, echoed on send) carry them.

@@ -31,6 +31,7 @@ V2_ONLY_TYPES = {
     "verification",
     "plan_hint",
     "turn_record",
+    "suggestions",
 }
 
 

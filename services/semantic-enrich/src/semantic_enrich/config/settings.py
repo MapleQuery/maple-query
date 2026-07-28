@@ -402,6 +402,24 @@ class Settings(BaseSettings):
         )
     )
 
+    # ── guided recovery: next-step suggestions (loop v2) ──
+    # Deterministic offers built from the same evidence the footer
+    # names. Pure composition, no model call, no query: an offer costs
+    # nothing until a user clicks it, and a click is an ordinary turn
+    # priced like any other. False reproduces the pre-PRD build.
+    agent_suggestions_enabled: bool = True
+    agent_suggestions_max: int = 3
+    # Consecutive explorations before offers stop. Guided recovery
+    # should converge on an answer, not become a browsing mode.
+    agent_explore_chain_max: int = 3
+    # Below this a column inventory is not worth a chip —
+    # summarize_dataset already enumerates a small dataset's columns.
+    # Set just above the corpus p75 of 15 columns (measured over
+    # semantic.columns, 3608 packages: p25/median/p75/p90/max =
+    # 4/8/15/31/1380); admits ~18% of the corpus and ~43% of the
+    # packages that actually surface in surrenders.
+    agent_suggest_min_columns: int = 20
+
     # Model cost accounting (observability only; not enforced).
     # $/1K tokens; defaults match gpt-4o's published rates.
     agent_model_input_rate: float = 0.0025

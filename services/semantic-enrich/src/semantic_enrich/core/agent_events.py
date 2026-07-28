@@ -42,6 +42,7 @@ EventType = Literal[
     "plan_hint",
     "turn_record",
     "derivation",
+    "suggestions",
 ]
 
 PhaseName = Literal["triage", "memory", "research", "verify", "answer"]
@@ -372,6 +373,27 @@ class DerivationEvent(_EventBase):
         return "derivation"
 
 
+@dataclass(frozen=True)
+class Suggestions(_EventBase):
+    """Deterministic next-step offers for a turn that could not answer.
+
+    Each item is `{kind, label, question, package_ids}`: the label is
+    button text, the question is sent verbatim as the next turn, and
+    `package_ids` becomes that turn's `scope_package_ids`. Composed, not
+    model-authored, so the wording and the scope are decided in one
+    place and testable without a browser.
+
+    Additive and emit-only — same contract posture as `DerivationEvent`.
+    A consumer that ignores it loses nothing, and a turn with no offers
+    emits no event at all rather than an empty one."""
+
+    items: list[dict[str, Any]]
+
+    @property
+    def event_type(self) -> EventType:
+        return "suggestions"
+
+
 AgentEvent = (
     TurnStart
     | CacheHit
@@ -398,6 +420,7 @@ AgentEvent = (
     | PlanHint
     | TurnRecordEvent
     | DerivationEvent
+    | Suggestions
 )
 
 
@@ -427,6 +450,7 @@ _EVENT_CLASSES: dict[str, type[_EventBase]] = {
     "plan_hint": PlanHint,
     "turn_record": TurnRecordEvent,
     "derivation": DerivationEvent,
+    "suggestions": Suggestions,
 }
 
 
