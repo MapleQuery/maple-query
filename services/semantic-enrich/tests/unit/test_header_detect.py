@@ -105,21 +105,30 @@ ACCEPT_CASES = [
         "the date column below it",
     ),
     ("9ce63876ed", 0, "briefing notes (CIRNAC): the same shape, other department"),
+    (
+        "18930d3aea",
+        2,
+        "legal aid applications: merged 'Criminal' and 'Civil' labels one "
+        "row above the leaf names they span — recovered by composing the "
+        "two tiers, so the header row is the leaf",
+    ),
 ]
 
 # (document prefix, expected decline reason, why the document declines)
 DECLINE_CASES = [
     (
         "57f2ef5417",
-        "density",
-        "legal aid expenditures: a genuine three-tier header, each tier "
-        "filling a third of the columns",
+        "tier_split",
+        "legal aid expenditures: a genuine THREE-tier header. Composition "
+        "handles two tiers; three is where telling a unit row from a "
+        "banner starts, so this stays declined",
     ),
     (
         "9d9358fe99",
-        "density",
-        "cadet applications: a French second header row over twenty-three "
-        "columns that are empty in every row",
+        "no_generated_names",
+        "cadet applications: a French second header row, and every one of "
+        "its twenty-three unnamed columns is empty in every row — there "
+        "is nothing there to name",
     ),
     (
         "deba8847a0",
@@ -153,12 +162,6 @@ DECLINE_CASES = [
         "data_starts_at_row_0",
         "telemetry: the single unnamed column is a row counter",
     ),
-    (
-        "18930d3aea",
-        "tier_split",
-        "legal aid applications: merged cells put 'Criminal' and 'Civil' "
-        "on the top row spanning columns whose real names sit a row below",
-    ),
 ]
 
 
@@ -172,6 +175,12 @@ def test_accepts_real_documents(
     assert recovery.preamble_rows == expected_index
 
 
+# Documents recovered by composing two header tiers rather than reading
+# one row. Their names are joins of two cells, so the single-row verbatim
+# invariant does not apply — a stricter one is asserted for them below.
+COMPOSED = {"18930d3aea"}
+
+
 @pytest.mark.parametrize(("prefix", "expected_index", "shape"), ACCEPT_CASES)
 def test_accepted_names_come_verbatim_from_the_header_row(
     prefix: str, expected_index: int, shape: str
@@ -182,6 +191,8 @@ def test_accepted_names_come_verbatim_from_the_header_row(
     index is established by reading the spreadsheet, so tying the names to
     that row leaves the detector no room to invent one.
     """
+    if prefix in COMPOSED:
+        pytest.skip("composed from two tiers; see the composition test")
     doc = _doc(prefix)
     recovery = _detect(prefix)
     assert recovery is not None
@@ -192,6 +203,35 @@ def test_accepted_names_come_verbatim_from_the_header_row(
         assert cell is not None
         assert name == " ".join(str(cell).split())
         assert name
+
+
+@pytest.mark.parametrize("prefix", sorted(COMPOSED))
+def test_composed_names_are_built_only_from_the_two_tier_cells(
+    prefix: str,
+) -> None:
+    """Composition is the one place a name is not a single cell, so the
+    invariant is weakened by exactly one step and no further: every part
+    of a composed name is a cell of one of the two tiers, at that same
+    column. Nothing is synthesised, nothing is carried in from a third
+    row, and nothing is reworded."""
+    doc = _doc(prefix)
+    recovery = _detect(prefix)
+    assert recovery is not None
+    leaf = doc["rows"][recovery.header_row_index]
+    for column, name in recovery.names.items():
+        parts = [
+            " ".join(str(row.get(column) or "").split())
+            for row in doc["rows"][: recovery.header_row_index + 1]
+        ]
+        cells = {p for p in parts if p}
+        leaf_cell = " ".join(str(leaf.get(column) or "").split())
+        # The name is either one of this column's own cells, or a cell
+        # from an upper tier followed by this column's leaf cell.
+        assert name in cells or (
+            leaf_cell
+            and name.endswith(leaf_cell)
+            and name[: -len(leaf_cell)].strip() in cells
+        ), f"{column}: {name!r} not built from this column's cells {cells}"
 
 
 def test_housing_table_one_names_the_amount_column() -> None:
@@ -267,10 +307,12 @@ def test_multi_tier_header_declines_rather_than_picking_a_tier() -> None:
     assert _detect("57f2ef5417") is None
 
 
-def test_two_tier_header_over_repeated_leaf_labels_declines() -> None:
-    """The classic shape from statistical releases: a year tier above a
-    metric tier. The lower row fills every column and sits directly above
-    the data, so only the repeated leaf labels stop it."""
+def test_two_tier_header_over_repeated_leaf_labels_composes() -> None:
+    """The shape from statistical releases: a year tier above a metric
+    tier. The lower row fills every column and sits directly above the
+    data, but repeats itself — `Applicants | Amount | Applicants |
+    Amount` names nothing on its own. The upper tier is what makes each
+    column addressable, so the two compose."""
     rows = [
         {"a": "", "__col_1": "2023", "__col_2": "2023", "__col_3": "2024", "__col_4": "2024"},
         {
@@ -283,7 +325,56 @@ def test_two_tier_header_over_repeated_leaf_labels_declines() -> None:
         {"a": "ON", "__col_1": "5", "__col_2": "10", "__col_3": "6", "__col_4": "12"},
     ]
     generated = ["__col_1", "__col_2", "__col_3", "__col_4"]
-    assert detect_header(rows, generated) is None
+    recovery = detect_header(rows, generated)
+    assert recovery is not None
+    assert recovery.names == {
+        "__col_1": "2023 Applicants",
+        "__col_2": "2023 Amount",
+        "__col_3": "2024 Applicants",
+        "__col_4": "2024 Amount",
+    }
+
+
+def test_composition_still_declines_when_it_cannot_disambiguate() -> None:
+    """Composing is only worth doing if it separates the columns. Two
+    tiers that still collide leave the same wrong name they started
+    with."""
+    rows = [
+        {"__col_0": "2023", "__col_1": "2023"},
+        {"__col_0": "Amount", "__col_1": "Amount"},
+        {"__col_0": "5", "__col_1": "6"},
+    ]
+    assert detect_header(rows, ["__col_0", "__col_1"]) is None
+
+
+def test_composition_needs_a_recoverable_column_order() -> None:
+    """Forward-filling a merged label means knowing which columns it
+    spans. Row bodies arrive with their keys alphabetised, so position
+    survives only inside the `__col_N` names — two columns carrying real
+    names leave the layout genuinely ambiguous, and composition declines
+    rather than guessing which one a span reaches."""
+    rows = [
+        {"Alpha": "2023", "Beta": "", "__col_2": "", "__col_3": ""},
+        {"Alpha": "", "Beta": "x", "__col_2": "Amount", "__col_3": "Amount"},
+        {"Alpha": "ON", "Beta": "y", "__col_2": "5", "__col_3": "6"},
+    ]
+    assert detect_header(rows, ["__col_2", "__col_3"]) is None
+
+
+def test_a_fill_never_runs_past_the_leaf_into_the_empty_tail() -> None:
+    """A spanning label forward-fills across the columns the leaf names,
+    and stops. Letting it run into the ragged empty tail handed two dead
+    columns the same name, which the SQL layer would have resolved to
+    whichever it saw first."""
+    rows = [
+        {"__col_0": "2013", "__col_1": "", "__col_2": "", "__col_3": ""},
+        {"__col_0": "COUNT", "__col_1": "SUM", "__col_2": "", "__col_3": ""},
+        {"__col_0": "5", "__col_1": "10", "__col_2": "", "__col_3": ""},
+    ]
+    recovery = detect_header(rows, ["__col_0", "__col_1", "__col_2", "__col_3"])
+    assert recovery is not None
+    assert set(recovery.names) == {"__col_0", "__col_1"}
+    assert len(set(recovery.names.values())) == len(recovery.names)
 
 
 def test_adjacent_qualifying_rows_decline() -> None:
@@ -351,7 +442,7 @@ def test_fixture_covers_more_declines_than_accepts_across_publishers() -> None:
     assert len(ACCEPT_CASES) + len(DECLINE_CASES) == len(DOCUMENTS)
 
 
-def test_a_merged_cell_tier_is_not_mistaken_for_the_header() -> None:
+def test_a_merged_cell_tier_is_composed_rather_than_taken_alone() -> None:
     """The failure this rule was written for, from the document that
     exposed it.
 
@@ -368,13 +459,17 @@ def test_a_merged_cell_tier_is_not_mistaken_for_the_header() -> None:
     """
     doc = _doc("18930d3aea")
     report = explain_header(doc["rows"], doc["generated_columns"])
-    assert report.recovery is None
-    assert report.reason == "tier_split"
-    # It really did clear the five gates — this is a sixth rule, not a
-    # tightened threshold.
-    assert report.signals["density"] >= 0.6
-    assert report.signals["distinctness"] == 1.0
-    assert report.signals["all_text"] == 1.0
+    assert report.recovery is not None
+    assert report.reason == "accepted_composed"
+    names = report.recovery.names
+    # The column that used to be named "Criminal" now says which of the
+    # two criminal columns it is, and its sibling is no longer nameless.
+    assert names["__col_3"] == "Criminal Adult matter applications"
+    assert names["__col_4"] == "Youth matter applications"
+    assert names["__col_7"] == "Civil Family matter applications"
+    # Every unnamed column got a name, and no two share one.
+    assert set(names) == set(doc["generated_columns"])
+    assert len(set(names.values())) == len(names)
 
 
 def test_a_banner_above_a_complete_header_still_recovers() -> None:
@@ -403,15 +498,21 @@ def test_a_section_label_below_the_header_is_not_a_tier() -> None:
     assert recovery.names == {"__col_1": "2023", "__col_2": "2024"}
 
 
-def test_the_gap_filler_is_looked_for_above_the_header_too() -> None:
+def test_a_split_header_is_joined_across_its_two_rows() -> None:
     """A split header can put the missing names on either side. Here the
-    candidate names two of three columns and the row *above* carries the
-    third, so no single row names them all."""
+    row nearest the data names two of three columns and the row above
+    carries the third, so the pair is read together — and `Region` is
+    NOT smeared across the other two, because the leaf labels are already
+    unique and need no disambiguating."""
     rows = [
         {"__col_0": "Region", "__col_1": "", "__col_2": ""},
         {"__col_0": "", "__col_1": "Adult", "__col_2": "Youth"},
         {"__col_0": "ON", "__col_1": "5", "__col_2": "6"},
     ]
-    report = explain_header(rows, ["__col_0", "__col_1", "__col_2"])
-    assert report.recovery is None
-    assert report.reason == "tier_split"
+    recovery = detect_header(rows, ["__col_0", "__col_1", "__col_2"])
+    assert recovery is not None
+    assert recovery.names == {
+        "__col_0": "Region",
+        "__col_1": "Adult",
+        "__col_2": "Youth",
+    }

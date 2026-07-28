@@ -47,7 +47,7 @@ def test_every_real_document_reports_a_reason(doc: dict[str, Any]) -> None:
     report = explain_header(doc["rows"], doc["generated_columns"])
     assert report.reason
     if report.recovery is not None:
-        assert report.reason == "accepted"
+        assert report.reason in {"accepted", "accepted_composed"}
 
 
 @pytest.mark.parametrize("doc", DOCUMENTS, ids=_ids())
@@ -89,8 +89,9 @@ def test_declined_near_miss_keeps_its_measurements() -> None:
     doc = next(d for d in DOCUMENTS if d["document_id"].startswith("57f2ef5417"))
     report = explain_header(doc["rows"], doc["generated_columns"])
     assert report.recovery is None
-    assert report.reason == "density"
-    assert report.signals["density"] < 0.6
+    # Three tiers: past what composition will read, and no single row
+    # names the columns.
+    assert report.reason == "tier_split"
     assert report.signals["all_text"] == 1.0
 
 
@@ -99,6 +100,7 @@ def test_reason_is_stable_vocabulary() -> None:
     rather than free text."""
     known = {
         "accepted",
+        "accepted_composed",
         "no_rows",
         "no_generated_columns",
         "no_data_rows_in_window",
@@ -242,6 +244,6 @@ def test_settings_defaults_match_the_detectors_own() -> None:
     )
     assert settings.agent_header_scan_rows == HEADER_SCAN_ROWS
     assert settings.agent_header_min_density == HEADER_MIN_DENSITY
-    # Ships off: the evidence for turning it on is the offline recovery
-    # report, not a live run.
-    assert settings.agent_header_recovery is False
+    # On, on the evidence of the offline recovery report rather than a
+    # live run. See test_header_recovery_gate.py for the reasoning.
+    assert settings.agent_header_recovery is True

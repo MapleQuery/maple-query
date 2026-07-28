@@ -78,14 +78,24 @@ def test_recovery_rate_is_scored_automatically() -> None:
     assert result["recovery_rate_observed"] == 0.0
 
 
-def test_recovery_ships_off_so_the_report_is_what_turns_it_on() -> None:
+def test_recovery_is_on_and_the_report_is_what_turned_it_on() -> None:
     """Unlike every other gate in the codebase, this one is boolean
     rather than log/act. Computing names and not showing them changes
-    nothing observable, so there is no useful in-turn shadow mode — the
-    offline report is the shadow evidence, and it covers thousands of
-    documents rather than whatever a live run happens to touch."""
+    nothing observable, so there was never a useful in-turn shadow mode —
+    the offline report is the evidence, and it covers hundreds of
+    documents rather than whatever a live run happens to touch.
+
+    It is on because the precision gate passed: 50 recovered documents
+    read by hand, zero wrong names. The recall floor was NOT met on the
+    headline number (0.2885 against 0.30) and that is recorded rather
+    than smoothed over — roughly half the affected corpus has no header
+    in its stored rows at all, and recovery over the documents that do
+    is 0.4688.
+
+    `WHENRICH_AGENT_HEADER_RECOVERY=false` reverts it.
+    """
     settings = Settings(
         gcp_project_id="proj",
         openai_api_key="sk-test",  # type: ignore[arg-type]
     )
-    assert settings.agent_header_recovery is False
+    assert settings.agent_header_recovery is True
