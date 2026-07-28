@@ -47,8 +47,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { exportNotebookAsMarkdown } from "./export";
 import { exportNotebookAsDocx } from "./export-docx";
+import { exportNotebookAsPdf } from "./export-pdf";
+import { buildReport } from "@/lib/report";
 import { ExportMenu } from "./export-menu";
-import { printMarkdownAsPdf } from "./print-pdf";
 import { ScopePicker } from "./scope-picker";
 import { ProseToolbar } from "./prose-toolbar";
 import {
@@ -276,7 +277,9 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
   const handleExportDocx = async () => {
     if (!nb) return;
     try {
-      const blob = await exportNotebookAsDocx(nb, getCachedDatasetTitles());
+      const blob = await exportNotebookAsDocx(
+        buildReport(nb, getCachedDatasetTitles()),
+      );
       downloadBlob(blob, nb.title, "docx");
       toast.show("Downloaded Word export", "success");
     } catch {
@@ -286,12 +289,14 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
 
   const handleExportPdf = async () => {
     if (!nb) return;
-    const md = exportNotebookAsMarkdown(nb, getCachedDatasetTitles());
     try {
-      await printMarkdownAsPdf(nb.title || "Untitled notebook", md);
-      toast.show("Print view open — choose “Save as PDF”", "info");
+      const blob = await exportNotebookAsPdf(
+        buildReport(nb, getCachedDatasetTitles()),
+      );
+      downloadBlob(blob, nb.title, "pdf");
+      toast.show("Downloaded PDF export", "success");
     } catch {
-      toast.show("Could not open the PDF view", "error");
+      toast.show("Could not build the PDF", "error");
     }
   };
 

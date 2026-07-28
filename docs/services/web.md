@@ -30,7 +30,7 @@ web/
 │   │                    # CostBadge
 │   ├── chat/            # ChatContainer + composer + conversation switcher
 │   ├── notebook/        # NotebookContainer + ChartBlock + ScopePicker
-│   │                    # + ProseToolbar + MD/PDF/DOCX export
+│   │                    # + ProseToolbar + MD/PDF/DOCX writers
 │   └── explorer/        # ExplorerContainer + step chain
 ├── lib/
 │   ├── api.ts           # REST wrappers (datasets, columns, /sql/run)
@@ -42,6 +42,7 @@ web/
 │   ├── notebook.ts      # block-shape helpers: export filter, chart source,
 │   │                    # quick-scope candidates, inline-chart migration
 │   ├── prose.ts         # what a text block may contain + how it renders
+│   ├── report.ts        # notebook → neutral document model (PDF + Word)
 │   ├── result-rows.ts   # folds sql_executed's preview + the rows frames
 │   ├── storage.ts       # localStorage with per-collection LRU index (max 50)
 │   │                    # + quota-exceeded eviction
@@ -97,15 +98,13 @@ carry the visual distinction that separate serif / mono families would.
   rather than collapsed, and the header counts them (`5 blocks · 2 not
   exported`) so nothing goes missing quietly. Export is disabled when every
   block is hidden.
-- A single **Export** control with a format menu:
-  - **Markdown** (`.md`) and **PDF** build the same Markdown document —
-    every block, including SQL fenced blocks, charts, and result tables
-    (first 20 rows). PDF renders it with the same plugin set used on
-    screen into an off-screen iframe and calls `print()` on that iframe,
-    so the output is real text with real pagination. It lands on the
-    browser's print dialog, where the user picks "Save as PDF".
-  - **Word** (`.docx`) builds from the stored notebook instead — see
-    "Word export" below.
+- A single **Export** control with a format menu. **PDF** and **Word**
+  are generated documents — no print dialog, no browser furniture — built
+  from a shared model; see "Exported documents". **Markdown** (`.md`)
+  stays a plain-text rendering of the same blocks.
+- No export carries an "exported at" line. A timestamp is metadata about
+  the act of exporting, not part of the piece, and it dates a document
+  that is about to be edited anyway.
 - Prose blocks have a formatting toolbar: headings, bold and italics as
   ordinary Markdown, plus font size and colour. See "Prose formatting".
 - An insert point below a query block that has run offers that block's
@@ -189,24 +188,54 @@ on, and the caret is restored explicitly after each edit.
 
 ---
 
-## Word export
+## Exported documents
 
-`components/notebook/export-docx.ts`, built from the stored notebook
-rather than from the Markdown the other two exports share. A `.docx`
-wants real heading styles, real table cells and embedded image bytes, and
-re-parsing a rendered string to recover structure already in hand would
-be a second, worse document model. The *inline* vocabulary is still
-shared: `parseInline` is the one place `lib/prose.ts`'s bold / italic /
-size / colour set becomes Word runs.
+`lib/report.ts` walks the notebook once into a neutral model — headings,
+paragraphs of runs, bullets, code, tables, notes, charts — and
+`export-pdf.ts` and `export-docx.ts` translate that model into their own
+API. One traversal, two writers, so a PDF and a Word file of the same
+notebook are recognisably the same piece. `REPORT_TYPE` and
+`REPORT_COLOR` give both the same type scale in points.
 
-Charts are embedded as PNG. `docx` accepts SVG only alongside a raster
-fallback and Word's own SVG support is uneven, so the chart SVG — which
-is self-contained, hence safe to draw through a canvas without tainting
-it — is rasterised at 2× and embedded. A chart that will not rasterise
-returns null and the document is short one image rather than failing.
+**Why the PDF is generated rather than printed.** It used to be the
+Markdown export rendered into an off-screen iframe with `print()` called
+on it. That output carried the browser's own date/URL furniture in the
+margins, paginated like a web page, and — because `print()` fired before
+the chart data URIs had decoded — showed a broken-image icon where every
+chart should have been. None of those are print-stylesheet problems; they
+follow from not building the document. pdfmake does the genuinely hard
+parts (line breaking, page breaking, keeping a table header with its
+rows) and the writer only translates.
 
-The `docx` package is **dynamically imported**: a few hundred kilobytes
-of OOXML writer that only matters once someone picks the format.
+Two details that cost real debugging time, both worth not rediscovering:
+
+- Fonts are registered with `pdfMake.addVirtualFileSystem()` and
+  `pdfMake.addFonts()`. A `fonts` key on the document definition is
+  silently ignored and surfaces only as "font not defined" at layout.
+  Both families load from `build/*` bundles that export a `{ vfs, fonts }`
+  pair; `build/vfs_fonts` is a bare filename→data map whose shape has
+  changed across releases and carries no descriptor. Courier is one of
+  PDF's 14 standard faces, so monospaced SQL costs a few kilobytes of
+  `.afm` rather than a second TTF family.
+- `createPdf(...).getBlob()` returns a promise; it takes no callback. The
+  callback form never settles, which reads as a click that did nothing
+  rather than as an error.
+
+**Word** uses real named styles rather than direct formatting, so a
+heading stays navigable, restyleable and visible to a table of contents.
+Word's stock Title and Heading styles are serif and blue; left alone they
+make every export look like Word's defaults, so the ones this document
+uses are declared outright.
+
+Charts are embedded as PNG in both. `docx` accepts SVG only alongside a
+raster fallback and Word's own support is uneven; pdfmake takes data
+URIs. `rasterizeSvg` awaits `image.decode()` rather than `onload` —
+a decoded image is the actual precondition for drawing one, and getting
+that wrong is what produced the broken-image PDF. A chart that will not
+rasterise is skipped rather than failing the export.
+
+`docx` and `pdfmake` are both dynamically imported, so only the format
+someone picks pays for its writer.
 
 ---
 
@@ -215,15 +244,12 @@ of OOXML writer that only matters once someone picks the format.
 `lib/chart.ts` turns result rows into an SVG **string**, not a component
 tree, and owns the whole feature: no charting dependency is installed.
 
-The string is the point. The notebook's exports render Markdown through
-`react-markdown` in a detached iframe, so anything that exists only as
-mounted React is absent from the exported report. One function that
-returns markup can be drawn on screen and embedded in the Markdown as
-`![](data:image/svg+xml;base64,…)`, so the report cannot disagree with the
-screen. Ordinary image syntax also means the print path needs no
-raw-HTML plugin — but it *does* need `print-pdf.tsx`'s `urlTransform`,
-because `react-markdown`'s default allows only http/https/mailto and
-would silently drop the `src`.
+The string is the point: it is drawable three ways. On screen it is
+mounted directly; the Markdown export embeds it as
+`![](data:image/svg+xml;base64,…)`; and the PDF and Word writers
+rasterise it (see "Exported documents"). A chart built as a mounted React
+component would exist on screen and nowhere else, so the report could not
+help but disagree with the app.
 
 Which columns to plot is inferred (`inferChartSpec`): the first column
 that is not mostly numeric is the category, the first numeric one after
