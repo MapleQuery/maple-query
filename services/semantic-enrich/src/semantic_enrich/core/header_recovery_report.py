@@ -128,6 +128,18 @@ def build_report(
         "recovered": len(recovered),
         "declined": declined,
         "recovery_rate": _share(len(recovered), scanned),
+        # The same count over the documents that have a header to find at
+        # all. Half the affected corpus turns out to hold no header in
+        # its stored rows — the loader never captured one and neither
+        # could anything else — and scoring against a denominator that
+        # includes them understates what the detector does with the
+        # documents it can actually act on. Reported alongside, never
+        # instead of: `recovery_rate` stays the headline and stays what
+        # the gate is scored against.
+        "recovery_rate_where_a_header_exists": _share(
+            len(recovered),
+            scanned - _classify(decline_reasons)["no_header_present"],
+        ),
         "decline_reasons": dict(sorted(decline_reasons.items())),
         "decline_reason_classes": _classify(decline_reasons),
         "packages_fully_recovered": packages_full,

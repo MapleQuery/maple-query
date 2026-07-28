@@ -104,6 +104,7 @@ def test_reason_is_stable_vocabulary() -> None:
         "no_data_rows_in_window",
         "data_starts_at_row_0",
         "multi_tier",
+        "tier_split",
         "no_generated_names",
         "positional",
         "density",

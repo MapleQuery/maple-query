@@ -87,6 +87,120 @@
   ]
  },
  {
+  "document_id": "18930d3aeabfb6de811e15539bff6bfa10e6d01f55ea6b9f09ac2032d59b7aff",
+  "organization_code": "jus",
+  "title": "Legal Aid in Canada, 2016-2017",
+  "generated_columns": [
+   "__col_1",
+   "__col_2",
+   "__col_3",
+   "__col_4",
+   "__col_5",
+   "__col_6",
+   "__col_7",
+   "__col_8",
+   "__col_9"
+  ],
+  "rows": [
+   {
+    "Table_6_-_Approved_legal_aid_applications_for_full_service,_by_staff_and_private_lawyers,_(Number),_Annual,_2016/2017": null,
+    "__col_1": "Total approved legal aid applications",
+    "__col_2": "Total approved criminal applications",
+    "__col_3": "Criminal",
+    "__col_4": null,
+    "__col_5": "Provincial and territorial offences applications",
+    "__col_6": "Total approved civil legal aid applications",
+    "__col_7": "Civil",
+    "__col_8": null,
+    "__col_9": null
+   },
+   {
+    "Table_6_-_Approved_legal_aid_applications_for_full_service,_by_staff_and_private_lawyers,_(Number),_Annual,_2016/2017": null,
+    "__col_1": null,
+    "__col_2": null,
+    "__col_3": null,
+    "__col_4": null,
+    "__col_5": null,
+    "__col_6": null,
+    "__col_7": null,
+    "__col_8": null,
+    "__col_9": null
+   },
+   {
+    "Table_6_-_Approved_legal_aid_applications_for_full_service,_by_staff_and_private_lawyers,_(Number),_Annual,_2016/2017": null,
+    "__col_1": null,
+    "__col_2": null,
+    "__col_3": "Adult matter applications",
+    "__col_4": "Youth matter applications",
+    "__col_5": null,
+    "__col_6": null,
+    "__col_7": "Family matter applications",
+    "__col_8": "Other civil matter applications",
+    "__col_9": "I&R"
+   },
+   {
+    "Table_6_-_Approved_legal_aid_applications_for_full_service,_by_staff_and_private_lawyers,_(Number),_Annual,_2016/2017": "NL",
+    "__col_1": "5,042",
+    "__col_2": "3,335",
+    "__col_3": "2,919",
+    "__col_4": "416",
+    "__col_5": null,
+    "__col_6": "1,707",
+    "__col_7": "1,695",
+    "__col_8": "8",
+    "__col_9": "4"
+   },
+   {
+    "Table_6_-_Approved_legal_aid_applications_for_full_service,_by_staff_and_private_lawyers,_(Number),_Annual,_2016/2017": "PE",
+    "__col_1": "1,190",
+    "__col_2": "877",
+    "__col_3": "773",
+    "__col_4": "104",
+    "__col_5": null,
+    "__col_6": "313",
+    "__col_7": "313",
+    "__col_8": null,
+    "__col_9": null
+   },
+   {
+    "Table_6_-_Approved_legal_aid_applications_for_full_service,_by_staff_and_private_lawyers,_(Number),_Annual,_2016/2017": "NS",
+    "__col_1": "19,996",
+    "__col_2": "12,971",
+    "__col_3": "11,572",
+    "__col_4": "1,399",
+    "__col_5": "126",
+    "__col_6": "6,899",
+    "__col_7": "5,983",
+    "__col_8": "916",
+    "__col_9": null
+   },
+   {
+    "Table_6_-_Approved_legal_aid_applications_for_full_service,_by_staff_and_private_lawyers,_(Number),_Annual,_2016/2017": "NB",
+    "__col_1": "3,224",
+    "__col_2": "1,630",
+    "__col_3": "1,506",
+    "__col_4": "124",
+    "__col_5": "3",
+    "__col_6": "1,591",
+    "__col_7": "1,591",
+    "__col_8": null,
+    "__col_9": null
+   },
+   {
+    "Table_6_-_Approved_legal_aid_applications_for_full_service,_by_staff_and_private_lawyers,_(Number),_Annual,_2016/2017": "QC",
+    "__col_1": "220,259",
+    "__col_2": "98,567",
+    "__col_3": "88,901",
+    "__col_4": "9,666",
+    "__col_5": "7,508",
+    "__col_6": "114,184",
+    "__col_7": "73,495",
+    "__col_8": "35,097",
+    "__col_9": "5,592"
+   }
+  ]
+ },
+ {
   "document_id": "235723ded4dcc2ccde131f6508fb1dfd911b52739472fded7e4587eb9b79ee7e",
   "organization_code": "phac-aspc",
   "title": "Health of People in Canada Dashboard​",

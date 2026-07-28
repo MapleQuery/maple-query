@@ -231,7 +231,34 @@ def explain_header(
             candidate_row_index=chosen,
         )
 
+    # A merged cell arrives as a label followed by blanks, so a header
+    # tier that spans columns leaves gaps exactly where the tier below it
+    # carries the real names. If another row above the data fills a
+    # column this candidate left blank, the header is split across rows
+    # and neither row alone names the columns.
+    #
+    # Observed: a legal-aid table whose top row reads
+    # `... | Criminal | (blank) | ... | Civil | (blank) | (blank)` over a
+    # row reading `Adult matter | Youth matter | ... | Family matter`.
+    # Taking the top tier named one column "Criminal" when it holds adult
+    # matters only, and left youth unnamed — a total that looks complete
+    # and is not. Density and distinctness both missed it: the candidate
+    # sat exactly on the density threshold, and a merged label produces
+    # blanks rather than repeats.
     header = values[chosen]
+    unnamed_here = {c for c in generated if c in header and not header[c]}
+    if unnamed_here:
+        for index in range(body_start):
+            if index == chosen:
+                continue
+            if any(values[index].get(c) for c in unnamed_here):
+                return HeaderReport(
+                    recovery=None,
+                    reason="tier_split",
+                    signals=signals,
+                    candidate_row_index=chosen,
+                )
+
     names = {
         column: header[column]
         for column in generated
