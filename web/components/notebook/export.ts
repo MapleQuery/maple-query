@@ -7,6 +7,7 @@ import type { StoredNotebook } from "@/lib/storage";
  *   - Prose blocks → their markdown verbatim
  *   - Query blocks →
  *       ### <question>
+ *       _Scoped to: <package_ids>_   (only when the block is scoped)
  *       <assistant text>
  *       ```sql
  *       <sql>
@@ -30,6 +31,13 @@ export function exportNotebookAsMarkdown(nb: StoredNotebook): string {
       parts.push("");
     } else {
       parts.push(`### ${b.question || "(empty query)"}`);
+      if (b.scopePackageIds && b.scopePackageIds.length > 0) {
+        // A reader of the exported Markdown should be able to see what
+        // a question was narrowed to; otherwise a scoped block reads as
+        // an unaccountably specific answer.
+        parts.push(`_Scoped to: ${b.scopePackageIds.join(", ")}_`);
+        parts.push("");
+      }
       if (b.result?.assistantText) {
         parts.push(b.result.assistantText.trim());
         parts.push("");
