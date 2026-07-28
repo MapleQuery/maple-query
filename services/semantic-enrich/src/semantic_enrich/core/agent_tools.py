@@ -1023,6 +1023,34 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
             alias.preamble_excluded
         )
 
+    # Unknown-document check, before the pairing check: an invented id
+    # has no columns to pair against, so the pairing check would skip it
+    # and the query would run against nothing.
+    unknown_docs, unknown_msg = check_document_ids_known(
+        sql=sql, state=ctx.state
+    )
+    if unknown_docs:
+        short_reason = (
+            f"unknown_document_id: {len(unknown_docs)} document id(s) "
+            "not returned by list_documents this turn"
+        )
+        ctx.emit(
+            agent_events.SqlGuarded(
+                accepted=False,
+                reason=short_reason,
+                sql_final=sql,
+                dry_run_bytes=None,
+            )
+        )
+        return _result(
+            {
+                "status": "unknown_document_id",
+                "reason": short_reason,
+                "message": unknown_msg,
+                "unknown_document_ids": unknown_docs,
+            }
+        )
+
     # Doc/column pairing check. If every JSON_VALUE(..., '$.<col>')
     # reference doesn't line up with the `columns` list of every doc in
     # the WHERE IN, refuse before hitting the SQL guard so the model
@@ -1464,6 +1492,92 @@ def _scalar_aggregate_columns(sql: str) -> set[str]:
             if has_scalar_agg:
                 names.add(name)
     return names
+
+
+# ── Unknown document id check ──
+
+# How much of a leading run two ids must share before one is offered as
+# what the other meant. Ids are 64-char SHA-256 hex, so a 16-char shared
+# prefix is far past coincidence and comfortably inside the length of a
+# realistic transcription slip.
+_ID_PREFIX_HINT = 16
+
+
+def _shared_prefix(a: str, b: str) -> int:
+    # `strict=False` is the point: a mistyped id is usually the *wrong
+    # length*, and the observed one was 50 characters against 64.
+    n = 0
+    for x, y in zip(a, b, strict=False):
+        if x != y:
+            break
+        n += 1
+    return n
+
+
+def check_document_ids_known(
+    *, sql: str, state: LoopState
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Verify every inlined `document_id` was actually listed this turn.
+
+    Returns `(unknown, formatted_message)`. Empty = clean.
+
+    A document id is a 64-character hex digest that the model has to copy
+    verbatim out of `list_documents`, and copying it is a thing models
+    get wrong: an observed turn dropped a 14-character run out of the
+    middle of one. Nothing caught it. The guard checks only that a
+    *literal* `document_id IN (...)` predicate exists, not that the ids
+    are real, and the pairing check skips any doc it has no columns for —
+    which an invented id is. So the query passed every gate, matched zero
+    rows, and the model reported that the data was not there.
+
+    An id that does not exist can only ever return nothing, so refusing
+    it costs no working query and converts a silent empty result into a
+    correctable error.
+
+    Skipped when `list_documents` did not run this turn: `POST /sql/run`
+    drives this tool with a scratch state, and an inline retry may reuse
+    an id from an earlier turn that this state cannot vouch for. In both
+    cases the guard's literal-filter rule still applies.
+    """
+    if not state.known_document_ids:
+        return [], None
+
+    unknown: list[dict[str, Any]] = []
+    for doc_id in sorted(extract_inlined_document_ids(sql)):
+        if doc_id in state.known_document_ids:
+            continue
+        # A near-identical id is almost certainly the one it meant, and
+        # saying so turns "that id is wrong" into "use this one".
+        near = sorted(
+            known
+            for known in state.known_document_ids
+            if _shared_prefix(known, doc_id) >= _ID_PREFIX_HINT
+        )
+        unknown.append({"document_id": doc_id, "did_you_mean": near})
+
+    if not unknown:
+        return [], None
+
+    lines = [
+        "unknown_document_id: the SQL inlines document ids that "
+        "list_documents did not return this turn. An id that does not "
+        "exist matches zero rows, which is NOT evidence that the data is "
+        "missing."
+    ]
+    for u in unknown:
+        lines.append(f"  - '{u['document_id']}' is not a listed document.")
+        if u["did_you_mean"]:
+            lines.append(
+                "    You most likely meant: "
+                f"{u['did_you_mean']} — copy it exactly, all 64 "
+                "characters."
+            )
+    lines.append(
+        "Fix: re-read the `document_id` values from list_documents and "
+        "copy one verbatim. Do not shorten, abbreviate, or retype them "
+        "from memory."
+    )
+    return unknown, "\n".join(lines)
 
 
 # ── Doc/column pairing check ──
