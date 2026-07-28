@@ -694,6 +694,20 @@ Recovery is **per document**. Package-level and document-level column sets diver
 
 Tests: `tests/unit/test_header_detect.py` (29 real documents from 23 publishers — 15 accepts with human-read header row indices, 14 declines), `tests/unit/test_header_detect_signals.py` (signal population, reason vocabulary, and property tests asserting names are always verbatim from a single row and never synthesised). The fixture is `tests/fixtures/header_recovery_documents.json`: real warehouse rows, not paraphrases.
 
+### In `list_documents` (`agent_header_recovery`, ships off)
+
+The detector runs on the rows `list_documents` already reads, for documents already over `agent_generated_header_ratio`. Two additive payload fields — `column_names_recovered` (`__col_3` → `Total Amount ($000)`) and `header_row_index` — plus `quality` moving from `low_generated_headers` to `recovered_headers`, so a reader can tell "unreadable" from "readable, with an asterisk". A recovered document is **no longer demoted**: it keeps its sort position and stops counting toward the zero-usable-docs guidance.
+
+**`columns` never changes.** It stays the single source of truth for what the stored row holds, and SQL keeps addressing the positional keys. The tool description tells the model plainly that recovered names are *inferred from the document's own header row, not published metadata* — a model that knows a name is inferred can say so and can check it against `column_samples`, and presenting recovered and published names identically would make the corpus's column names silently unreproducible.
+
+**The read widens from `agent_sample_values_rows` (3) to `agent_header_scan_rows` (8) when the feature is on** — the detector needs rows the sample window does not reach, and rows *below* the header, since that contrast is what separates a header from a banner. Widening is unconditional rather than a second query for the flagged subset because it is free: `raw.rows` is clustered on `document_id`, so `row_index < 8` and `row_index < 3` prune to the same blocks and dry-run to the same bytes (measured: 3.880 GB either way over 40 documents). Only rows crossing the wire differ. Sample values keep the narrower bound regardless, so a clean document's payload is byte-identical whether the feature is on or off — asserted, not stated.
+
+Recovered names land on `LoopState.doc_recovered_names` and `doc_header_row` (same side-effect pattern as `doc_columns` / `doc_package`), and `columns_by_package` substitutes them, so the evidence footer's "most unnamed" note and the `list_columns` browse chip both self-clear off one change.
+
+A document whose fetched rows have a gap (row 1 failed to parse) is **not** recovered: row bodies are positional, and a shifted `header_row_index` becomes an off-by-one that later excludes the wrong rows from an aggregate. Dropping the document costs a recovery; guessing would cost a number.
+
+Tests: `test_header_recovery_payload.py`, `test_header_recovery_state.py`, `test_header_recovery_footer.py`.
+
 ## How the library API is used
 
 ```py

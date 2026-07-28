@@ -234,9 +234,7 @@ def retrieve_documents_with_samples(
     bq: BqClient,
     package_ids: list[str],
     settings: Settings,
-) -> tuple[
-    list[DocumentCandidate], dict[str, dict[str, list[str]]], int
-]:
+) -> tuple[list[DocumentCandidate], DocumentRead, int]:
     """The `list_documents` tool path: candidate docs plus per-doc
     column key sets and sample values, with a single bounded `raw.rows`
     job on the happy path (see `fetch_document_columns_and_samples`).
@@ -262,18 +260,18 @@ def retrieve_documents_with_samples(
     started = time.monotonic()
     doc_rows = list(bq.query_rows(docs_sql, params=docs_params))
     doc_ids = [str(r["document_id"]) for r in doc_rows]
-    keys_by_doc, samples_by_doc = fetch_document_columns_and_samples(
+    read = fetch_document_columns_and_samples(
         bq=bq, doc_ids=doc_ids, settings=settings
     )
     latency_ms = int((time.monotonic() - started) * 1000)
     return (
         [
             _document_from_row(
-                r, keys_by_doc.get(str(r["document_id"]), [])
+                r, read.columns.get(str(r["document_id"]), [])
             )
             for r in doc_rows
         ],
-        samples_by_doc,
+        read,
         latency_ms,
     )
 
@@ -320,12 +318,31 @@ def _fetch_doc_columns(
     }
 
 
+@dataclass(frozen=True)
+class DocumentRead:
+    """What one bounded `raw.rows` read yields for a set of documents."""
+
+    columns: dict[str, list[str]]
+    """doc_id -> JSON key set, from its lowest-index parseable row."""
+
+    samples: dict[str, dict[str, list[str]]]
+    """doc_id -> column -> truncated sample values, for the payload."""
+
+    header_rows: dict[str, list[dict[str, object]]]
+    """doc_id -> untruncated row bodies from row 0, for header
+    detection. Empty unless `agent_header_recovery` widened the read.
+    Kept separate from `samples` because a header name can be longer
+    than the sample truncation and can live in a column the sample cap
+    dropped — reading names off truncated values would produce names
+    that end in an ellipsis."""
+
+
 def fetch_document_columns_and_samples(
     *,
     bq: BqClient,
     doc_ids: list[str],
     settings: Settings,
-) -> tuple[dict[str, list[str]], dict[str, dict[str, list[str]]]]:
+) -> DocumentRead:
     """Per-doc column key sets AND per-column sample values from one
     bounded, cluster-pruned `raw.rows` read.
 
@@ -349,16 +366,37 @@ def fetch_document_columns_and_samples(
     ellipsis marker, via `sample_selector.truncate_cell`) and the key
     set per doc is capped at `agent_sample_values_max_columns` to bound
     the payload the model has to read.
+    When `agent_header_recovery` is on the read bound widens from
+    `agent_sample_values_rows` to `agent_header_scan_rows`, because a
+    document whose header sits under a preamble needs rows the sample
+    window does not reach — and needs rows *below* the header too, since
+    that contrast is what tells a header apart from a banner.
+
+    Widening costs nothing. `raw.rows` is clustered on `document_id`,
+    so `row_index < 8` and `row_index < 3` prune to the same blocks and
+    dry-run to the same bytes; only the rows crossing the wire differ.
+    That is why the widening is unconditional rather than a second query
+    for the flagged subset — one read is cheaper than two, and the
+    payload the model reads is bounded separately below.
+
+    Sample values keep the narrower `agent_sample_values_rows` bound
+    regardless, so a clean document's payload is byte-identical either
+    way and the extra rows are only ever seen by the detector.
     """
     if not doc_ids:
-        return {}, {}
+        return DocumentRead(columns={}, samples={}, header_rows={})
     project_id = _require_project(settings)
     sql = _DOC_SAMPLES_SQL.format(
         project_id=project_id,
         dataset=settings.bq_dataset_raw,
         rows_table=settings.bq_rows_table,
     )
-    n = settings.agent_sample_values_rows
+    sample_rows = settings.agent_sample_values_rows
+    n = (
+        max(sample_rows, settings.agent_header_scan_rows)
+        if settings.agent_header_recovery
+        else sample_rows
+    )
     params: list[
         bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter
     ] = [
@@ -376,6 +414,7 @@ def fetch_document_columns_and_samples(
     max_columns = settings.agent_sample_values_max_columns
     keys_by_doc: dict[str, list[str]] = {}
     samples: dict[str, dict[str, list[str]]] = {}
+    bodies: dict[str, dict[int, dict[str, object]]] = {}
     rows = [] if result.timed_out or result.error else result.rows
     ordered = sorted(
         rows,
@@ -389,10 +428,16 @@ def fetch_document_columns_and_samples(
             continue
         if not isinstance(body, dict):
             continue
+        row_index = int(row.get("row_index") or 0)
+        bodies.setdefault(doc_id, {})[row_index] = {
+            str(k): v for k, v in body.items()
+        }
         if doc_id not in keys_by_doc:
             # Lowest-index parseable row wins (rows are sorted); later
             # rows only contribute sample values.
             keys_by_doc[doc_id] = [str(k) for k in body]
+        if row_index >= sample_rows:
+            continue
         doc_samples = samples.setdefault(doc_id, {})
         for key, value in body.items():
             # All-NULL columns carry no signal; skipping them here also
@@ -417,7 +462,31 @@ def fetch_document_columns_and_samples(
                 settings=settings,
             )
         )
-    return keys_by_doc, samples
+    return DocumentRead(
+        columns=keys_by_doc,
+        samples=samples,
+        header_rows=_dense_header_rows(bodies),
+    )
+
+
+def _dense_header_rows(
+    bodies: dict[str, dict[int, dict[str, object]]],
+) -> dict[str, list[dict[str, object]]]:
+    """Row bodies per document, as a list indexed from row 0.
+
+    A document only qualifies if its parsed rows run 0, 1, 2, … with no
+    gap. A gap would shift every position in the list, and the detector
+    reports a *row index* that later becomes a `row_index >` predicate —
+    so an off-by-one here would silently exclude the wrong rows from an
+    aggregate. Dropping the document instead costs a recovery; guessing
+    would cost a number.
+    """
+    out: dict[str, list[dict[str, object]]] = {}
+    for doc_id, by_index in bodies.items():
+        if set(by_index) != set(range(len(by_index))):
+            continue
+        out[doc_id] = [by_index[i] for i in range(len(by_index))]
+    return out
 
 
 def _require_project(settings: Settings) -> str:

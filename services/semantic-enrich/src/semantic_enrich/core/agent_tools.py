@@ -37,8 +37,13 @@ from semantic_enrich.core import agent_events
 # What counts as a synthesised positional name is owned by
 # `header_recovery`, which also has to reason about it; this module keeps
 # the import so callers that already reach for it here still resolve.
-from semantic_enrich.core.header_recovery import generated_header_ratio
+from semantic_enrich.core.header_recovery import (
+    GENERATED_COL_RE,
+    detect_header,
+    generated_header_ratio,
+)
 from semantic_enrich.core.retrieval import (
+    DocumentRead,
     embed_question,
     retrieve_columns,
     retrieve_documents_with_samples,
@@ -172,7 +177,12 @@ _LIST_DOCUMENTS: dict[str, Any] = {
         "and only a literal IN-list gets plan-time pruning. Also use "
         "the per-doc `columns` list to check that the columns you want "
         "actually appear in the doc you inline (different docs in the "
-        "same package can have disjoint key sets)."
+        "same package can have disjoint key sets). When a doc carries "
+        "`column_names_recovered`, those names were INFERRED from the "
+        "document's own header row, not published as metadata — the "
+        "keys in `columns` remain what the stored row holds. Say so if "
+        "a recovered name is load-bearing in your answer, and check it "
+        "against `column_samples` if it looks wrong."
     ),
     "parameters": {
         "type": "object",
@@ -319,6 +329,17 @@ class LoopState:
     doc_package: dict[str, str] = field(default_factory=dict)
     doc_title: dict[str, str] = field(default_factory=dict)
     doc_row_count: dict[str, int] = field(default_factory=dict)
+    # ── header recovery (side effect of list_documents, same pattern) ──
+    # doc_id → {positional key: the name its real header row gives it}.
+    # The SQL path reads this to translate a name the model was shown
+    # back into the key the stored row actually has.
+    doc_recovered_names: dict[str, dict[str, str]] = field(
+        default_factory=dict
+    )
+    # doc_id → the index of that real header row. The rows at or above
+    # it are preamble: harmless in SUM (their text casts to NULL) and
+    # not harmless in COUNT.
+    doc_header_row: dict[str, int] = field(default_factory=dict)
     column_metadata: dict[str, dict[str, Any]] = field(default_factory=dict)
     tool_call_count: int = 0
     sql_execution_count: int = 0
@@ -579,7 +600,7 @@ def run_list_documents(
 
     # One bounded raw.rows job supplies both the per-doc column key
     # sets and the sample values (keys-query fallback inside).
-    documents, samples_by_doc, _latency = retrieve_documents_with_samples(
+    documents, read, _latency = retrieve_documents_with_samples(
         bq=ctx.bq, package_ids=list(package_ids), settings=ctx.settings
     )
     payload: list[dict[str, Any]] = []
@@ -596,7 +617,7 @@ def run_list_documents(
             ),
             "columns": list(d.columns),
         }
-        samples = samples_by_doc.get(d.document_id)
+        samples = read.samples.get(d.document_id)
         if samples:
             entry["column_samples"] = samples
         if (
@@ -604,10 +625,12 @@ def run_list_documents(
             > ctx.settings.agent_generated_header_ratio
         ):
             entry["quality"] = "low_generated_headers"
+            _apply_header_recovery(ctx=ctx, entry=entry, read=read)
         payload.append(entry)
     # Garbage-header docs sort after every clean doc — demoted, not
-    # dropped, so their sample values can still rescue them.
-    payload.sort(key=lambda e: "quality" in e)
+    # dropped, so their sample values can still rescue them. A doc whose
+    # names were recovered is no longer garbage and keeps its place.
+    payload.sort(key=lambda e: _is_demoted(e))
 
     # State tracks every doc listed (including any the filter below
     # excludes) so the run_sql pairing check can still validate a doc
@@ -628,6 +651,14 @@ def run_list_documents(
         rc = entry.get("row_count")
         if isinstance(rc, int):
             ctx.state.doc_row_count[doc_id] = rc
+        recovered = entry.get("column_names_recovered")
+        if isinstance(recovered, dict) and recovered:
+            ctx.state.doc_recovered_names[doc_id] = {
+                str(k): str(v) for k, v in recovered.items()
+            }
+        header_row = entry.get("header_row_index")
+        if isinstance(header_row, int):
+            ctx.state.doc_header_row[doc_id] = header_row
 
     result: dict[str, Any] = {"documents": payload}
     filtered_out: list[dict[str, Any]] = []
@@ -664,7 +695,7 @@ def run_list_documents(
     if (
         result.get("required_columns_unsatisfiable")
         or not docs_listed
-        or all("quality" in d for d in docs_listed)
+        or all(_is_demoted(d) for d in docs_listed)
     ):
         result["guidance"] = _weak_guidance(
             ctx.state,
@@ -684,6 +715,51 @@ def run_list_documents(
         )
     )
     return result
+
+
+_QUALITY_DEMOTED = "low_generated_headers"
+_QUALITY_RECOVERED = "recovered_headers"
+
+
+def _is_demoted(entry: dict[str, Any]) -> bool:
+    """Whether a listing entry is one the model should be steered away
+    from. A document whose column names were recovered is readable with
+    an asterisk, not unreadable, so it is not demoted."""
+    return entry.get("quality") == _QUALITY_DEMOTED
+
+
+def _apply_header_recovery(
+    *, ctx: ToolContext, entry: dict[str, Any], read: DocumentRead
+) -> None:
+    """Try to name a demoted document's positional columns, in place.
+
+    `columns` is deliberately left alone. It stays the single source of
+    truth for what the stored row contains, and SQL keeps addressing the
+    positional keys; recovery is an interpretation layered on top. If
+    the payload renamed columns in place, every consumer would need to
+    know which of the two it was holding.
+
+    On a decline the entry is indistinguishable from today's.
+    """
+    if not ctx.settings.agent_header_recovery:
+        return
+    rows = read.header_rows.get(str(entry["document_id"]))
+    if not rows:
+        return
+    generated = [
+        c for c in entry["columns"] if GENERATED_COL_RE.fullmatch(str(c))
+    ]
+    recovery = detect_header(
+        rows,
+        generated,
+        scan_rows=ctx.settings.agent_header_scan_rows,
+        min_density=ctx.settings.agent_header_min_density,
+    )
+    if recovery is None:
+        return
+    entry["column_names_recovered"] = dict(recovery.names)
+    entry["header_row_index"] = recovery.header_row_index
+    entry["quality"] = _QUALITY_RECOVERED
 
 
 def run_sample_rows(

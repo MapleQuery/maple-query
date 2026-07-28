@@ -446,6 +446,17 @@ class Settings(BaseSettings):
     # this ratio get quality-flagged and demoted (never dropped —
     # legitimately wide generated-header tables exist).
     agent_generated_header_ratio: float = 0.5
+    # Read-time recovery of column names for those same docs: find the
+    # real header row hiding below the preamble and expose what it
+    # calls each column. Ships OFF — it changes names the model reasons
+    # with, and the evidence for turning it on is the offline recovery
+    # report, not a live run. The two tunables mirror the detector's own
+    # defaults (a test pins them together); they live here as well
+    # because the tool path has to be able to move them without a
+    # release.
+    agent_header_recovery: bool = False
+    agent_header_scan_rows: int = 8
+    agent_header_min_density: float = 0.6
 
     # ── Braintrust tracing ──
     # Wrapping the OpenAI client through `braintrust.wrap_openai` sends

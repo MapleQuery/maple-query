@@ -172,16 +172,25 @@ def columns_by_package(ctx: TurnContext) -> dict[str, list[str]]:
 
     Deduped by name, because heterogeneous documents in one package
     routinely repeat a column.
+
+    Recovered names are substituted for the positional keys they
+    replace. The footer note and the browse chip both key off the share
+    of names that are still `__col_N`, so a package whose headers were
+    recovered stops being described as "most unnamed" and becomes
+    browsable again — which is the entire point of recovering them. The
+    substitution happens here, once, rather than in each consumer.
     """
     out: dict[str, list[str]] = {}
     for doc_id, columns in ctx.state.doc_columns.items():
         pid = ctx.state.doc_package.get(doc_id)
         if not pid:
             continue
+        recovered = ctx.state.doc_recovered_names.get(doc_id, {})
         seen = out.setdefault(pid, [])
         for column in columns:
-            if column not in seen:
-                seen.append(column)
+            effective = recovered.get(column, column)
+            if effective not in seen:
+                seen.append(effective)
     return out
 
 
