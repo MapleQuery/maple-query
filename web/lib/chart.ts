@@ -174,16 +174,14 @@ export function inferChartSpec(
 }
 
 /**
- * A block's stored chart preferences. Every field is optional: a block
+ * A chart block's stored preferences. Every field is optional: a block
  * that has never been touched stores nothing and gets the inference,
- * which is what makes the chart appear on its own the first time.
+ * which is what makes a chart draw itself the moment it is inserted.
  */
 export interface ChartOverrides {
   type?: ChartType;
   categoryColumn?: string;
   valueColumn?: string;
-  /** The user dismissed the chart for this block. */
-  hidden?: boolean;
 }
 
 /**
@@ -195,7 +193,6 @@ export function resolveChartSpec(
   rows: Record<string, unknown>[],
   overrides?: ChartOverrides,
 ): ChartSpec | null {
-  if (overrides?.hidden) return null;
   // A stored override outlives the run that produced it: re-running a
   // block against a reworded question returns different columns, and a
   // preference naming a column that is no longer there has to yield to

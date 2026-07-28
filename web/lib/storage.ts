@@ -155,14 +155,28 @@ export const conversations = {
   remove: (id: string) => deleteEntry("conversations", id),
 };
 
-export interface StoredNotebookBlockProse {
-  type: "prose";
+/**
+ * Fields every block carries, whatever its type.
+ *
+ * A notebook is two things at once: the workspace a question was worked
+ * out in, and the document that comes out the other end. `hidden` is the
+ * seam between them — the block stays in the editor, editable and
+ * runnable, and is left out of the export. Research that led somewhere
+ * should not have to be deleted to keep it out of the finished piece.
+ */
+interface StoredNotebookBlockBase {
   id: string;
+  /** Kept out of the exported document. Optional: absent means exported,
+   * so notebooks written before this existed export unchanged. */
+  hidden?: boolean;
+}
+
+export interface StoredNotebookBlockProse extends StoredNotebookBlockBase {
+  type: "prose";
   markdown: string;
 }
-export interface StoredNotebookBlockQuery {
+export interface StoredNotebookBlockQuery extends StoredNotebookBlockBase {
   type: "query";
-  id: string;
   question: string;
   conversationId: string;
   state: "idle" | "running" | "done" | "error";
@@ -180,15 +194,10 @@ export interface StoredNotebookBlockQuery {
   /** Offers from the last run; drives the follow-up affordance.
    * Optional for the same reason. */
   suggestions?: SuggestionT[];
-  /** How this block charts its result.
-   *
-   * Overrides only, never a resolved spec: absent means "whatever the
-   * rows infer", which is what lets a chart appear on a block nobody
-   * configured, and lets a re-run against different columns re-infer
-   * rather than point at a column that no longer exists.
-   *
-   * Optional: pre-chart notebooks load unchanged. */
-  chart?: ChartOverrides;
+  /** Superseded by a chart *block*. Read once on load and converted;
+   * see `migrateInlineCharts`. Never written. `hidden` here meant "chart
+   * dismissed", which is not what `hidden` means on a block. */
+  chart?: ChartOverrides & { hidden?: boolean };
   result?: {
     assistantText: string;
     sql: string;
@@ -202,9 +211,32 @@ export interface StoredNotebookBlockQuery {
   };
   errorMessage?: string;
 }
+/**
+ * A chart of some query block's result.
+ *
+ * It holds a *reference*, not a copy of the rows. A snapshot would be
+ * reorder- and delete-proof, but it would also go stale the moment its
+ * query is re-run — a chart showing last run's numbers directly above a
+ * table showing this run's is wrong in the way that is hardest to catch,
+ * because nothing on screen looks broken. Reading the source's rows live
+ * means the chart is always consistent with the table it sits near, and
+ * the one failure a reference has (its source deleted) is loud and
+ * repairable: the block says so and offers the other queries.
+ */
+export interface StoredNotebookBlockChart extends StoredNotebookBlockBase {
+  type: "chart";
+  /** The query block whose result this charts. */
+  sourceBlockId: string;
+  /** Overrides only, never a resolved spec: absent means "whatever the
+   * rows infer", so a re-run against different columns re-infers rather
+   * than pointing at a column that no longer exists. */
+  overrides?: ChartOverrides;
+}
+
 export type StoredNotebookBlock =
   | StoredNotebookBlockProse
-  | StoredNotebookBlockQuery;
+  | StoredNotebookBlockQuery
+  | StoredNotebookBlockChart;
 
 export interface StoredNotebook {
   id: string;
