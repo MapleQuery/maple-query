@@ -20,6 +20,7 @@ import { SqlBlock } from "./sql-block";
 import { RowsTable } from "./rows-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn, formatElapsed } from "@/lib/utils";
+import type { ResultRows } from "@/lib/result-rows";
 import type {
   ColumnCandidateT,
   DatasetCandidateT,
@@ -60,10 +61,11 @@ export type RailCard =
         reason: string | null;
         sql_final: string;
       };
-      executed?: {
+      // `ResultRows` rather than a bare array: the rows are assembled
+      // from two frames, and the card has to carry which call owns them.
+      executed?: ResultRows & {
         row_count: number;
         elapsed_ms: number | null;
-        rows: Record<string, unknown>[];
       };
     }
   | {

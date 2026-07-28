@@ -1,6 +1,6 @@
 """Header-row detection state machine.
 
-The CSV corpus has three header shapes (master M2 §4.2 rule 3):
+The CSV corpus has three header shapes:
 
 - Row-0 single header (97% of files).
 - Preamble + row-N single header (~3%).
@@ -44,8 +44,8 @@ def detect_header(
     Reads up to `body_min_run + header_lookback` rows from the front
     of the iterator. All callers stream the rest of the file from a
     fresh polars reader skipped to `body_start_index` (we don't try
-    to re-feed buffered rows back through the parser — simpler and
-    matches the §7.1 design).
+    to re-feed buffered rows back through the parser — simpler, and it
+    keeps the parser the single owner of how bytes become rows).
     """
     buffer = _take(rows, body_min_run + header_lookback)
     if not buffer:

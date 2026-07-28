@@ -1,3 +1,10 @@
+import {
+  chartData,
+  renderChartSvg,
+  resolveChartSpec,
+  svgToDataUri,
+  type ChartOverrides,
+} from "@/lib/chart";
 import type { StoredNotebook } from "@/lib/storage";
 import type { DatasetTitleMap } from "@/lib/dataset-titles";
 
@@ -59,6 +66,11 @@ export function exportNotebookAsMarkdown(
         parts.push("");
       }
       if (b.result?.rows && b.result.rows.length > 0) {
+        const chart = chartMarkdown(b.result.rows, b.chart);
+        if (chart) {
+          parts.push(chart);
+          parts.push("");
+        }
         parts.push(rowsToMarkdownTable(b.result.rows.slice(0, 20)));
         parts.push("");
       }
@@ -70,6 +82,37 @@ export function exportNotebookAsMarkdown(
   }
 
   return parts.join("\n");
+}
+
+/**
+ * The block's chart as a Markdown image, or "" when it has none.
+ *
+ * An `![](data:image/svg+xml;base64,…)` image rather than inline SVG,
+ * because the export is rendered by `react-markdown` with no raw-HTML
+ * plugin: ordinary image syntax needs none. It draws from the same
+ * `resolveChartSpec` the block does, so the report cannot show a
+ * different chart from the screen.
+ *
+ * A viewer that refuses data URIs (GitHub strips them) shows no image
+ * and still gets the table immediately below — the chart is an addition
+ * to the export, never the only copy of the numbers.
+ */
+function chartMarkdown(
+  rows: Record<string, unknown>[],
+  overrides: ChartOverrides | undefined,
+): string {
+  const spec = resolveChartSpec(rows, overrides);
+  if (!spec) return "";
+  const data = chartData(rows, spec);
+  const svg = renderChartSvg(data, spec, { valueLabel: spec.valueColumn });
+  if (!svg) return "";
+  const form = spec.type === "line" ? "Line chart" : "Bar chart";
+  // Brackets and parens would terminate the image syntax early.
+  const alt = `${form} of ${spec.valueColumn} by ${spec.categoryColumn}`.replace(
+    /[[\]()]/g,
+    "",
+  );
+  return `![${alt}](${svgToDataUri(svg)})`;
 }
 
 function rowsToMarkdownTable(rows: Record<string, unknown>[]): string {

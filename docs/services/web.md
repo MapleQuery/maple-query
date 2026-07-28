@@ -26,15 +26,19 @@ web/
 │   ├── layout/          # Site header
 │   ├── evidence/        # Shared across all three surfaces:
 │   │                    # Message, EvidenceRail, DatasetCard, DatasetChip,
-│   │                    # ColumnList, SqlBlock, RowsTable, CostBadge
+│   │                    # ColumnList, SqlBlock, RowsTable, ResultChart,
+│   │                    # CostBadge
 │   ├── chat/            # ChatContainer + composer + conversation switcher
-│   ├── notebook/        # NotebookContainer + Markdown/PDF export
+│   ├── notebook/        # NotebookContainer + ScopePicker + MD/PDF export
 │   └── explorer/        # ExplorerContainer + step chain
 ├── lib/
 │   ├── api.ts           # REST wrappers (datasets, columns, /sql/run)
 │   ├── sse.ts           # POST-capable SSE via @microsoft/fetch-event-source,
 │   │                    # dispatches typed AgentEvent unions after zod-validating
-│   ├── types.ts         # zod schemas mirroring 5.1's event dataclasses
+│   ├── types.ts         # zod schemas mirroring the agent event dataclasses
+│   ├── chart.ts         # rows → SVG string (inference + render), no deps
+│   ├── columns.ts       # recognises loader-generated `__col_N` names
+│   ├── result-rows.ts   # folds sql_executed's preview + the rows frames
 │   ├── storage.ts       # localStorage with per-collection LRU index (max 50)
 │   │                    # + quota-exceeded eviction
 │   ├── dataset-titles.ts # package_id → title cache + backfill hook
@@ -81,8 +85,8 @@ carry the visual distinction that separate serif / mono families would.
 ### /notebook · secondary
 - Ordered list of prose (Markdown) and query (single-turn `/chat`) blocks.
 - A single **Export** control with a format menu. Both formats build the
-  same Markdown document — every block, including SQL fenced blocks and
-  result tables (first 20 rows):
+  same Markdown document — every block, including SQL fenced blocks,
+  charts, and result tables (first 20 rows):
   - **Markdown** downloads it as `.md`.
   - **PDF** renders it with the same ReactMarkdown/remark-gfm pair used on
     screen into an off-screen iframe and calls `print()` on that iframe,
@@ -91,7 +95,16 @@ carry the visual distinction that separate serif / mono families would.
 - Dataset references (the `Scoped to:` and `Datasets:` rows, and the
   `Sources:` line in an export) are named by title, not package UUID. See
   "Dataset titles" below.
-- Re-running a query block clears its result and re-streams.
+- Every query block carries a **scope** — the datasets it is pinned to,
+  re-sent as `scope_package_ids` on each run. It can come from an accepted
+  suggestion or from the block's own dataset picker (`scope-picker.tsx`,
+  backed by `GET /datasets`); "drop scope" clears it. Scope lives on the
+  block rather than chaining from a previous block, because blocks are
+  reorderable and deletable and a parent→child link breaks silently the
+  moment one is moved.
+- Re-running a query block clears its result and re-streams. Chart
+  preferences survive the re-run; a stale column reference does not (see
+  "Charts").
 
 ### /explorer · secondary
 - Left column: prompt input + step chain (prompt cards + SQL cards).
@@ -108,6 +121,50 @@ carry the visual distinction that separate serif / mono families would.
   "Source files" table — per-file open.canada.ca download links, with an
   "Enriched" badge on the representative document. The section hides
   itself when the fetch fails or returns no files.
+- Columns named `__col_<n>` are the ones whose names the loader had to
+  invent, and the columns table marks them `unnamed` and suppresses their
+  description. The enrichment wrote a description for each from its values
+  alone, which produced several near-identical paragraphs that read as
+  information and are not; one banner above the table explains the cause
+  once instead. `lib/columns.ts` holds the single definition of "unnamed"
+  on the client. Read-time header recovery is a property of a *turn* and
+  is never written back to the enriched column table, so this browsing
+  surface always shows the generated names.
+
+---
+
+## Charts
+
+`lib/chart.ts` turns result rows into an SVG **string**, not a component
+tree, and owns the whole feature: no charting dependency is installed.
+
+The string is the point. The notebook's exports render Markdown through
+`react-markdown` in a detached iframe, so anything that exists only as
+mounted React is absent from the exported report. One function that
+returns markup can be drawn on screen and embedded in the Markdown as
+`![](data:image/svg+xml;base64,…)`, so the report cannot disagree with the
+screen. Ordinary image syntax also means the print path needs no
+raw-HTML plugin — but it *does* need `print-pdf.tsx`'s `urlTransform`,
+because `react-markdown`'s default allows only http/https/mailto and
+would silently drop the `src`.
+
+Which columns to plot is inferred (`inferChartSpec`): the first column
+that is not mostly numeric is the category, the first numeric one after
+it is the value, and a category that parses as years or fiscal years
+makes it a line instead of bars. A block stores *overrides* only
+(`ChartOverrides`), never a resolved spec, so an untouched block gets the
+inference and a re-run against different columns re-infers rather than
+pointing at a column that no longer exists.
+
+Rows the parse drops and categories past the 12-bar cap are reported in
+the chart's own caption rather than silently omitted.
+
+Single series, so no legend — one validated hue (`#005B9F`, which clears
+the lightness band, chroma floor and 3:1 contrast on both the white card
+and white paper), bars capped at 24px with 4px rounded data-ends, hairline
+gridlines only where a line chart needs them, and hover titles on every
+mark. The app has no dark mode and the PDF lands on white paper, so there
+is one light palette by choice, not by omission.
 
 ---
 
@@ -129,6 +186,23 @@ up at all, so reopening a saved notebook costs no requests.
 
 Every failure mode degrades to the raw id, which is what these surfaces
 showed before.
+
+---
+
+## Result rows
+
+One `run_sql` execution arrives as two frames: `sql_executed` carries the
+first three rows so something can render immediately, then `rows` carries
+the whole set. Seeding from the first and appending the second duplicates
+the preview — a 100-row `GROUP BY` rendered as "first 20 of 103" with its
+three largest groups counted twice.
+
+`lib/result-rows.ts` is the shared fold, used by all three surfaces. The
+preview is held until the real set arrives; the first `rows` frame for a
+call replaces it and takes ownership, later frames for the same
+`sql_call_id` append (`is_last` may be false), and `sql_executed` releases
+ownership so a second execution in the same turn starts clean — that
+frame carries no call id of its own to key on.
 
 ---
 

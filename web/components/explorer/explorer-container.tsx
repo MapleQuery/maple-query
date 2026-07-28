@@ -12,6 +12,11 @@ import {
 import { streamChat } from "@/lib/sse";
 import { runSql } from "@/lib/api";
 import {
+  EMPTY_RESULT_ROWS,
+  mergeRowsFrame,
+  seedPreviewRows,
+} from "@/lib/result-rows";
+import {
   explorer as explorerStore,
   type ExplorerStep,
   type StoredExplorer,
@@ -107,7 +112,7 @@ export function ExplorerContainer() {
 
     try {
       let sql = "";
-      let rows: Record<string, unknown>[] = [];
+      let result = EMPTY_RESULT_ROWS;
       let status: Extract<ExplorerStep, { type: "sql" }>["status"] = "ok";
       let reason: string | null = null;
       let elapsedMs: number | null = null;
@@ -130,12 +135,12 @@ export function ExplorerContainer() {
                 }
                 break;
               case "sql_executed":
-                rows = event.payload.sample_rows ?? [];
+                result = seedPreviewRows(event.payload.sample_rows);
                 elapsedMs = event.payload.elapsed_ms;
                 bytesBilled = event.payload.bytes_billed;
                 break;
               case "rows":
-                rows = [...rows, ...event.payload.rows];
+                result = mergeRowsFrame(result, event.payload);
                 break;
               case "tool_error":
                 status = "execution_error";
@@ -155,8 +160,8 @@ export function ExplorerContainer() {
                   ? {
                       ...s,
                       sql,
-                      rows,
-                      rowCount: rows.length,
+                      rows: result.rows,
+                      rowCount: result.rows.length,
                       status,
                       reason,
                       elapsedMs,
@@ -175,8 +180,8 @@ export function ExplorerContainer() {
                   ? {
                       ...s,
                       sql,
-                      rows,
-                      rowCount: rows.length,
+                      rows: result.rows,
+                      rowCount: result.rows.length,
                       status: "execution_error",
                       reason: err.message,
                     }
