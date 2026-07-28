@@ -359,6 +359,49 @@ def test_check_doc_column_pairing_flags_missing_column() -> None:
     assert "doc-other" in msg
 
 
+def test_check_doc_column_pairing_names_the_column_it_meant() -> None:
+    """Listing the available columns has proved not to be enough: a
+    model that has committed to `Expenditures` reads the list as proof
+    the column is absent. Name the near-match outright."""
+    state = agent_tools.LoopState(
+        conversation_id="c", turn_id="t", question="q"
+    )
+    state.doc_columns["doc-inlined"] = [
+        "Organization",
+        "Vote",
+        "2023-24 Expenditures",
+    ]
+    sql = (
+        "SELECT JSON_VALUE(r.row, '$.Expenditures') AS amount "
+        "FROM raw.rows AS r WHERE r.document_id IN ('doc-inlined') LIMIT 10"
+    )
+    violations, msg = agent_tools.check_doc_column_pairing(
+        sql=sql, state=state
+    )
+    assert len(violations) == 1
+    assert violations[0]["did_you_mean"] == ["2023-24 Expenditures"]
+    assert msg is not None
+    assert "you most likely meant" in msg
+    assert "2023-24 Expenditures" in msg
+
+
+def test_check_doc_column_pairing_has_no_guess_when_nothing_matches() -> None:
+    state = agent_tools.LoopState(
+        conversation_id="c", turn_id="t", question="q"
+    )
+    state.doc_columns["doc-inlined"] = ["Organization", "Vote"]
+    sql = (
+        "SELECT JSON_VALUE(r.row, '$.Airplane') AS a "
+        "FROM raw.rows AS r WHERE r.document_id IN ('doc-inlined') LIMIT 10"
+    )
+    violations, msg = agent_tools.check_doc_column_pairing(
+        sql=sql, state=state
+    )
+    assert violations[0]["did_you_mean"] == []
+    assert msg is not None
+    assert "you most likely meant" not in msg
+
+
 def test_check_doc_column_pairing_skips_when_no_docs_known() -> None:
     """Empty doc_columns → nothing to check. Guards against the tool
     running before list_documents surfaces docs."""
@@ -479,6 +522,7 @@ def test_check_doc_column_pairing_union_arm_violation_still_flagged() -> None:
         "doc_id": "doc-1",
         "available_columns": ["A"],
         "other_docs_with_column": ["doc-2"],
+        "did_you_mean": [],
     }
     assert msg is not None
 

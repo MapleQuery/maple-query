@@ -188,7 +188,13 @@ def test_unsatisfiable_required_columns_carries_weak_guidance() -> None:
         args={"package_ids": ["pkg-1"], "required_columns": ["NOPE"]},
     )
     assert result["required_columns_unsatisfiable"] is True
-    assert "Reconsider your package choice" in result["guidance"]
+    # Not one requested name resembles anything here, so this stays a
+    # weak signal — it is genuinely ambiguous between wrong vocabulary
+    # and wrong package, and the guidance says so rather than picking.
+    # (A *partial* match is a vocabulary slip and is steered differently;
+    # see test_list_documents_required_columns.py.)
+    assert "reformulate your dataset search" in result["guidance"]
+    assert "`columns`" in result["guidance"]
     assert ctx.state.weak_signal_seen is True
 
 

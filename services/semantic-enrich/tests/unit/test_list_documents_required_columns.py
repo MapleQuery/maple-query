@@ -119,6 +119,7 @@ def test_unsatisfiable_returns_full_list_with_flag() -> None:
         },
     )
     assert result["required_columns_unsatisfiable"] is True
+    assert result["unmatched_columns"] == ["NOT_A_COLUMN"]
     assert [d["document_id"] for d in result["documents"]] == [
         "doc-A",
         "doc-B",
@@ -128,6 +129,157 @@ def test_unsatisfiable_returns_full_list_with_flag() -> None:
     assert isinstance(listed[0], agent_events.DocumentsListed)
     assert listed[0].required_columns_unsatisfiable is True
     assert listed[0].filtered_out is None
+
+
+# ── The `2025-26 Estimates` failure ──
+#
+# Real headers from two of that package's five documents. A turn scoped
+# to the package asked for a sum of expenditures by department, the model
+# passed those two words as `required_columns`, the exact-equality filter
+# matched nothing, and the answer told the user the dataset does not hold
+# the data — while `organization-summary` was in the listing the whole
+# time.
+_ORG_SUMMARY = [
+    "Organization",
+    "Vote",
+    "Description",
+    "2023-24 Expenditures",
+    "2025-26 Main Estimates",
+]
+_STATUTORY = [
+    "Department, Agency or Crown corporation",
+    "2023–24 Expenditures",
+    "2025–26 Main Estimates",
+]
+
+
+def _bq_estimates_package() -> FakeBqClient:
+    bq = FakeBqClient()
+    bq.register_query(
+        "load_status = 'loaded'",
+        [
+            {
+                "document_id": "doc-org-summary",
+                "package_id": "pkg-1",
+                "title": "organization-summary",
+                "row_count": 586,
+                "resource_last_modified": None,
+            },
+            {
+                "document_id": "doc-statutory",
+                "package_id": "pkg-1",
+                "title": "statutory-forecasts",
+                "row_count": 482,
+                "resource_last_modified": None,
+            },
+        ],
+    )
+    bq.register_query(
+        "JSON_KEYS(row)",
+        [
+            {"document_id": "doc-org-summary", "columns": _ORG_SUMMARY},
+            {"document_id": "doc-statutory", "columns": _STATUTORY},
+        ],
+    )
+    return bq
+
+
+def test_question_words_no_longer_read_as_missing_data() -> None:
+    ctx, _events = _ctx(_bq_estimates_package())
+    result = agent_tools.run_list_documents(
+        ctx=ctx,
+        args={
+            "package_ids": ["pkg-1"],
+            "required_columns": ["Expenditures", "Department"],
+        },
+    )
+    # Both concepts are present, so nothing is unsatisfiable.
+    assert "required_columns_unsatisfiable" not in result
+    assert result["required_columns_inexact"] is True
+    # And the listing is NOT narrowed: only `statutory-forecasts` carries
+    # both, and it is the document whose first column holds department
+    # names on section rows and item names on data rows. Narrowing to it
+    # on a loose match would hand back a confidently wrong GROUP BY.
+    assert [d["document_id"] for d in result["documents"]] == [
+        "doc-org-summary",
+        "doc-statutory",
+    ]
+    assert result["column_matches"]["doc-org-summary"] == {
+        "Expenditures": ["2023-24 Expenditures"]
+    }
+    assert result["column_matches"]["doc-statutory"] == {
+        "Expenditures": ["2023–24 Expenditures"],
+        "Department": ["Department, Agency or Crown corporation"],
+    }
+    # The steer must be about column names, never about the package —
+    # under a user-set scope the package is not the model's to change,
+    # and "reconsider your package choice" is what ended the real turn.
+    guidance = result["guidance"].lower()
+    assert "column_matches" in guidance
+    assert "reconsider your package" not in guidance
+    assert "reformulate your dataset search" not in guidance
+
+
+def test_inexact_filter_does_not_burn_the_reformulation_signal() -> None:
+    """A vocabulary mistake is not a weak-retrieval signal. Treating it
+    as one spends the turn's free reformulation and steers to clarify."""
+    ctx, _events = _ctx(_bq_estimates_package())
+    agent_tools.run_list_documents(
+        ctx=ctx,
+        args={
+            "package_ids": ["pkg-1"],
+            "required_columns": ["Expenditures", "Department"],
+        },
+    )
+    assert ctx.state.weak_signal_seen is False
+
+
+def test_unmatched_column_reports_where_the_others_live() -> None:
+    ctx, _events = _ctx(_bq_estimates_package())
+    result = agent_tools.run_list_documents(
+        ctx=ctx,
+        args={
+            "package_ids": ["pkg-1"],
+            "required_columns": ["Expenditures", "Airplane"],
+        },
+    )
+    assert result["required_columns_unsatisfiable"] is True
+    assert result["unmatched_columns"] == ["Airplane"]
+    assert result["column_availability"]["Airplane"] == []
+    assert result["column_availability"]["Expenditures"] == [
+        {
+            "document_id": "doc-org-summary",
+            "matching_columns": ["2023-24 Expenditures"],
+        },
+        {
+            "document_id": "doc-statutory",
+            "matching_columns": ["2023–24 Expenditures"],
+        },
+    ]
+    assert ctx.state.weak_signal_seen is False
+
+
+def test_exact_match_still_hard_filters() -> None:
+    """The original guarantee survives: when literal names do resolve,
+    the listing narrows exactly as before."""
+    ctx, _events = _ctx(_bq_estimates_package())
+    result = agent_tools.run_list_documents(
+        ctx=ctx,
+        args={
+            "package_ids": ["pkg-1"],
+            "required_columns": ["Organization", "2023-24 Expenditures"],
+        },
+    )
+    assert [d["document_id"] for d in result["documents"]] == [
+        "doc-org-summary"
+    ]
+    assert "required_columns_inexact" not in result
+    assert result["filtered_out"] == [
+        {
+            "document_id": "doc-statutory",
+            "missing_columns": ["Organization", "2023-24 Expenditures"],
+        }
+    ]
 
 
 def test_empty_required_columns_list_is_a_noop() -> None:

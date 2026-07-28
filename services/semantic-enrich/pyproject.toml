@@ -100,6 +100,14 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF"]
 # "ambiguous character" lint is a false positive against pinned
 # prompt content.
 "**/column_prompt.py" = ["RUF001"]
+# Dash variants are the subject matter here, not a typo: the corpus
+# spells the same fiscal year `2023-24` in one document and `2023–24` in
+# another, and folding them is exactly what these modules do. Replacing
+# the en dashes with hyphens to satisfy RUF001 would delete the case
+# under test.
+"**/column_match.py" = ["RUF001", "RUF002"]
+"**/test_column_match.py" = ["RUF001"]
+"**/test_list_documents_required_columns.py" = ["RUF001"]
 
 [tool.mypy]
 python_version = "3.12"

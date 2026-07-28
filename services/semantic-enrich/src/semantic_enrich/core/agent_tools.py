@@ -36,6 +36,7 @@ from semantic_enrich.core import agent_events
 # What counts as a synthesised positional name is owned by
 # `header_recovery`, which also has to reason about it; this module keeps
 # the import so callers that already reach for it here still resolve.
+from semantic_enrich.core.column_match import is_exact, match_columns
 from semantic_enrich.core.header_recovery import (
     GENERATED_COL_RE,
     detect_header,
@@ -207,7 +208,11 @@ _LIST_DOCUMENTS: dict[str, Any] = {
                     "listed name. Use when you already know which "
                     "columns your SQL will reference — the returned "
                     "documents are then guaranteed safe to inline "
-                    "together for those columns."
+                    "together for those columns. Pass names you have "
+                    "actually seen in a `columns` list, not words taken "
+                    "from the question: a name that matches nothing does "
+                    "not narrow anything, and never means the data is "
+                    "absent."
                 ),
             },
         },
@@ -427,6 +432,38 @@ _GUIDANCE_NO_USABLE_DOCS = (
     "No usable documents for this package selection. Reconsider your "
     "package choice, or reformulate your dataset search with different "
     "vocabulary."
+)
+# The failure this exists for: the model names columns from the words in
+# the question ("Expenditures", "Department"), the real headers are
+# "2023-24 Expenditures" and "Department, Agency or Crown corporation",
+# and an empty filter result reads as "the data is not here". It is not a
+# retrieval problem and must not be answered like one — telling a
+# user-scoped turn to reconsider its package ends the turn.
+_GUIDANCE_NO_COLUMN_MATCH = (
+    "Not one of your required_columns resembles any column in these "
+    "documents — see their `columns` lists. That is either the wrong "
+    "vocabulary or the wrong package, and unlike a partial match it does "
+    "not say which. Read the columns above first; if nothing there can "
+    "answer the question, reformulate your dataset search."
+)
+_GUIDANCE_COLUMN_VOCABULARY = (
+    "Your required_columns were guesses at what the columns are called, "
+    "and at least one of them matches nothing in these documents. See "
+    "`unmatched_columns` for which, and `column_availability` for where "
+    "the others live. Do NOT conclude the data is missing, and do NOT "
+    "change packages: read the `columns` list of each document above and "
+    "write SQL against the names it actually has. A word from the "
+    "question is a concept to map onto a real column, not a column name "
+    "— 'department' is usually a column called Organization, 'spending' "
+    "or 'expenditures' is usually a named fiscal-year column."
+)
+_GUIDANCE_COLUMN_INEXACT = (
+    "No single document has all of your required_columns under those "
+    "literal names, but each one matches a real column somewhere — see "
+    "`column_matches` for the mapping, document by document. The listing "
+    "was NOT narrowed, because choosing for you would mean guessing "
+    "which document you meant. Pick one and use the exact names from its "
+    "own `columns` list; run_sql rejects any other spelling."
 )
 
 
@@ -666,47 +703,42 @@ def run_list_documents(
 
     result: dict[str, Any] = {"documents": payload}
     filtered_out: list[dict[str, Any]] = []
+    # `matched_any` separates "you named the columns wrong" from "nothing
+    # here resembles what you asked for", which need opposite steers.
+    matched_any = True
     if required_columns:
-        kept: list[dict[str, Any]] = []
-        for entry in payload:
-            missing = [
-                c for c in required_columns if c not in set(entry["columns"])
-            ]
-            if missing:
-                filtered_out.append(
-                    {
-                        "document_id": entry["document_id"],
-                        "missing_columns": missing,
-                    }
-                )
-            else:
-                kept.append(entry)
-        if kept:
-            result["documents"] = kept
-            if filtered_out:
-                result["filtered_out"] = filtered_out
-        else:
-            # An empty listing would push the model toward surrender;
-            # return everything and flag the filter as unsatisfiable.
-            filtered_out = []
-            result["required_columns_unsatisfiable"] = True
+        filtered_out, matched_any = _apply_required_columns(
+            result=result, payload=payload, required_columns=required_columns
+        )
 
-    # Zero usable docs (unsatisfiable filter, nothing listed, or every
-    # doc quality-demoted) is the same signal as a weak search: guide
-    # the model to rethink instead of surrendering, under the same
-    # reformulation-policy caps.
+    # Zero usable docs — nothing listed, every doc quality-demoted, or a
+    # column filter where not one requested name resembles anything here
+    # — is the same signal as a weak search: guide the model to rethink,
+    # under the same reformulation-policy caps.
     docs_listed = result["documents"]
-    if (
-        result.get("required_columns_unsatisfiable")
-        or not docs_listed
-        or all(_is_demoted(d) for d in docs_listed)
-    ):
+    if not docs_listed or all(_is_demoted(d) for d in docs_listed):
         result["guidance"] = _weak_guidance(
             ctx.state,
             ctx.settings,
             reformulate_text=_GUIDANCE_NO_USABLE_DOCS,
         )
         ctx.state.weak_signal_seen = True
+    elif not matched_any:
+        result["guidance"] = _weak_guidance(
+            ctx.state,
+            ctx.settings,
+            reformulate_text=_GUIDANCE_NO_COLUMN_MATCH,
+        )
+        ctx.state.weak_signal_seen = True
+    elif result.get("required_columns_unsatisfiable"):
+        # Some names did resolve, so the package demonstrably holds
+        # related data and the failure is vocabulary. This is the case
+        # that must NOT be steered toward reconsidering the package: a
+        # turn the user scoped to one dataset then ends in "this dataset
+        # does not have that data" with the data in the listing above.
+        result["guidance"] = _GUIDANCE_COLUMN_VOCABULARY
+    elif result.get("required_columns_inexact"):
+        result["guidance"] = _GUIDANCE_COLUMN_INEXACT
 
     ctx.emit(
         agent_events.DocumentsListed(
@@ -723,6 +755,108 @@ def run_list_documents(
 
 _QUALITY_DEMOTED = "low_generated_headers"
 _QUALITY_RECOVERED = "recovered_headers"
+
+
+def _apply_required_columns(
+    *,
+    result: dict[str, Any],
+    payload: list[dict[str, Any]],
+    required_columns: list[str],
+) -> tuple[list[dict[str, Any]], bool]:
+    """Narrow the listing to documents that carry `required_columns`.
+
+    Three outcomes, and which one applies turns on how much the match
+    assumed:
+
+    - **Every name matched exactly, somewhere.** Filter as before. This
+      is the tool's original guarantee — the returned documents are safe
+      to inline together for those literal columns — and it still holds
+      because it rests on nothing but string equality.
+
+    - **Some name only matched loosely.** Do *not* filter. A loose match
+      is an inference about what the model meant, and narrowing a listing
+      on an inference is how a turn ends up confidently querying the
+      wrong table. Every document is returned, annotated with the real
+      names each request maps to, and the model chooses.
+
+    - **Some name matched nothing anywhere.** Return everything with a
+      per-name map of where each of the others live, so the answer to
+      "which document do I use" is in the payload rather than left as an
+      exercise.
+
+    Returns `(filtered_out, matched_any)`. `filtered_out` is empty unless
+    the listing was actually narrowed; `matched_any` is False only when
+    not one requested name resembles anything here, which the caller
+    treats as a weak signal rather than as a vocabulary slip.
+    """
+    matches: dict[str, dict[str, list[str]]] = {}
+    for entry in payload:
+        columns = [str(c) for c in entry["columns"]]
+        matches[str(entry["document_id"])] = {
+            name: match_columns(name, columns) for name in required_columns
+        }
+
+    unmatched = [
+        name
+        for name in required_columns
+        if not any(m[name] for m in matches.values())
+    ]
+    if unmatched:
+        result["required_columns_unsatisfiable"] = True
+        result["unmatched_columns"] = unmatched
+        # Where the names that *did* match actually live. Only inexact
+        # hits are worth spelling out; an exact hit is already visible in
+        # the document's own `columns`.
+        availability: dict[str, list[dict[str, Any]]] = {}
+        for name in required_columns:
+            if name in unmatched:
+                availability[name] = []
+                continue
+            availability[name] = [
+                {
+                    "document_id": doc_id,
+                    "matching_columns": hits,
+                }
+                for doc_id, m in matches.items()
+                if (hits := m[name])
+            ]
+        result["column_availability"] = availability
+        return [], len(unmatched) < len(required_columns)
+
+    def satisfies_exactly(entry: dict[str, Any]) -> bool:
+        columns = [str(c) for c in entry["columns"]]
+        return all(is_exact(name, columns) for name in required_columns)
+
+    kept = [e for e in payload if satisfies_exactly(e)]
+    if not kept:
+        # Every name is present somewhere, but no single document carries
+        # all of them under the literal names asked for. Narrowing now
+        # would be acting on the looser match, so the listing stands and
+        # the mapping is handed over instead.
+        result["required_columns_inexact"] = True
+        result["column_matches"] = {
+            doc_id: {name: hits for name, hits in m.items() if hits}
+            for doc_id, m in matches.items()
+            if any(m.values())
+        }
+        return [], True
+
+    filtered_out = [
+        {
+            "document_id": e["document_id"],
+            "missing_columns": [
+                name
+                for name in required_columns
+                if not is_exact(name, [str(c) for c in e["columns"]])
+            ],
+        }
+        for e in payload
+        if not satisfies_exactly(e)
+    ]
+    result["documents"] = kept
+    if filtered_out:
+        result["filtered_out"] = filtered_out
+    return filtered_out, True
 
 
 def _is_demoted(entry: dict[str, Any]) -> bool:
@@ -1424,6 +1558,12 @@ def check_doc_column_pairing(
                         "doc_id": doc_id,
                         "available_columns": list(available),
                         "other_docs_with_column": other_docs,
+                        # The name it most likely meant in *this* doc.
+                        # Listing the available columns has proved not to
+                        # be enough on its own: a model that has already
+                        # committed to a name reads a list as evidence
+                        # the name is absent rather than as the menu.
+                        "did_you_mean": match_columns(col, available),
                     }
                 )
     if not violations:
@@ -1439,6 +1579,11 @@ def check_doc_column_pairing(
             f"  - Column '{v['column']}' is NOT in document '{v['doc_id']}'. "
             f"That doc's columns are: {v['available_columns']}."
         )
+        if v["did_you_mean"]:
+            lines.append(
+                f"    In THIS document you most likely meant: "
+                f"{v['did_you_mean']}. Re-run with that exact name."
+            )
         if v["other_docs_with_column"]:
             lines.append(
                 "    The column DOES exist in these documents: "
