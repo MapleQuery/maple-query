@@ -62,9 +62,14 @@ def _ctx(*, listed: tuple[str, ...], **overrides: Any) -> TurnContext:
     return ctx
 
 
-def _pkg(pid: str, columns: int | None) -> EvidencePackage:
+def _pkg(
+    pid: str, columns: int | None, *, unnamed: bool = False
+) -> EvidencePackage:
     return EvidencePackage(
-        package_id=pid, title=f"Dataset {pid[:4]}", column_count=columns
+        package_id=pid,
+        title=f"Dataset {pid[:4]}",
+        column_count=columns,
+        headers_unnamed=unnamed,
     )
 
 
@@ -194,3 +199,23 @@ def test_a_scoped_turn_still_offers_a_summary_of_a_different_package() -> None:
     ctx.scope_package_ids = (RANKED,)
     out = _build(ctx, _pkg(LISTED, 312))
     assert "summarize_dataset" in [s.kind for s in out]
+
+
+def test_browse_chip_declines_a_package_of_generated_headers() -> None:
+    """Seen live: a listed document whose header row never parsed
+    surfaced as `__col_1 … __col_7`. The chip rests on a human scanning
+    the names and recognising the bucket the question lives in — on
+    placeholders there is nothing to recognise, and "Show all N
+    columns" would promise an inventory and deliver noise. Size alone
+    cannot see this."""
+    out = _build(_ctx(listed=(LISTED,)), _pkg(LISTED, 30, unnamed=True))
+    kinds = [s.kind for s in out]
+    assert "list_columns" not in kinds
+    # The other kinds still apply — sample rows shows the *values*,
+    # which is exactly what rescues a document with unreadable headers.
+    assert "sample_rows" in kinds
+
+
+def test_a_readable_package_is_still_browsable() -> None:
+    out = _build(_ctx(listed=(LISTED,)), _pkg(LISTED, 30, unnamed=False))
+    assert "list_columns" in [s.kind for s in out]

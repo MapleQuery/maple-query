@@ -230,3 +230,95 @@ def test_search_titles_win_over_document_titles() -> None:
     evidence = collect_evidence(ctx, _result("pkg-1"))
 
     assert evidence.packages[0].title == "Package Title"
+
+
+def test_column_count_spans_every_document_in_the_package() -> None:
+    """The undercount seen live: a housing package reported "(3
+    columns)" in the footer while its eight documents — one breakdown
+    per table — carried nine distinct columns between them. Reading
+    only the first document told the user something false about the
+    dataset, and the browse chip built on the same number promised the
+    wrong count."""
+    ctx = _ctx()
+    ctx.state.search_results["q"] = _search(("pkg-1", "Housing Benefit"))
+    ctx.trace.packages_researched.append("pkg-1")
+    ctx.state.doc_package["t1"] = "pkg-1"
+    ctx.state.doc_columns["t1"] = ["Applicants", "Total"]
+    ctx.state.doc_package["t2"] = "pkg-1"
+    ctx.state.doc_columns["t2"] = ["Gender", "Total"]  # `Total` repeats
+    ctx.state.doc_package["t3"] = "pkg-1"
+    ctx.state.doc_columns["t3"] = ["Age Group", "Province"]
+
+    evidence = collect_evidence(ctx, _result("pkg-1"))
+
+    # Deduped by name — heterogeneous documents in one package
+    # routinely repeat a column.
+    assert evidence.packages[0].column_count == 5
+
+
+def test_documents_of_other_packages_are_not_counted() -> None:
+    ctx = _ctx()
+    ctx.state.search_results["q"] = _search(("pkg-1", "A"), ("pkg-2", "B"))
+    ctx.trace.packages_researched.append("pkg-1")
+    ctx.state.doc_package["d1"] = "pkg-1"
+    ctx.state.doc_columns["d1"] = ["a", "b"]
+    ctx.state.doc_package["d2"] = "pkg-2"
+    ctx.state.doc_columns["d2"] = ["c", "d", "e"]
+
+    counts = {
+        p.package_id: p.column_count
+        for p in collect_evidence(ctx, _result("pkg-1")).packages
+    }
+    assert counts == {"pkg-1": 2, "pkg-2": 3}
+
+
+def test_mostly_generated_headers_is_flagged() -> None:
+    """A dataset whose header row never parsed at ingest carries
+    `__col_N` placeholders instead of names. It is worth saying so: a
+    dataset whose columns cannot be named cannot be queried by name, and
+    a user who reads that in the footer is spared the three turns it
+    otherwise takes to discover it."""
+    ctx = _ctx()
+    ctx.state.search_results["q"] = _search(("pkg-1", "Housing Benefit"))
+    ctx.trace.packages_researched.append("pkg-1")
+    ctx.state.doc_package["d1"] = "pkg-1"
+    # The real shape, from the live package: 2 named, 7 generated.
+    ctx.state.doc_columns["d1"] = [
+        "Forward_Sortation_Area",
+        "Number_of_Unique_Applicants",
+        *[f"__col_{i}" for i in range(1, 8)],
+    ]
+
+    package = collect_evidence(ctx, _result("pkg-1")).packages[0]
+
+    assert package.column_count == 9
+    assert package.headers_unnamed is True
+
+
+def test_a_readable_package_is_not_flagged() -> None:
+    ctx = _ctx()
+    ctx.state.search_results["q"] = _search(("pkg-1", "Estimates"))
+    ctx.trace.packages_researched.append("pkg-1")
+    ctx.state.doc_package["d1"] = "pkg-1"
+    ctx.state.doc_columns["d1"] = ["Department", "Vote", "__col_1"]
+
+    package = collect_evidence(ctx, _result("pkg-1")).packages[0]
+
+    assert package.headers_unnamed is False
+
+
+def test_the_footer_the_chip_and_the_tool_share_one_threshold() -> None:
+    """Three consumers, one definition of "unnamed" — so they cannot
+    drift apart."""
+    ctx = _ctx(agent_generated_header_ratio=0.9)
+    ctx.state.search_results["q"] = _search(("pkg-1", "Estimates"))
+    ctx.trace.packages_researched.append("pkg-1")
+    ctx.state.doc_package["d1"] = "pkg-1"
+    # 0.8 generated: over the default 0.5, under this turn's 0.9.
+    ctx.state.doc_columns["d1"] = ["a", "b"] + [
+        f"__col_{i}" for i in range(8)
+    ]
+
+    package = collect_evidence(ctx, _result("pkg-1")).packages[0]
+
+    assert package.headers_unnamed is False

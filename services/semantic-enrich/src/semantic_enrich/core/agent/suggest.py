@@ -22,7 +22,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from semantic_enrich.core.agent.derivation_units import is_monetary_column
-from semantic_enrich.core.agent.evidence import EvidencePackage, SearchEvidence
+from semantic_enrich.core.agent.evidence import (
+    EvidencePackage,
+    SearchEvidence,
+)
 
 if TYPE_CHECKING:  # circular-import guard: phases imports stay type-only
     from semantic_enrich.core.agent.phases import (
@@ -218,6 +221,14 @@ def _list_columns(
             # the columns, so this chip would return what the chip next
             # to it returns. `None` means the package was never opened,
             # so its size is unknown and it is not eligible either.
+            continue
+        if package.headers_unnamed:
+            # The chip rests on one premise: a human scans the names and
+            # recognises the bucket the question actually lives in. On a
+            # document whose header row never parsed, the names are
+            # `__col_1 … __col_7` and there is nothing to recognise —
+            # "Show all 47 columns" would promise an inventory and
+            # deliver placeholders. Size alone cannot see this.
             continue
         name = _display_name(package)
         return Suggestion(

@@ -595,7 +595,7 @@ def run_list_documents(
         if samples:
             entry["column_samples"] = samples
         if (
-            _generated_header_ratio(d.columns)
+            generated_header_ratio(d.columns)
             > ctx.settings.agent_generated_header_ratio
         ):
             entry["quality"] = "low_generated_headers"
@@ -1192,7 +1192,7 @@ def _scalar_aggregate_columns(sql: str) -> set[str]:
 _GENERATED_COL_RE = re.compile(r"__col_\d+")
 
 
-def _generated_header_ratio(columns: tuple[str, ...] | list[str]) -> float:
+def generated_header_ratio(columns: tuple[str, ...] | list[str]) -> float:
     if not columns:
         return 0.0
     generated = sum(

@@ -307,9 +307,9 @@ def test_column_samples_ride_alongside_columns_list() -> None:
 
 
 def test_generated_header_ratio_empty_columns() -> None:
-    assert agent_tools._generated_header_ratio([]) == 0.0
-    assert agent_tools._generated_header_ratio(["__col_1", "__col_2"]) == 1.0
-    assert agent_tools._generated_header_ratio(["__col_1x"]) == 0.0
+    assert agent_tools.generated_header_ratio([]) == 0.0
+    assert agent_tools.generated_header_ratio(["__col_1", "__col_2"]) == 1.0
+    assert agent_tools.generated_header_ratio(["__col_1x"]) == 0.0
 
 
 def test_null_columns_do_not_consume_sample_cap() -> None:
