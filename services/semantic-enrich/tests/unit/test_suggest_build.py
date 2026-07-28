@@ -166,8 +166,13 @@ def test_group_total_renders_for_a_monetary_column_on_that_package() -> None:
     )
     totals = [s for s in out if s.kind == "group_total"]
     assert len(totals) == 1
-    assert totals[0].label == "Total total_expenditure by department"
-    assert "grouped by department" in totals[0].question
+    assert totals[0].label == "Total total_expenditure"
+    # No dimension is named at composition time. Hardcoding one
+    # ("grouped by department") produced a turn that failed outright on
+    # a dataset with no such column — a guess about schema, which is the
+    # invention this kind's monetary check exists to prevent.
+    assert "department" not in totals[0].question
+    assert "pick a column it actually has" in totals[0].question
 
 
 def test_group_total_is_crowded_out_on_a_large_listed_dataset() -> None:

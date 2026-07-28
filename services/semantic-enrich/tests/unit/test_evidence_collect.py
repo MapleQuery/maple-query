@@ -198,3 +198,35 @@ def test_first_listed_document_is_the_representative() -> None:
     evidence = collect_evidence(ctx, _result("pkg-1"))
 
     assert evidence.packages[0].column_count == 312
+
+
+def test_a_scoped_turn_resolves_titles_without_having_searched() -> None:
+    """The regression that shipped: a clicked chip goes straight to
+    `list_documents`, so `search_results` is empty and the only title
+    available is the one that tool recorded. Reading search results
+    alone rendered a raw uuid everywhere a dataset name belongs — in the
+    footer and in every chip built from it."""
+    ctx = _ctx()
+    ctx.trace.packages_researched.append("pkg-1")
+    ctx.state.doc_package["d1"] = "pkg-1"
+    ctx.state.doc_title["d1"] = "Supplementary Estimates B"
+    ctx.state.doc_columns["d1"] = ["a", "b"]
+    assert ctx.state.search_results == {}
+
+    evidence = collect_evidence(ctx, _result("pkg-1"))
+
+    assert evidence.packages[0].title == "Supplementary Estimates B"
+    assert evidence.packages[0].column_count == 2
+
+
+def test_search_titles_win_over_document_titles() -> None:
+    """A package's own title is a better name than one document's."""
+    ctx = _ctx()
+    ctx.state.search_results["q"] = _search(("pkg-1", "Package Title"))
+    ctx.state.doc_package["d1"] = "pkg-1"
+    ctx.state.doc_title["d1"] = "Some Document, 2024"
+    ctx.trace.packages_researched.append("pkg-1")
+
+    evidence = collect_evidence(ctx, _result("pkg-1"))
+
+    assert evidence.packages[0].title == "Package Title"

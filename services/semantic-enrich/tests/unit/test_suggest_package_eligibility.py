@@ -170,3 +170,27 @@ def test_no_emitted_text_is_drawn_from_this_turns_searches() -> None:
     for s in _build(ctx, _pkg(LISTED, 312)):
         assert "SENTINELQUERY" not in s.label
         assert "SENTINELQUERY" not in s.question
+
+
+# ── regressions from the first live pass ──
+
+
+def test_no_summary_offer_for_a_package_already_in_scope() -> None:
+    """Observed in the browser: after accepting "Summarize X" the reply
+    carried "Summarize X" again, directly beneath the summary. A scoped
+    turn opens and describes its packages by construction, so re-offering
+    the summary is an offer to redo what the user just watched."""
+    ctx = _ctx(listed=(LISTED,))
+    ctx.scope_package_ids = (LISTED,)
+    out = _build(ctx, _pkg(LISTED, 312))
+    kinds = [s.kind for s in out]
+    assert "summarize_dataset" not in kinds
+    # The drill-downs are genuine next steps from a summary and stay.
+    assert "sample_rows" in kinds
+
+
+def test_a_scoped_turn_still_offers_a_summary_of_a_different_package() -> None:
+    ctx = _ctx(listed=(LISTED,))
+    ctx.scope_package_ids = (RANKED,)
+    out = _build(ctx, _pkg(LISTED, 312))
+    assert "summarize_dataset" in [s.kind for s in out]
