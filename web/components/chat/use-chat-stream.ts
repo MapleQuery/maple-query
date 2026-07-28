@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { streamChat } from "@/lib/sse";
+import { mergeRowsFrame, seedPreviewRows } from "@/lib/result-rows";
 import type { AgentEvent, HistoryMessage, SuggestionT } from "@/lib/types";
 import type { RailCard } from "@/components/evidence/evidence-rail";
 import { uuid } from "@/lib/utils";
@@ -187,7 +188,7 @@ function reducer(state: StreamState, action: Action): StreamState {
                   executed: {
                     row_count: payload.row_count,
                     elapsed_ms: payload.elapsed_ms ?? null,
-                    rows: payload.sample_rows ?? [],
+                    ...seedPreviewRows(payload.sample_rows),
                   },
                 };
               }
@@ -204,7 +205,7 @@ function reducer(state: StreamState, action: Action): StreamState {
                   ...c,
                   executed: {
                     ...c.executed,
-                    rows: [...c.executed.rows, ...payload.rows],
+                    ...mergeRowsFrame(c.executed, payload),
                   },
                 };
               }

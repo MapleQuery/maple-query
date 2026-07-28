@@ -16,6 +16,7 @@ import {
   Loader2,
   Pencil,
   Check,
+  Crosshair,
 } from "lucide-react";
 import {
   notebooks,
@@ -25,6 +26,11 @@ import {
   type StoredNotebookBlockQuery,
 } from "@/lib/storage";
 import { streamChat } from "@/lib/sse";
+import {
+  EMPTY_RESULT_ROWS,
+  mergeRowsFrame,
+  seedPreviewRows,
+} from "@/lib/result-rows";
 import type { SuggestionT } from "@/lib/types";
 import {
   getCachedDatasetTitles,
@@ -34,12 +40,14 @@ import {
 import { uuid } from "@/lib/utils";
 import { SqlBlock } from "@/components/evidence/sql-block";
 import { RowsTable } from "@/components/evidence/rows-table";
+import { ResultChart } from "@/components/evidence/result-chart";
 import { DatasetChip } from "@/components/evidence/dataset-chip";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { exportNotebookAsMarkdown } from "./export";
 import { ExportMenu } from "./export-menu";
 import { printMarkdownAsPdf } from "./print-pdf";
+import { ScopePicker } from "./scope-picker";
 
 export interface NotebookContainerProps {
   notebookId: string;
@@ -523,8 +531,20 @@ function QueryBlock({
 }) {
   const [draft, setDraft] = React.useState(block.question);
   const [assistantText, setAssistantText] = React.useState("");
+  const [scopeOpen, setScopeOpen] = React.useState(false);
 
   React.useEffect(() => setDraft(block.question), [block.question]);
+
+  const scoped = (block.scopePackageIds?.length ?? 0) > 0;
+
+  // An empty scope is stored as absent, not as `[]`, so the run path's
+  // "is there a scope" check stays a single truthiness test.
+  const setScope = (ids: string[]) =>
+    onUpdate(block.id, (b) =>
+      b.type === "query"
+        ? { ...b, scopePackageIds: ids.length > 0 ? ids : undefined }
+        : b,
+    );
 
   // Chips name their dataset rather than print its UUID. A block that
   // has run carries its own titles; a scope pinned from a suggestion,
@@ -542,7 +562,7 @@ function QueryBlock({
     if (!question) return;
     setAssistantText("");
     let sql = "";
-    let rows: Record<string, unknown>[] = [];
+    let result = EMPTY_RESULT_ROWS;
     const pkgIds = new Set<string>();
     const pkgTitles: Record<string, string> = {};
     let localAssistantText = "";
@@ -595,10 +615,10 @@ function QueryBlock({
                 if (event.payload.accepted) sql = event.payload.sql_final;
                 break;
               case "sql_executed":
-                rows = event.payload.sample_rows ?? [];
+                result = seedPreviewRows(event.payload.sample_rows);
                 break;
               case "rows":
-                rows = [...rows, ...event.payload.rows];
+                result = mergeRowsFrame(result, event.payload);
                 break;
               case "message_delta":
                 localAssistantText += event.payload.delta;
@@ -619,7 +639,7 @@ function QueryBlock({
                     result: {
                       assistantText: localAssistantText,
                       sql,
-                      rows,
+                      rows: result.rows,
                       packageIds: Array.from(pkgIds),
                       packageTitles: { ...pkgTitles },
                     },
@@ -651,29 +671,43 @@ function QueryBlock({
       <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
         Query · single-turn
       </p>
-      {block.scopePackageIds && block.scopePackageIds.length > 0 && (
-        // A pinned scope the user cannot see or escape would make a
-        // saved notebook mysteriously narrow months later.
-        <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
-          <span>Scoped to:</span>
-          {block.scopePackageIds.map((p) => (
-            <DatasetChip key={p} packageId={p} title={titles[p]} />
-          ))}
+      {/* A pinned scope the user cannot see or escape would make a saved
+          notebook mysteriously narrow months later — and one they cannot
+          *set* leaves a question that found the wrong dataset with no way
+          to correct it. */}
+      <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+        {scoped && (
+          <>
+            <span>Scoped to:</span>
+            {block.scopePackageIds?.map((p) => (
+              <DatasetChip key={p} packageId={p} title={titles[p]} />
+            ))}
+          </>
+        )}
+        <button
+          type="button"
+          onClick={() => setScopeOpen(true)}
+          className="inline-flex items-center gap-1 rounded px-1 text-[11px] text-muted underline hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+        >
+          <Crosshair className="h-3 w-3" />
+          {scoped ? "edit scope" : "scope to datasets"}
+        </button>
+        {scoped && (
           <button
             type="button"
-            onClick={() =>
-              onUpdate(block.id, (b) =>
-                b.type === "query"
-                  ? { ...b, scopePackageIds: undefined }
-                  : b,
-              )
-            }
+            onClick={() => setScope([])}
             className="rounded px-1 text-[11px] text-muted underline hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
           >
             drop scope
           </button>
-        </p>
-      )}
+        )}
+      </p>
+      <ScopePicker
+        open={scopeOpen}
+        onOpenChange={setScopeOpen}
+        selected={block.scopePackageIds ?? []}
+        onChange={setScope}
+      />
       <div className="flex items-end gap-2">
         <Textarea
           value={draft}
@@ -713,6 +747,19 @@ function QueryBlock({
             </div>
           )}
           {block.result.sql && <SqlBlock sql={block.result.sql} status="accepted" />}
+          {/* Chart above table, same order as the export — the chart is
+              the reading of the result, the table is the backing detail. */}
+          {block.result.rows.length > 0 && (
+            <ResultChart
+              rows={block.result.rows}
+              overrides={block.chart}
+              onChange={(chart) =>
+                onUpdate(block.id, (b) =>
+                  b.type === "query" ? { ...b, chart } : b,
+                )
+              }
+            />
+          )}
           {block.result.rows.length > 0 && (
             <RowsTable rows={block.result.rows} maxRows={20} />
           )}

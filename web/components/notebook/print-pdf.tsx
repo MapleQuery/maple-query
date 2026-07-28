@@ -2,8 +2,21 @@
 
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+/**
+ * Charts travel as `data:image/svg+xml;base64,…` images, and
+ * `react-markdown`'s default transform allows only http/https/mailto and
+ * friends — it would drop the `src` and print a blank where every chart
+ * should be, without erroring. So exactly that one prefix is allowed
+ * back in; everything else still goes through the default.
+ */
+const CHART_URI = "data:image/svg+xml;base64,";
+
+function printUrlTransform(url: string): string | null | undefined {
+  return url.startsWith(CHART_URI) ? url : defaultUrlTransform(url);
+}
 
 /**
  * PDF export is the Markdown export, rendered and handed to the
@@ -78,6 +91,14 @@ const PRINT_CSS = `
     border-left: 2px solid #d5dae1;
     color: #55606f;
   }
+  img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0 0 10pt;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 `;
 
 function escapeHtml(s: string): string {
@@ -132,7 +153,9 @@ export async function printMarkdownAsPdf(
   // a concurrent render would let the dialog open on an empty page.
   flushSync(() => {
     root.render(
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>,
+      <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={printUrlTransform}>
+        {markdown}
+      </ReactMarkdown>,
     );
   });
   await new Promise<void>((resolve) => {

@@ -5,6 +5,10 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Copy, Check, Download, Loader2 } from "lucide-react";
 import { getDataset, getDatasetColumns, getDatasetDocuments } from "@/lib/api";
+import {
+  countGeneratedColumns,
+  isGeneratedColumnName,
+} from "@/lib/columns";
 import { rememberDatasetTitles } from "@/lib/dataset-titles";
 import type { ColumnInfo, DatasetSummary, DocumentInfo } from "@/lib/types";
 
@@ -17,6 +21,11 @@ export default function DatasetDetailPage() {
   const [documents, setDocuments] = React.useState<DocumentInfo[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+
+  const unnamedCount = React.useMemo(
+    () => countGeneratedColumns(columns),
+    [columns],
+  );
 
   React.useEffect(() => {
     if (!packageId) return;
@@ -164,6 +173,26 @@ export default function DatasetDetailPage() {
                 {columns.length} tagged
               </span>
             </h2>
+            {unnamedCount > 0 && (
+              // Said once, here, instead of once per row. The enrichment
+              // wrote a description for every unnamed column from its
+              // values alone, which produced six near-identical
+              // paragraphs that read as information and are not; those
+              // are suppressed below.
+              <p className="mb-3 rounded-lg border border-amber/40 bg-amber/10 px-4 py-3 text-[13px] leading-relaxed text-body">
+                <span className="font-medium text-ink">
+                  {unnamedCount === columns.length
+                    ? "This dataset's columns have no names."
+                    : `${unnamedCount} of ${columns.length} columns have no name.`}
+                </span>{" "}
+                The source file puts a title or a blank row above its
+                header, so the loader numbered those columns by position
+                instead. The values are intact — only the naming was lost,
+                and a question can still reach a column by its positional
+                key. Descriptions are hidden for them: they were inferred
+                from the values alone and say nothing the samples do not.
+              </p>
+            )}
             <div className="overflow-hidden rounded-xl border border-hairline bg-white">
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-hairline bg-surface-soft">
@@ -175,13 +204,20 @@ export default function DatasetDetailPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {columns.map((c) => (
+                  {columns.map((c) => {
+                    const unnamed = isGeneratedColumnName(c.column_name);
+                    return (
                     <tr
                       key={c.column_name}
                       className="border-b border-hairline/60 last:border-0 hover:bg-surface-soft/60"
                     >
                       <td className="whitespace-nowrap px-4 py-3 font-mono text-[12.5px] font-medium text-ink">
                         {c.column_name}
+                        {unnamed && (
+                          <span className="ml-2 rounded bg-surface-soft px-1.5 py-0.5 font-sans text-[10px] font-normal text-muted">
+                            unnamed
+                          </span>
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
                         {c.semantic_type ? (
@@ -191,7 +227,11 @@ export default function DatasetDetailPage() {
                         ) : null}
                       </td>
                       <td className="max-w-md px-4 py-3 text-body">
-                        {c.description || null}
+                        {unnamed ? (
+                          <span className="text-muted">—</span>
+                        ) : (
+                          c.description || null
+                        )}
                       </td>
                       <td className="px-4 py-3 font-mono text-[11px] text-muted">
                         {(c.sample_values ?? [])
@@ -200,7 +240,8 @@ export default function DatasetDetailPage() {
                           .join(", ")}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {columns.length === 0 && (
                     <tr>
                       <td colSpan={4} className="px-4 py-6 text-center text-sm text-muted">

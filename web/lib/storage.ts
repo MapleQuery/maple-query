@@ -126,6 +126,7 @@ function isQuotaError(err: unknown): boolean {
 // Typed façades per collection
 // ---------------------------------------------------------------------------
 
+import type { ChartOverrides } from "./chart";
 import type { HistoryMessage, SuggestionT } from "./types";
 
 export interface EvidenceCard {
@@ -179,6 +180,15 @@ export interface StoredNotebookBlockQuery {
   /** Offers from the last run; drives the follow-up affordance.
    * Optional for the same reason. */
   suggestions?: SuggestionT[];
+  /** How this block charts its result.
+   *
+   * Overrides only, never a resolved spec: absent means "whatever the
+   * rows infer", which is what lets a chart appear on a block nobody
+   * configured, and lets a re-run against different columns re-infer
+   * rather than point at a column that no longer exists.
+   *
+   * Optional: pre-chart notebooks load unchanged. */
+  chart?: ChartOverrides;
   result?: {
     assistantText: string;
     sql: string;
