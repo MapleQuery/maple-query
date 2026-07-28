@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BarChart3, LineChart, X } from "lucide-react";
+import { BarChart3, LineChart } from "lucide-react";
 import {
   chartData,
   renderChartSvg,
@@ -17,16 +17,16 @@ export interface ResultChartProps {
 }
 
 /**
- * The chart under a result table.
+ * A chart of a result set, plus the controls to re-aim it.
  *
- * It draws itself the first time without being asked: `resolveChartSpec`
- * infers a form from the rows, and a result the inference declines
- * simply renders nothing. That is deliberate — a chart the user has to
- * go and configure is one nobody sees, and the inference is free.
- *
- * The controls only ever write *overrides*, never a full spec, so a
- * block that was re-run against different columns falls back to the new
+ * It draws itself without being asked: `resolveChartSpec` infers a form
+ * from the rows, so inserting a chart is one click rather than a
+ * configuration exercise. The controls only ever write *overrides*,
+ * never a full spec, so rows that changed under it fall back to the new
  * inference instead of pointing at a column that no longer exists.
+ *
+ * Takes plain rows and knows nothing about notebooks, so chat and
+ * explorer can mount it as-is.
  */
 export function ResultChart({ rows, overrides, onChange }: ResultChartProps) {
   const spec = React.useMemo(
@@ -45,19 +45,14 @@ export function ResultChart({ rows, overrides, onChange }: ResultChartProps) {
     });
   }, [rows, spec]);
 
-  if (overrides?.hidden) {
+  if (!spec || !svg) {
     return (
-      <button
-        type="button"
-        onClick={() => onChange({ ...overrides, hidden: false })}
-        className="inline-flex items-center gap-1.5 rounded-md border border-hairline bg-white px-2.5 py-1.5 text-xs text-muted transition-colors hover:border-navy hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
-      >
-        <BarChart3 className="h-3.5 w-3.5" /> Show chart
-      </button>
+      <div className="rounded-xl border border-dashed border-hairline bg-surface-soft/40 px-4 py-6 text-sm text-muted">
+        These rows have no column pair to plot — a chart needs a category
+        and a number.
+      </div>
     );
   }
-
-  if (!spec || !svg) return null;
 
   const setType = (type: ChartType) => onChange({ ...overrides, type });
 
@@ -92,14 +87,6 @@ export function ResultChart({ rows, overrides, onChange }: ResultChartProps) {
           options={columns}
           onChange={(valueColumn) => onChange({ ...overrides, valueColumn })}
         />
-        <button
-          type="button"
-          onClick={() => onChange({ ...overrides, hidden: true })}
-          aria-label="Hide chart"
-          className="ml-auto rounded p-1 text-muted hover:bg-surface-soft hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
       </figcaption>
       {/* The markup is built by our own renderer, which XML-escapes every
           value that comes from the result set; nothing here is raw data. */}

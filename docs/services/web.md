@@ -29,7 +29,8 @@ web/
 │   │                    # ColumnList, SqlBlock, RowsTable, ResultChart,
 │   │                    # CostBadge
 │   ├── chat/            # ChatContainer + composer + conversation switcher
-│   ├── notebook/        # NotebookContainer + ScopePicker + MD/PDF export
+│   ├── notebook/        # NotebookContainer + ChartBlock + ScopePicker
+│   │                    # + MD/PDF export
 │   └── explorer/        # ExplorerContainer + step chain
 ├── lib/
 │   ├── api.ts           # REST wrappers (datasets, columns, /sql/run)
@@ -38,6 +39,8 @@ web/
 │   ├── types.ts         # zod schemas mirroring the agent event dataclasses
 │   ├── chart.ts         # rows → SVG string (inference + render), no deps
 │   ├── columns.ts       # recognises loader-generated `__col_N` names
+│   ├── notebook.ts      # block-shape helpers: export filter, chart source,
+│   │                    # inline-chart migration
 │   ├── result-rows.ts   # folds sql_executed's preview + the rows frames
 │   ├── storage.ts       # localStorage with per-collection LRU index (max 50)
 │   │                    # + quota-exceeded eviction
@@ -83,7 +86,16 @@ carry the visual distinction that separate serif / mono families would.
   spawns a new one.
 
 ### /notebook · secondary
-- Ordered list of prose (Markdown) and query (single-turn `/chat`) blocks.
+- Ordered list of **prose** (Markdown), **query** (single-turn `/chat`) and
+  **chart** blocks. All three move, delete, and hide the same way.
+- Any block can be marked **hidden**: still in the editor, still editable
+  and runnable, left out of the export. A notebook is both the workspace a
+  question was worked out in and the document that comes out, and this is
+  the seam — research that led somewhere should not have to be deleted to
+  keep it out of the finished piece. Hidden blocks are dimmed and tagged
+  rather than collapsed, and the header counts them (`5 blocks · 2 not
+  exported`) so nothing goes missing quietly. Export is disabled when every
+  block is hidden.
 - A single **Export** control with a format menu. Both formats build the
   same Markdown document — every block, including SQL fenced blocks,
   charts, and result tables (first 20 rows):
@@ -102,9 +114,9 @@ carry the visual distinction that separate serif / mono families would.
   block rather than chaining from a previous block, because blocks are
   reorderable and deletable and a parent→child link breaks silently the
   moment one is moved.
-- Re-running a query block clears its result and re-streams. Chart
-  preferences survive the re-run; a stale column reference does not (see
-  "Charts").
+- Re-running a query block clears its result and re-streams. Any chart
+  reading it redraws, because a chart block holds a reference rather than a
+  copy (see "Charts").
 
 ### /explorer · secondary
 - Left column: prompt input + step chain (prompt cards + SQL cards).
@@ -155,6 +167,23 @@ makes it a line instead of bars. A block stores *overrides* only
 (`ChartOverrides`), never a resolved spec, so an untouched block gets the
 inference and a re-run against different columns re-infers rather than
 pointing at a column that no longer exists.
+
+**A chart is a block, and it holds a reference.** `sourceBlockId` names
+the query block it draws, and the rows are read live on every render. A
+snapshot would be reorder- and delete-proof, but it would go stale the
+moment its query re-ran — a chart showing the last run's numbers directly
+above a table showing this run's is wrong in the way that is hardest to
+catch, because nothing on screen looks broken. The cost is that a
+reference can dangle, so every one of those states is rendered plainly:
+source deleted, source not yet run, and source sitting *below* the chart
+(which is a move-one-of-them problem, not a re-run problem). Charts began
+as a field on a query block; `migrateInlineCharts` converts that shape on
+load, writes the result back without touching `updatedAt`, and is a no-op
+by object identity on a notebook that never had one.
+
+A chart of a *hidden* query still exports. Hiding the working-out is the
+whole point — the chart is the finding, the query behind it is the
+method.
 
 Rows the parse drops and categories past the 12-bar cap are reported in
 the chart's own caption rather than silently omitted.

@@ -5,6 +5,7 @@ import {
   svgToDataUri,
   type ChartOverrides,
 } from "@/lib/chart";
+import { chartSource, exportableBlocks } from "@/lib/notebook";
 import type { StoredNotebook } from "@/lib/storage";
 import type { DatasetTitleMap } from "@/lib/dataset-titles";
 
@@ -33,17 +34,32 @@ export function exportNotebookAsMarkdown(
   nb: StoredNotebook,
   titles?: DatasetTitleMap,
 ): string {
+  // Blocks the author marked as research are the notebook's working-out,
+  // not the document. They are left out entirely rather than dimmed or
+  // appended — an export is the finished piece.
+  const blocks = exportableBlocks(nb);
+
   const parts: string[] = [];
   parts.push(`# ${nb.title || "Untitled notebook"}`);
   parts.push(
-    `_Exported ${new Date().toISOString()} · ${nb.blocks.length} block${nb.blocks.length === 1 ? "" : "s"}_`,
+    `_Exported ${new Date().toISOString()} · ${blocks.length} block${blocks.length === 1 ? "" : "s"}_`,
   );
   parts.push("");
 
-  for (const b of nb.blocks) {
+  for (const b of blocks) {
     if (b.type === "prose") {
       parts.push(b.markdown.trim() || "_(empty prose)_");
       parts.push("");
+    } else if (b.type === "chart") {
+      // Resolved against every block, not just the exported ones: a
+      // chart of a hidden query still belongs in the document if the
+      // author put it there. Hiding the working-out is the point.
+      const source = chartSource(nb.blocks, b.sourceBlockId);
+      const chart = chartMarkdown(source?.result?.rows ?? [], b.overrides);
+      if (chart) {
+        parts.push(chart);
+        parts.push("");
+      }
     } else {
       const name = (id: string): string =>
         b.result?.packageTitles?.[id] ?? titles?.[id] ?? id;
@@ -66,11 +82,6 @@ export function exportNotebookAsMarkdown(
         parts.push("");
       }
       if (b.result?.rows && b.result.rows.length > 0) {
-        const chart = chartMarkdown(b.result.rows, b.chart);
-        if (chart) {
-          parts.push(chart);
-          parts.push("");
-        }
         parts.push(rowsToMarkdownTable(b.result.rows.slice(0, 20)));
         parts.push("");
       }

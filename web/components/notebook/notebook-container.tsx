@@ -17,6 +17,8 @@ import {
   Pencil,
   Check,
   Crosshair,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import {
   notebooks,
@@ -40,7 +42,6 @@ import {
 import { uuid } from "@/lib/utils";
 import { SqlBlock } from "@/components/evidence/sql-block";
 import { RowsTable } from "@/components/evidence/rows-table";
-import { ResultChart } from "@/components/evidence/result-chart";
 import { DatasetChip } from "@/components/evidence/dataset-chip";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
@@ -48,9 +49,53 @@ import { exportNotebookAsMarkdown } from "./export";
 import { ExportMenu } from "./export-menu";
 import { printMarkdownAsPdf } from "./print-pdf";
 import { ScopePicker } from "./scope-picker";
+import { ChartBlock, ChartIcon } from "./chart-block";
+import {
+  chartableSources,
+  hiddenBlockCount,
+  migrateInlineCharts,
+} from "@/lib/notebook";
 
 export interface NotebookContainerProps {
   notebookId: string;
+}
+
+export type BlockKind = "prose" | "query" | "chart";
+
+/**
+ * A blank block of `kind`, or null when one cannot exist yet.
+ *
+ * A chart needs something to chart, so inserting one from the menu binds
+ * it to the nearest query above the insertion point — the one the author
+ * was almost certainly looking at — and falls back to the last query
+ * anywhere in the notebook. With no query at all, there is nothing to
+ * make, and the menu does not offer it.
+ */
+function newBlock(
+  kind: BlockKind,
+  blocks: StoredNotebookBlock[],
+  atIndex: number,
+): StoredNotebookBlock | null {
+  if (kind === "prose") return { type: "prose", id: uuid(), markdown: "" };
+  if (kind === "query") {
+    return {
+      type: "query",
+      id: uuid(),
+      question: "",
+      conversationId: uuid(),
+      state: "idle",
+    };
+  }
+  const sources = chartableSources(blocks);
+  if (sources.length === 0) return null;
+  const above = [...sources]
+    .reverse()
+    .find((s) => blocks.findIndex((b) => b.id === s.id) < atIndex);
+  return {
+    type: "chart",
+    id: uuid(),
+    sourceBlockId: (above ?? sources[sources.length - 1]).id,
+  };
 }
 
 export function NotebookContainer({ notebookId }: NotebookContainerProps) {
@@ -64,7 +109,15 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
     const stored = notebooks.load(notebookId);
     setIndex(notebooks.list());
     if (stored) {
-      setNb(stored);
+      // Charts used to be a field on a query block. Converting on load
+      // keeps every saved notebook readable without a stored version.
+      const migrated = migrateInlineCharts(stored);
+      // Written back when it actually changed something, so the legacy
+      // field does not linger and the conversion does not re-run on
+      // every open. `notebooks.save` rather than `persist`: opening a
+      // notebook must not touch its "last edited" time.
+      if (migrated !== stored) notebooks.save(migrated);
+      setNb(migrated);
     } else {
       const now = new Date().toISOString();
       setNb({
@@ -99,22 +152,32 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
     [persist],
   );
 
-  const addBlock = (kind: "prose" | "query", atIndex?: number) => {
+  const addBlock = (kind: BlockKind, atIndex?: number) => {
     if (!nb) return;
-    const block: StoredNotebookBlock =
-      kind === "prose"
-        ? { type: "prose", id: uuid(), markdown: "" }
-        : {
-            type: "query",
-            id: uuid(),
-            question: "",
-            conversationId: uuid(),
-            state: "idle",
-          };
     const idx = atIndex ?? nb.blocks.length;
+    const block = newBlock(kind, nb.blocks, idx);
+    if (!block) return;
     const blocks = [...nb.blocks];
     blocks.splice(idx, 0, block);
     persist({ ...nb, blocks });
+  };
+
+  /** Insert a chart of `sourceBlockId` directly below it. */
+  const insertChart = (sourceBlockId: string) => {
+    if (!nb) return;
+    const idx = nb.blocks.findIndex((b) => b.id === sourceBlockId);
+    if (idx === -1) return;
+    const blocks = [...nb.blocks];
+    blocks.splice(idx + 1, 0, {
+      type: "chart",
+      id: uuid(),
+      sourceBlockId,
+    });
+    persist({ ...nb, blocks });
+  };
+
+  const toggleHidden = (blockId: string) => {
+    updateBlock(blockId, (b) => ({ ...b, hidden: !b.hidden }));
   };
 
   // Accepting an offer inserts a *draft*, not a result. Notebooks are
@@ -190,6 +253,10 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
   };
 
   if (!nb) return null;
+
+  const hiddenCount = hiddenBlockCount(nb);
+  const exportableCount = nb.blocks.length - hiddenCount;
+  const canChart = chartableSources(nb.blocks).length > 0;
 
   return (
     <div className="flex h-[calc(100vh-4rem)] min-h-0">
@@ -275,14 +342,17 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
                 </button>
               )}
               <p className="mt-2 font-mono text-xs text-muted">
-                {nb.blocks.length} block{nb.blocks.length === 1 ? "" : "s"} · last
+                {nb.blocks.length} block{nb.blocks.length === 1 ? "" : "s"}
+                {hiddenCount > 0 && ` · ${hiddenCount} not exported`} · last
                 edited {new Date(nb.updatedAt).toLocaleString()}
               </p>
             </div>
             <ExportMenu
               onExportMarkdown={handleExportMarkdown}
               onExportPdf={() => void handleExportPdf()}
-              disabled={nb.blocks.length === 0}
+              // Every block hidden means an export with nothing in it,
+              // which is worth refusing rather than delivering.
+              disabled={nb.blocks.length === 0 || exportableCount === 0}
             />
           </header>
 
@@ -292,19 +362,28 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
             <div className="space-y-4">
               {nb.blocks.map((b, i) => (
                 <React.Fragment key={b.id}>
-                  <BlockInsert onAdd={(kind) => addBlock(kind, i)} />
+                  <BlockInsert
+                    onAdd={(kind) => addBlock(kind, i)}
+                    canChart={canChart}
+                  />
                   <NotebookBlock
                     block={b}
+                    blocks={nb.blocks}
                     canMoveUp={i > 0}
                     canMoveDown={i < nb.blocks.length - 1}
                     onMove={(d) => moveBlock(b.id, d)}
                     onRemove={() => removeBlock(b.id)}
+                    onToggleHidden={() => toggleHidden(b.id)}
                     onUpdate={updateBlock}
                     onInsertFollowUp={insertFollowUp}
+                    onInsertChart={insertChart}
                   />
                 </React.Fragment>
               ))}
-              <BlockInsert onAdd={(kind) => addBlock(kind, nb.blocks.length)} />
+              <BlockInsert
+                onAdd={(kind) => addBlock(kind, nb.blocks.length)}
+                canChart={canChart}
+              />
             </div>
           )}
         </div>
@@ -344,7 +423,13 @@ function NotebookEmpty({ onAdd }: { onAdd: (k: "prose" | "query") => void }) {
   );
 }
 
-function BlockInsert({ onAdd }: { onAdd: (k: "prose" | "query") => void }) {
+function BlockInsert({
+  onAdd,
+  canChart,
+}: {
+  onAdd: (k: BlockKind) => void;
+  canChart: boolean;
+}) {
   const [open, setOpen] = React.useState(false);
   return (
     <div className="relative py-1">
@@ -379,6 +464,20 @@ function BlockInsert({ onAdd }: { onAdd: (k: "prose" | "query") => void }) {
             >
               <MessageSquare className="mr-1 inline h-3 w-3" /> Query
             </button>
+            {/* Offered only once there is a result to chart — an empty
+                chart block would be a puzzle, not a starting point. */}
+            {canChart && (
+              <button
+                type="button"
+                onClick={() => {
+                  onAdd("chart");
+                  setOpen(false);
+                }}
+                className="rounded-md px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface-soft"
+              >
+                <ChartIcon className="mr-1 inline h-3 w-3" /> Chart
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -388,42 +487,82 @@ function BlockInsert({ onAdd }: { onAdd: (k: "prose" | "query") => void }) {
 
 function NotebookBlock({
   block,
+  blocks,
   canMoveUp,
   canMoveDown,
   onMove,
   onRemove,
+  onToggleHidden,
   onUpdate,
   onInsertFollowUp,
+  onInsertChart,
 }: {
   block: StoredNotebookBlock;
+  blocks: StoredNotebookBlock[];
   canMoveUp: boolean;
   canMoveDown: boolean;
   onMove: (d: -1 | 1) => void;
   onRemove: () => void;
+  onToggleHidden: () => void;
   onUpdate: (
     id: string,
     mutator: (b: StoredNotebookBlock) => StoredNotebookBlock,
   ) => void;
   onInsertFollowUp: (afterBlockId: string, s: SuggestionT) => void;
+  onInsertChart: (sourceBlockId: string) => void;
 }) {
   return (
-    <div className="group relative rounded-xl border border-hairline bg-white p-5 shadow-sm">
-      <div className="absolute right-3 top-3 flex opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+    <div
+      className={`group relative rounded-xl border bg-white p-5 shadow-sm ${
+        block.hidden
+          ? "border-dashed border-hairline"
+          : "border-hairline"
+      }`}
+    >
+      <div className="absolute right-3 top-3 flex opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
         <BlockActions
           canMoveUp={canMoveUp}
           canMoveDown={canMoveDown}
+          hidden={Boolean(block.hidden)}
           onMove={onMove}
           onRemove={onRemove}
+          onToggleHidden={onToggleHidden}
         />
       </div>
-      {block.type === "prose" ? (
-        <ProseBlock block={block} onUpdate={onUpdate} />
-      ) : (
-        <QueryBlock
-          block={block}
-          onUpdate={onUpdate}
-          onInsertFollowUp={onInsertFollowUp}
-        />
+      {/* Dimmed rather than collapsed: a research block is still being
+          worked on, and hiding its contents would make the flag feel
+          like a delete. The tag is what carries the meaning. */}
+      <div className={block.hidden ? "opacity-45" : undefined}>
+        {block.type === "prose" ? (
+          <ProseBlock block={block} onUpdate={onUpdate} />
+        ) : block.type === "chart" ? (
+          <ChartBlock
+            block={block}
+            blocks={blocks}
+            onChangeSource={(sourceBlockId) =>
+              onUpdate(block.id, (b) =>
+                b.type === "chart" ? { ...b, sourceBlockId } : b,
+              )
+            }
+            onChangeOverrides={(overrides) =>
+              onUpdate(block.id, (b) =>
+                b.type === "chart" ? { ...b, overrides } : b,
+              )
+            }
+          />
+        ) : (
+          <QueryBlock
+            block={block}
+            onUpdate={onUpdate}
+            onInsertFollowUp={onInsertFollowUp}
+            onInsertChart={onInsertChart}
+          />
+        )}
+      </div>
+      {block.hidden && (
+        <p className="mt-3 inline-flex items-center gap-1.5 rounded border border-hairline bg-surface-soft px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted">
+          <EyeOff className="h-3 w-3" /> Research only — not exported
+        </p>
       )}
     </div>
   );
@@ -432,16 +571,44 @@ function NotebookBlock({
 function BlockActions({
   canMoveUp,
   canMoveDown,
+  hidden,
   onMove,
   onRemove,
+  onToggleHidden,
 }: {
   canMoveUp: boolean;
   canMoveDown: boolean;
+  hidden: boolean;
   onMove: (d: -1 | 1) => void;
   onRemove: () => void;
+  onToggleHidden: () => void;
 }) {
   return (
     <div className="flex items-center gap-1 rounded-md border border-hairline bg-white p-0.5 shadow-sm">
+      <button
+        type="button"
+        onClick={onToggleHidden}
+        aria-pressed={hidden}
+        title={
+          hidden
+            ? "Include this block in the export"
+            : "Keep this block out of the export"
+        }
+        aria-label={
+          hidden
+            ? "Include this block in the export"
+            : "Keep this block out of the export"
+        }
+        className={`rounded p-1 hover:bg-surface-soft ${
+          hidden ? "text-navy" : "text-muted hover:text-ink"
+        }`}
+      >
+        {hidden ? (
+          <EyeOff className="h-3.5 w-3.5" />
+        ) : (
+          <Eye className="h-3.5 w-3.5" />
+        )}
+      </button>
       <button
         type="button"
         disabled={!canMoveUp}
@@ -521,6 +688,7 @@ function QueryBlock({
   block,
   onUpdate,
   onInsertFollowUp,
+  onInsertChart,
 }: {
   block: StoredNotebookBlockQuery;
   onUpdate: (
@@ -528,6 +696,7 @@ function QueryBlock({
     m: (b: StoredNotebookBlock) => StoredNotebookBlock,
   ) => void;
   onInsertFollowUp: (afterBlockId: string, s: SuggestionT) => void;
+  onInsertChart: (sourceBlockId: string) => void;
 }) {
   const [draft, setDraft] = React.useState(block.question);
   const [assistantText, setAssistantText] = React.useState("");
@@ -536,6 +705,12 @@ function QueryBlock({
   React.useEffect(() => setDraft(block.question), [block.question]);
 
   const scoped = (block.scopePackageIds?.length ?? 0) > 0;
+
+  // Offered whenever there is a shape to plot. The chart block's own
+  // controls handle the rest, including rows the inference declines.
+  const rows = block.result?.rows ?? [];
+  const chartable =
+    rows.length >= 2 && Object.keys(rows[0] ?? {}).length >= 2;
 
   // An empty scope is stored as absent, not as `[]`, so the run path's
   // "is there a scope" check stays a single truthiness test.
@@ -747,31 +922,29 @@ function QueryBlock({
             </div>
           )}
           {block.result.sql && <SqlBlock sql={block.result.sql} status="accepted" />}
-          {/* Chart above table, same order as the export — the chart is
-              the reading of the result, the table is the backing detail. */}
-          {block.result.rows.length > 0 && (
-            <ResultChart
-              rows={block.result.rows}
-              overrides={block.chart}
-              onChange={(chart) =>
-                onUpdate(block.id, (b) =>
-                  b.type === "query" ? { ...b, chart } : b,
-                )
-              }
-            />
-          )}
           {block.result.rows.length > 0 && (
             <RowsTable rows={block.result.rows} maxRows={20} />
           )}
-          {block.result.packageIds.length > 0 && (
-            <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
-              <Check className="h-3 w-3 text-success" />
-              Datasets:{" "}
-              {block.result.packageIds.map((p) => (
-                <DatasetChip key={p} packageId={p} title={titles[p]} />
-              ))}
-            </p>
-          )}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            {block.result.packageIds.length > 0 && (
+              <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                <Check className="h-3 w-3 text-success" />
+                Datasets:{" "}
+                {block.result.packageIds.map((p) => (
+                  <DatasetChip key={p} packageId={p} title={titles[p]} />
+                ))}
+              </p>
+            )}
+            {chartable && (
+              <button
+                type="button"
+                onClick={() => onInsertChart(block.id)}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-hairline bg-white px-2.5 py-1 text-xs text-muted transition-colors hover:border-navy hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+              >
+                <ChartIcon className="h-3.5 w-3.5" /> Chart this result
+              </button>
+            )}
+          </div>
         </div>
       )}
 
