@@ -618,6 +618,29 @@ Priority is table order, capped at `WHENRICH_AGENT_SUGGESTIONS_MAX` (3), deduped
 
 Tests: `tests/unit/test_suggest_build.py` (templates, priority, cap, dedupe, label budget at the worst case), `test_suggest_gating.py` (one case per condition), `test_suggest_package_eligibility.py` (the per-kind split, the size gate, and that no emitted text is drawn from this turn's searches), `tests/integration/test_suggestions_event.py` (ordering, payload shape, kill switch, SSE round-trip, and the round-trip contract into a scoped request).
 
+## Guided-recovery regression lock (`core/agent/recovery_eval.py`)
+
+Eight cases pinning the milestone's promises, in two tiers. `RecoveryCase` declares the expected outcome tag, evidence-footer presence, suggestion count range, and derivation presence; `grade()` returns **every** failure rather than the first, so a broken run reports its whole shape at once, and it also asserts event ordering (`message_delta` → `derivation` → `suggestions` → `turn_record`).
+
+| id | shape | outcome | footer | suggestions | derivation |
+| -- | -- | -- | -- | -- | -- |
+| `air-travel-2025` | the canonical failure | `no_data` | yes | 1–3 | no |
+| `air-travel-summarize` | scoped: summarize | `explored` | no | 0–3 | no |
+| `air-travel-total` | scoped: total a column | `answered` | no | **0** | **yes** |
+| `below-floor` | nothing retrieves | `clarified` | **no** | **0** | no |
+| `clean-total` | a working answer | `answered` | **no** | **0** | yes |
+| `chain-cap` | 3 prior explorations | `no_data` | yes | **0** | no |
+| `explore-typed` | typed contents question | `explored` | no | 0–3 | no |
+| `meta-boundary` | corpus-wide question | `deflected` | no | **0** | no |
+
+**Five of eight are negative cases**, and a lint test pins that: *not* offering — below the retrieval floor, on a clean answer, at the chain cap, on a corpus-wide question — is as much of the design as offering, and it is the half that rots silently. A chip graveyard is the most likely way this fails in production and is invisible unless something tests for its absence.
+
+`air-travel-total` is the **M6 non-regression case** and the most important row: a scoped *numeric* follow-up must still carry its derivation. If guided recovery ever becomes a route to an untraced number, that assertion is what catches it.
+
+`forbid_clarify_replacement` defaults true and is asserted across the whole fixture rather than per case — the headline bug should be impossible to reintroduce by someone adding a case without having read the parent doc. Only `below-floor` sets it false, because a clarify *is* the correct outcome there.
+
+**Deterministic tier** (`tests/unit/test_recovery_eval.py`): six cases on scripted `FakeOpenAI` + fake BQ. Free, offline, runs on every change — the milestone's promises are shape promises, and a lock priced at a dollar a run is a lock that gets skipped. **Live tier** (`tests/integration/test_recovery_eval_live.py`, `WHENRICH_RUN_LIVE_EVALS=1`, ~$1) covers only what fakes cannot: real triage classification on the two boundary questions, and whether the research model produces a genuine description on a scoped turn. It grades outcome leniently for retrieval-dependent cases — a question that fails for vocabulary reasons is a *correct* outcome here as long as it fails informatively — but treats clarify-replacement and missing derivations as hard failures regardless. It writes `eval/reports/guided-recovery-eval.json` carrying `ACT_FLIP_CRITERIA` for `agent_verify_explore_mode`, so the go/no-go is a lookup: ≥30 shadow explore turns, **zero** false-positive caveats, ≥1 true positive, p95 added latency ≤400 ms. The zero is deliberate — a rubric that caveats faithful descriptions is strictly worse than the bypass it replaces, and the bypass is free to keep.
+
 ## Session memory (v2 only)
 
 `core/agent/records.py` + `core/agent/memory.py` implement the memory phase around one primitive — the deterministic **TurnRecord**, built by the pipeline's finish step from the turn trace with no LLM involved. Schema (v1): question + gist (casefold, punctuation/stopword-stripped), triage category, outcome (`answered | answered_with_caveat | no_data | deflected | clarified | error` — note `no_data` means a final answer with no successful SQL behind it), packages with titles, columns used, document ids, the final executed SQL verbatim, row count, searches tried with similarities, a 300-char answer digest, dollars, snapshot hash. Records ride to the client in the `turn_record` event and come back as `ChatRequest.turn_records`; the server stays stateless. Ingest validates defensively (version, types, length caps, 16 KB/record, newest `WHENRICH_AGENT_TURN_RECORDS_MAX` = 50 kept) — invalid records drop with a log, never a 400. Both the CLI (`--history-file` stores `{"_turn_record": …}` JSONL lines) and the web app (localStorage `turnRecords`, echoed on send) carry them.
