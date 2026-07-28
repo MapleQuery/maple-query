@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { streamChat } from "@/lib/sse";
-import type { AgentEvent, HistoryMessage } from "@/lib/types";
+import type { AgentEvent, HistoryMessage, SuggestionT } from "@/lib/types";
 import type { RailCard } from "@/components/evidence/evidence-rail";
 import { uuid } from "@/lib/utils";
 
@@ -18,6 +18,9 @@ export interface StreamState {
   /** The server-built memory record for this turn, echoed back on the
    * next request as `turn_records`. */
   turnRecord: Record<string, unknown> | null;
+  /** Next-step offers for this turn. Ephemeral by design — see
+   * SuggestionChips and the container's per-turn state. */
+  suggestions: SuggestionT[];
 }
 
 const initialState: StreamState = {
@@ -30,6 +33,7 @@ const initialState: StreamState = {
   cached: false,
   error: null,
   turnRecord: null,
+  suggestions: [],
 };
 
 type Action =
@@ -260,6 +264,9 @@ function reducer(state: StreamState, action: Action): StreamState {
             ],
           };
 
+        case "suggestions":
+          return { ...state, suggestions: payload.items };
+
         case "turn_record":
           return { ...state, turnRecord: payload.record };
 
@@ -316,6 +323,10 @@ export function useChatStream({ conversationId, onDone }: UseChatStreamOptions) 
       question: string,
       history: HistoryMessage[],
       turnRecords: Record<string, unknown>[] = [],
+      // Set when the user accepted an offer: narrows the turn to those
+      // datasets. Validated server-side, where a malformed scope
+      // degrades to an ordinary unscoped turn rather than an error.
+      scopePackageIds: string[] = [],
     ) => {
       abort();
       dispatch({ type: "start" });
@@ -329,6 +340,9 @@ export function useChatStream({ conversationId, onDone }: UseChatStreamOptions) 
             question,
             history,
             turn_records: turnRecords,
+            ...(scopePackageIds.length > 0
+              ? { scope_package_ids: scopePackageIds }
+              : {}),
           },
           {
             onEvent: (event) => dispatch({ type: "event", event }),

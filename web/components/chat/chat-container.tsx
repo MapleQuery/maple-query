@@ -7,13 +7,14 @@ import { EvidenceRail } from "@/components/evidence/evidence-rail";
 import { CostBadge } from "@/components/evidence/cost-badge";
 import { ChatComposer } from "./chat-composer";
 import { ConversationSwitcher } from "./conversation-switcher";
+import { SuggestionChips } from "./suggestion-chips";
 import { useChatStream } from "./use-chat-stream";
 import {
   conversations,
   type EvidenceCard,
   type StoredConversation,
 } from "@/lib/storage";
-import type { HistoryMessage } from "@/lib/types";
+import type { HistoryMessage, SuggestionT } from "@/lib/types";
 import { appendUserTurn, isAtMessageCap } from "@/lib/history";
 import { useToast } from "@/components/ui/toast";
 import { truncate, uuid } from "@/lib/utils";
@@ -54,6 +55,18 @@ export function ChatContainer({
     { id: string; title: string; updatedAt: string }[]
   >([]);
   const [currentTurnId, setCurrentTurnId] = React.useState<string | null>(null);
+  // Next-step offers for the latest turn only, and deliberately NOT in
+  // `StoredConversation`. An offer decays: reloading a three-week-old
+  // conversation and clicking a chip would scope a turn to packages
+  // that may have been re-ingested. The scope is a preference rather
+  // than a filter so it would not break — but the chip would be an
+  // invitation to a worse turn than a fresh question, and everything
+  // needed to re-ask (the answer, its evidence footer, the dataset
+  // names) is still on screen.
+  const [offers, setOffers] = React.useState<{
+    turnId: string;
+    items: SuggestionT[];
+  } | null>(null);
   const threadRef = React.useRef<HTMLDivElement>(null);
 
   // Refresh conversation index whenever storage changes below.
@@ -121,6 +134,10 @@ export function ChatContainer({
       ),
     );
 
+    if (state.suggestions.length > 0) {
+      setOffers({ turnId: currentTurnId, items: state.suggestions });
+    }
+
     // Persist once the turn terminates.
     if (state.status === "done" || state.status === "error") {
       persistConversation();
@@ -135,6 +152,7 @@ export function ChatContainer({
     state.elapsedMs,
     state.cached,
     state.error,
+    state.suggestions,
     currentTurnId,
   ]);
 
@@ -221,7 +239,10 @@ export function ChatContainer({
     refreshIndex,
   ]);
 
-  const handleSubmit = async (question: string) => {
+  const handleSubmit = async (
+    question: string,
+    scopePackageIds: string[] = [],
+  ) => {
     if (!conversation) return;
     const history = buildHistoryFromTurns(turns);
     if (isAtMessageCap(history)) {
@@ -234,6 +255,9 @@ export function ChatContainer({
 
     const turnId = uuid();
     setCurrentTurnId(turnId);
+    // Offers belong to the turn that produced them; the next turn
+    // starts with none.
+    setOffers(null);
     setTurns((prev) => [
       ...prev,
       {
@@ -251,10 +275,25 @@ export function ChatContainer({
       turn_id: turnId,
       question_length: question.length,
       history_length: history.length,
+      scoped: scopePackageIds.length > 0,
     });
 
     const nextHistory = appendUserTurn(history, question);
-    await send(question, nextHistory, conversation.turnRecords ?? []);
+    await send(
+      question,
+      nextHistory,
+      conversation.turnRecords ?? [],
+      scopePackageIds,
+    );
+  };
+
+  // Accepting an offer is an ordinary turn. The question is appended
+  // verbatim as a user message rather than annotated as a UI action, so
+  // the transcript reads like a conversation and the exported history
+  // carries the real question rather than a reference to an affordance
+  // that no longer exists.
+  const handleAcceptSuggestion = (s: SuggestionT) => {
+    void handleSubmit(s.question, s.package_ids);
   };
 
   const handleNewConversation = () => {
@@ -308,6 +347,17 @@ export function ChatContainer({
                     ) : undefined
                   }
                 />
+                {offers?.turnId === t.id &&
+                  t.id === turns[turns.length - 1]?.id && (
+                    // Latest turn only: an offer is about what to do
+                    // next, and a chip eight messages up invites
+                    // forking a thread the user has already moved past.
+                    <SuggestionChips
+                      items={offers.items}
+                      disabled={state.status === "streaming"}
+                      onAccept={handleAcceptSuggestion}
+                    />
+                  )}
                 {t.status === "error" && (
                   <div className="rounded-lg border border-error/30 bg-error/10 px-4 py-3 text-sm text-error">
                     {t.errorMessage ?? "Something went wrong. Try again."}
