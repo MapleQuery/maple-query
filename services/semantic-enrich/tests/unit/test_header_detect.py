@@ -153,6 +153,12 @@ DECLINE_CASES = [
         "data_starts_at_row_0",
         "telemetry: the single unnamed column is a row counter",
     ),
+    (
+        "18930d3aea",
+        "tier_split",
+        "legal aid applications: merged cells put 'Criminal' and 'Civil' "
+        "on the top row spanning columns whose real names sit a row below",
+    ),
 ]
 
 
@@ -343,3 +349,69 @@ def test_fixture_covers_more_declines_than_accepts_across_publishers() -> None:
     assert len(publishers) >= 15
     assert len(DECLINE_CASES) >= 10
     assert len(ACCEPT_CASES) + len(DECLINE_CASES) == len(DOCUMENTS)
+
+
+def test_a_merged_cell_tier_is_not_mistaken_for_the_header() -> None:
+    """The failure this rule was written for, from the document that
+    exposed it.
+
+    `Legal Aid in Canada` puts `Criminal` and `Civil` on its top row as
+    merged labels spanning two and three columns; the columns' real names
+    (`Adult matter applications`, `Youth matter applications`, ...) sit a
+    row below. Taking the top row named one column "Criminal" when it
+    holds adult matters only and left youth unnamed — a total that looks
+    complete and is not.
+
+    Neither of the two gates meant to catch merged cells fired: the row
+    sat exactly on the density threshold, and a merged label arrives as
+    blanks rather than as a repeated value, so distinctness stayed clean.
+    """
+    doc = _doc("18930d3aea")
+    report = explain_header(doc["rows"], doc["generated_columns"])
+    assert report.recovery is None
+    assert report.reason == "tier_split"
+    # It really did clear the five gates — this is a sixth rule, not a
+    # tightened threshold.
+    assert report.signals["density"] >= 0.6
+    assert report.signals["distinctness"] == 1.0
+    assert report.signals["all_text"] == 1.0
+
+
+def test_a_banner_above_a_complete_header_still_recovers() -> None:
+    """The rule keys on the header leaving a *gap* another row fills, not
+    on two rows sharing a column. The housing table has `Age Group`
+    spanning the age columns one row above a header that names every
+    column itself — nothing is missing, so nothing is ambiguous."""
+    recovery = _detect("cdf5065c01")
+    assert recovery is not None
+    assert recovery.header_row_index == 2
+    assert len(recovery.names) == 7
+
+
+def test_a_section_label_below_the_header_is_not_a_tier() -> None:
+    """A row that fills a column the header left blank only matters when
+    that column is one we would otherwise leave unnamed. A section label
+    under a header whose blank sits over an already-named column is not a
+    split header."""
+    rows = [
+        {"Region": "", "__col_1": "2023", "__col_2": "2024"},
+        {"Region": "Ontario", "__col_1": "", "__col_2": ""},
+        {"Region": "Toronto", "__col_1": "5", "__col_2": "6"},
+    ]
+    recovery = detect_header(rows, ["__col_1", "__col_2"])
+    assert recovery is not None
+    assert recovery.names == {"__col_1": "2023", "__col_2": "2024"}
+
+
+def test_the_gap_filler_is_looked_for_above_the_header_too() -> None:
+    """A split header can put the missing names on either side. Here the
+    candidate names two of three columns and the row *above* carries the
+    third, so no single row names them all."""
+    rows = [
+        {"__col_0": "Region", "__col_1": "", "__col_2": ""},
+        {"__col_0": "", "__col_1": "Adult", "__col_2": "Youth"},
+        {"__col_0": "ON", "__col_1": "5", "__col_2": "6"},
+    ]
+    report = explain_header(rows, ["__col_0", "__col_1", "__col_2"])
+    assert report.recovery is None
+    assert report.reason == "tier_split"

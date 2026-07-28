@@ -183,3 +183,32 @@ def test_an_empty_scan_does_not_divide_by_zero() -> None:
     assert report["documents_scanned"] == 0
     assert report["recovery_rate"] == 0.0
     assert report["sample"] == []
+
+
+def test_recovery_is_also_reported_against_the_recoverable_population() -> None:
+    """Half the affected corpus holds no header in its stored rows, and
+    scoring against a denominator that includes those understates what
+    the detector does with documents it can act on. Reported alongside
+    the headline rate, never instead of it — the gate is still scored
+    against `recovery_rate`."""
+    report = _report(
+        [
+            _scanned(RECOVERED),  # recovers
+            _scanned(DECLINED),  # a header exists; detector declined
+            _scanned("235723ded4"),  # data from row 0: no header at all
+        ]
+    )
+    assert report["recovery_rate"] == round(1 / 3, 4)
+    # One of the three had nothing to find, so the denominator is two.
+    assert report["recovery_rate_where_a_header_exists"] == 0.5
+    assert report["gate_result"]["recovery_rate_observed"] == report[
+        "recovery_rate"
+    ]
+
+
+def test_the_headline_rate_is_what_the_gate_scores() -> None:
+    """Adding a kinder denominator must not quietly become the bar."""
+    report = _report([_scanned("235723ded4") for _ in range(9)] + [_scanned(RECOVERED)])
+    assert report["recovery_rate"] == 0.1
+    assert report["recovery_rate_where_a_header_exists"] == 1.0
+    assert report["gate_result"]["recovery_rate_pass"] is False
