@@ -447,14 +447,21 @@ class Settings(BaseSettings):
     # legitimately wide generated-header tables exist).
     agent_generated_header_ratio: float = 0.5
     # Read-time recovery of column names for those same docs: find the
-    # real header row hiding below the preamble and expose what it
-    # calls each column. Ships OFF — it changes names the model reasons
-    # with, and the evidence for turning it on is the offline recovery
-    # report, not a live run. The two tunables mirror the detector's own
-    # defaults (a test pins them together); they live here as well
-    # because the tool path has to be able to move them without a
-    # release.
-    agent_header_recovery: bool = False
+    # real header row hiding below the preamble and expose what it calls
+    # each column.
+    #
+    # ON. The evidence is the offline recovery report, never a live run:
+    # 60 of 208 scanned documents recovered, and all 50 in the review
+    # sample read by hand with zero wrong names — which is the gate that
+    # matters, since a wrong name is one the model uses confidently in
+    # SQL. Turn it off with WHENRICH_AGENT_HEADER_RECOVERY=false; there
+    # are no recovered names on state after that, so the payload and the
+    # SQL path both revert by construction rather than by a second flag.
+    #
+    # The two tunables mirror the detector's own defaults (a test pins
+    # them together); they live here as well because the tool path has to
+    # be able to move them without a release.
+    agent_header_recovery: bool = True
     agent_header_scan_rows: int = 8
     agent_header_min_density: float = 0.6
 

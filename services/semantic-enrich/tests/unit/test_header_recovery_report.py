@@ -73,7 +73,7 @@ def test_decline_reasons_are_tallied_per_gate() -> None:
     report = _report([_scanned(DECLINED), _scanned("235723ded4")])
     assert report["decline_reasons"] == {
         "data_starts_at_row_0": 1,
-        "density": 1,
+        "tier_split": 1,
     }
 
 

@@ -202,6 +202,11 @@ def explain_header(
         if _passes(signals, min_density=min_density)
     ]
     if not qualifying:
+        composed = _compose_tiers(
+            values, kinds, keys, generated, body_start, min_density
+        )
+        if composed is not None:
+            return composed
         # Report the row that got furthest — the near-miss is what a
         # threshold change would move, and ties break toward the row
         # nearest the data, which is where a header sits.
@@ -252,6 +257,16 @@ def explain_header(
             if index == chosen:
                 continue
             if any(values[index].get(c) for c in unnamed_here):
+                # A split header may still be readable if the two tiers
+                # compose — `Criminal` over `Adult matter applications`
+                # names the column better than either row alone. Only
+                # when composing covers every column and stays
+                # unambiguous; otherwise this stays a decline.
+                composed = _compose_tiers(
+                    values, kinds, keys, generated, body_start, min_density
+                )
+                if composed is not None:
+                    return composed
                 return HeaderReport(
                     recovery=None,
                     reason="tier_split",
@@ -284,6 +299,201 @@ def explain_header(
     )
 
 
+# ── two-tier composition ──
+
+
+def _compose_tiers(
+    values: Sequence[Mapping[str, str]],
+    kinds: Sequence[Mapping[str, str]],
+    keys: Sequence[str],
+    generated: Sequence[str],
+    body_start: int,
+    min_density: float,
+) -> HeaderReport | None:
+    """Try to read a header spread over two rows, or return None.
+
+    Statistical releases routinely stack a spanning tier over a leaf
+    tier — `2023 | 2024` over `Applicants | Amount`, `Criminal` over
+    `Adult | Youth`. Neither row names the columns on its own: the upper
+    repeats nothing and covers everything, the lower repeats itself and
+    covers only part.
+
+    This runs **only when the single-row path has already failed**, so it
+    can add recoveries and cannot change one. That is the whole safety
+    argument — every name a previous version produced, this version still
+    produces.
+
+    Returns None whenever anything is unclear, which is most of the time.
+    """
+    label_rows = [
+        index
+        for index in range(body_start)
+        if any(kinds[index][k] in _HEADER_KINDS for k in keys)
+    ]
+    # Exactly two tiers. Three-deep stacks exist (names over units over a
+    # section banner) but telling a unit row from a banner is a different
+    # problem, and guessing it would manufacture names.
+    if len(label_rows) != 2:
+        return None
+    upper_index, leaf_index = label_rows
+    # The leaf must sit against the data. A gap means something else is
+    # in between and this is not a two-tier header.
+    if leaf_index != body_start - 1:
+        return None
+
+    positions = _column_positions(keys)
+    if positions is None:
+        return None
+
+    leaf = values[leaf_index]
+    # Forward-filling the upper tier is the risky half of composition: a
+    # label followed by blanks *looks* like a merged span whether or not
+    # it is one, so filling a row whose first cell is simply the name of
+    # the first column invents `Region Adult` out of `Region` and
+    # `Adult`. Only fill when the leaf's own labels repeat — that is the
+    # case a span exists to disambiguate, and the only case where the
+    # leaf cannot stand on its own.
+    leaf_labels = [leaf[k] for k in keys if leaf[k]]
+    ambiguous = len(set(leaf_labels)) != len(leaf_labels)
+    upper = (
+        _forward_fill(values[upper_index], positions)
+        if ambiguous
+        else dict(values[upper_index])
+    )
+
+    # Every cell of both tiers must be a label, and the pair together has
+    # to cover the columns that carry data.
+    live = [k for k in keys if any(row[k] != _EMPTY for row in kinds)]
+    if not live:
+        return None
+    for index in (upper_index, leaf_index):
+        row = kinds[index]
+        if any(
+            row[k] not in _HEADER_KINDS
+            for k in keys
+            if row[k] != _EMPTY
+        ):
+            return None
+    covered = [k for k in live if upper.get(k) or leaf.get(k)]
+    if len(covered) / len(live) < min_density:
+        return None
+    # The leaf has to differ in type signature from the rows below it,
+    # exactly as a single-row header must.
+    if not _contrast(leaf_index, kinds, [k for k in live if leaf[k]]):
+        return None
+
+    original_upper = values[upper_index]
+    composed: dict[str, str] = {}
+    for key in keys:
+        if leaf[key]:
+            # A forward-filled label only qualifies a column the leaf
+            # actually names. Letting fill run past the leaf's last cell
+            # spills the span into the ragged empty tail and hands two
+            # dead columns the same name — which the SQL layer would then
+            # resolve to whichever it saw first.
+            composed[key] = _join_tiers(upper.get(key, ""), leaf[key])
+        elif original_upper[key]:
+            composed[key] = original_upper[key]
+
+    # Composition earns its keep by disambiguating. If the result still
+    # repeats itself it has not, and a repeated name is worse than none:
+    # two columns answering to one name is a silently wrong column.
+    produced = list(composed.values())
+    if len(set(produced)) != len(produced):
+        return None
+
+    names = {
+        column: composed[column]
+        for column in generated
+        if column in composed and _is_nameable(composed[column])
+    }
+    if not names:
+        return None
+    signals = {
+        "positional": 1.0,
+        "all_text": 1.0,
+        "density": len(covered) / len(live),
+        "distinctness": 1.0,
+        "contrast": 1.0,
+    }
+    return HeaderReport(
+        recovery=HeaderRecovery(
+            header_row_index=leaf_index,
+            names=names,
+            preamble_rows=leaf_index,
+            signals=signals,
+        ),
+        reason="accepted_composed",
+        signals=signals,
+        candidate_row_index=leaf_index,
+    )
+
+
+def _join_tiers(upper: str, leaf: str) -> str:
+    """`Criminal` + `Adult matter applications` -> both, in reading order.
+
+    A tier that repeats the one below it adds nothing — bilingual files
+    stack `Visas` over `Visas` — so an identical pair collapses rather
+    than doubling.
+    """
+    if not upper:
+        return leaf
+    if not leaf or upper == leaf:
+        return upper
+    return f"{upper} {leaf}"
+
+
+def _column_positions(keys: Sequence[str]) -> dict[str, int] | None:
+    """Each key's column index, or None when it cannot be known.
+
+    This is the constraint that bounds composition. Row bodies arrive as
+    JSON objects whose keys BigQuery normalises into alphabetical order,
+    so left-to-right position is *not* recoverable from iteration order —
+    it survives only inside the `__col_N` names the loader synthesised.
+
+    A column that already carries a real name has no such marker, so its
+    position is only pinned when exactly one index is unaccounted for.
+    Two or more real names and the layout is genuinely ambiguous, which
+    makes forward-fill a guess about which columns a merged label spans.
+    """
+    width = len(keys)
+    generated: dict[str, int] = {}
+    named: list[str] = []
+    for key in keys:
+        if GENERATED_COL_RE.fullmatch(key):
+            generated[key] = int(key.rsplit("_", 1)[1])
+        else:
+            named.append(key)
+    if len(set(generated.values())) != len(generated):
+        return None
+    free = sorted(set(range(width)) - set(generated.values()))
+    if len(free) != len(named) or len(named) > 1:
+        return None
+    positions = dict(generated)
+    if named:
+        positions[named[0]] = free[0]
+    return positions
+
+
+def _forward_fill(
+    row: Mapping[str, str], positions: Mapping[str, int]
+) -> dict[str, str]:
+    """Carry each label rightward across the blanks it spans.
+
+    A merged cell arrives as a value followed by empties, so this is what
+    turns `Criminal | (blank)` back into a label over both columns.
+    """
+    ordered = sorted(positions, key=lambda k: positions[k])
+    out: dict[str, str] = {}
+    carried = ""
+    for key in ordered:
+        value = row.get(key, "")
+        if value:
+            carried = value
+        out[key] = carried
+    return out
+
+
 # ── the five gates ──
 
 
@@ -300,7 +510,13 @@ def _score(
     reviewable against the distribution the corpus actually produces.
     """
     row = kinds[index]
-    filled = [k for k in keys if row[k] != _EMPTY]
+    # Columns that are empty in every scanned row are ragged-tail parse
+    # artifacts — the loader synthesised a key for a trailing comma. They
+    # are not positions a header failed to fill, and counting them in the
+    # denominator declined real headers on files whose data is narrower
+    # than their widest row.
+    live = [k for k in keys if any(r[k] != _EMPTY for r in kinds)] or list(keys)
+    filled = [k for k in live if row[k] != _EMPTY]
     label_keys = [k for k in filled if row[k] in _HEADER_KINDS]
     return {
         # Above the data. A header-looking row *inside* the body is a
@@ -310,7 +526,7 @@ def _score(
         # row is data that happens to be sparse.
         "all_text": (len(label_keys) / len(filled)) if filled else 0.0,
         # A header fills most positions; a preamble title fills one.
-        "density": len(filled) / len(keys),
+        "density": len(filled) / len(live),
         # Headers name different things. A banner smeared across merged
         # cells repeats itself.
         "distinctness": _distinctness(values[index], filled),
