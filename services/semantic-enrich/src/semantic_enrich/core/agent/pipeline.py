@@ -19,6 +19,7 @@ from semantic_enrich.core import agent_events, agent_history
 from semantic_enrich.core.agent import (
     evidence,
     grounding,
+    phases,
     records,
     research,
     scope,
@@ -86,6 +87,11 @@ def run_turn(
     yield record(agent_events.PhaseStart(phase="triage"))
     triage = deps.triage.classify(ctx)
     ctx.triage_category = triage.category
+    # Either signal carries explore intent: a clicked chip's package
+    # scope, or a typed exploratory question the classifier recognised.
+    # Stamped once, here, so every downstream predicate reads one field.
+    if ctx.scope_package_ids or triage.category == "explore":
+        ctx.turn_intent = "explore"
     for event in triage.events:
         yield record(event)
     if triage.short_circuit is not None:
@@ -371,8 +377,13 @@ def _skip_verify(ctx: TurnContext, result: ResearchResult) -> bool:
     question is not a claim to check."""
     if result.terminal_reason != "final_answer":
         return True
-    if _is_descriptive_scope(ctx, result):
-        return True
+    if phases.is_descriptive(ctx, result):
+        # The rubric replaces the blunt bypass: with the explore
+        # checker off we skip verification entirely (the interim
+        # posture), otherwise the verifier routes to a checker that
+        # judges description on description and structurally cannot
+        # emit `clarify` or `retry`.
+        return ctx.deps.settings.agent_verify_explore_mode == "off"
     return _candidate_is_clarify(ctx, result)
 
 
@@ -395,37 +406,11 @@ def _skip_grounding(ctx: TurnContext, result: ResearchResult) -> bool:
     dataset summaries routinely have.)"""
     if result.terminal_reason not in ("final_answer", "budget_forced"):
         return True
-    if _is_descriptive_scope(ctx, result):
+    if phases.is_descriptive(ctx, result):
+        # Skipped regardless of the explore-checker mode: this one is
+        # not about verification at all.
         return True
     return _candidate_is_clarify(ctx, result)
-
-
-def _sql_succeeded(result: ResearchResult | None) -> bool:
-    if result is None:
-        return False
-    return any(run.get("status") == "ok" for run in result.sql_runs)
-
-
-def _is_descriptive_scope(
-    ctx: TurnContext, result: ResearchResult | None
-) -> bool:
-    """A scoped turn that ran no successful SQL is an exploration, and
-    exploration is judged on description rather than on answer fit.
-
-    The `sql_succeeded` half is the important half and is not
-    negotiable. The obvious rule — scoped turn, skip verify — would be a
-    regression: a numeric follow-up ("now sum these columns") is *also*
-    a scoped turn, so keying the bypass on scope alone would strip the
-    derivation, grounding, and magnitude protection from exactly the
-    answers guided recovery exists to produce. A numeric follow-up runs
-    SQL, so it takes the full path unchanged.
-
-    This also closes the clarify-replacement failure at its root rather
-    than by adding a demotion: a descriptive turn never reaches verify,
-    so `clarify` cannot fire on it and `compose_clarify` cannot replace
-    a dataset summary with a question back to the user.
-    """
-    return bool(ctx.scope_package_ids) and not _sql_succeeded(result)
 
 
 def _candidate_is_clarify(ctx: TurnContext, result: ResearchResult) -> bool:
@@ -552,14 +537,14 @@ def _outcome(
         )
     if result.terminal_reason in ("error", "timeout"):
         return "error"
-    sql_succeeded = _sql_succeeded(result)
+    sql_succeeded = phases.sql_succeeded(result)
     if (
         ctx.state.clarify_steer_issued
         and not sql_succeeded
         and "?" in message
     ):
         return "clarified"
-    if _is_descriptive_scope(ctx, result):
+    if phases.is_descriptive(ctx, result):
         # A first-class tag, not reused `no_data`: it is what lets the
         # fixture assert "explorations are never recorded as
         # surrenders", and what keeps the surrender-rate metric honest

@@ -1,0 +1,177 @@
+# Exploratory-question fixture for the descriptive-rubric shadow run.
+#
+# Purpose is act-flip precision data, not regression: these questions
+# exercise the `explore` triage category and the descriptive verify
+# rubric against the real corpus, so every unfit verdict can be read by
+# eye before the rubric is allowed to alter an answer.
+#
+# Same schema as questions-agent-traces.yaml. Deliberately includes the
+# boundary cases the category is most likely to get wrong (ex-06..ex-09,
+# ex-13) plus two controls that must NOT route to explore - misrouting a
+# figure request into a description is the costly direction.
+
+- id: ex-01
+  question: what's in the Supplementary Estimates?
+  source: explore-shadow-2026-07-27
+  expected:
+    triage: explore
+    outcome: explored
+    packages_any_of: []
+    must_caveat: false
+  observed_v1:
+    outcome: unmeasured
+    note: canonical explore - names a dataset class, asks contents
+- id: ex-02
+  question: summarize what data is in the Public Accounts of Canada
+  source: explore-shadow-2026-07-27
+  expected:
+    triage: explore
+    outcome: explored
+    packages_any_of: []
+    must_caveat: false
+  observed_v1:
+    outcome: unmeasured
+    note: explicit summarize verb
+- id: ex-03
+  question: what columns does the federal contracts dataset have?
+  source: explore-shadow-2026-07-27
+  expected:
+    triage: explore
+    outcome: explored
+    packages_any_of: []
+    must_caveat: false
+  observed_v1:
+    outcome: unmeasured
+    note: column inventory - the browse case
+- id: ex-04
+  question: what's covered in the travel and hospitality expenditure data?
+  source: explore-shadow-2026-07-27
+  expected:
+    triage: explore
+    outcome: explored
+    packages_any_of: []
+    must_caveat: false
+  observed_v1:
+    outcome: unmeasured
+    note: coverage question over a dataset class
+- id: ex-05
+  question: what time range does the departmental results framework data cover?
+  source: explore-shadow-2026-07-27
+  expected:
+    triage: explore
+    outcome: explored
+    packages_any_of: []
+    must_caveat: false
+  observed_v1:
+    outcome: unmeasured
+    note: temporal coverage - descriptive, no figure
+- id: ex-06
+  question: what kind of housing data do you have?
+  source: explore-shadow-2026-07-27
+  expected:
+    triage: explore
+    outcome: explored
+    packages_any_of: []
+    must_caveat: false
+  observed_v1:
+    outcome: unmeasured
+    note: boundary - reads corpus-ish but scopes to a subject
+- id: ex-07
+  question: describe the immigration datasets
+  source: explore-shadow-2026-07-27
+  expected:
+    triage: explore
+    outcome: explored
+    packages_any_of: []
+    must_caveat: false
+  observed_v1:
+    outcome: unmeasured
+    note: boundary - plural dataset class
+- id: ex-08
+  question: what's in the grants and contributions data and how is it structured?
+  source: explore-shadow-2026-07-27
+  expected:
+    triage: explore
+    outcome: explored
+    packages_any_of: []
+    must_caveat: false
+  observed_v1:
+    outcome: unmeasured
+    note: structure question; likely to quote counts, tests claims_a_total
+- id: ex-09
+  question: show me what the trade data looks like
+  source: explore-shadow-2026-07-27
+  expected:
+    triage: explore
+    outcome: explored
+    packages_any_of: []
+    must_caveat: false
+  observed_v1:
+    outcome: unmeasured
+    note: boundary - informal phrasing, no explicit dataset noun
+- id: ex-10
+  question: what fields are in the federal proactive disclosure datasets?
+  source: explore-shadow-2026-07-27
+  expected:
+    triage: explore
+    outcome: explored
+    packages_any_of: []
+    must_caveat: false
+  observed_v1:
+    outcome: unmeasured
+    note: field inventory, synonym for columns
+- id: ex-11
+  question: what does the infrastructure projects data contain?
+  source: explore-shadow-2026-07-27
+  expected:
+    triage: explore
+    outcome: explored
+    packages_any_of: []
+    must_caveat: false
+  observed_v1:
+    outcome: unmeasured
+    note: plain contents question
+- id: ex-12
+  question: what's in the wages by education level dataset?
+  source: explore-shadow-2026-07-27
+  expected:
+    triage: explore
+    outcome: explored
+    packages_any_of: []
+    must_caveat: false
+  observed_v1:
+    outcome: unmeasured
+    note: names a dataset the surrender baseline actually surfaced
+- id: ex-13
+  question: summarize the datasets you have on federal employee travel
+  source: explore-shadow-2026-07-27
+  expected:
+    triage: explore
+    outcome: explored
+    packages_any_of: []
+    must_caveat: false
+  observed_v1:
+    outcome: unmeasured
+    note: subject-scoped summarize; risk of routing to meta
+- id: ex-14
+  question: how much did the government spend on air travel in 2024-25?
+  source: explore-shadow-2026-07-27
+  expected:
+    triage: in_scope
+    outcome: answered
+    packages_any_of: []
+    must_caveat: false
+  observed_v1:
+    outcome: unmeasured
+    note: CONTROL - a figure request must not route to explore
+- id: ex-15
+  question: how many datasets do you have access to?
+  source: explore-shadow-2026-07-27
+  expected:
+    triage: meta
+    outcome: deflected
+    packages_any_of: []
+    must_caveat: false
+  observed_v1:
+    outcome: unmeasured
+    note: CONTROL - corpus-wide is meta, not explore

@@ -198,17 +198,20 @@ def test_scoped_turn_lists_documents_without_searching_first() -> None:
 # ── the §4 table ──
 
 
-def test_descriptive_scoped_turn_bypasses_verify_and_grounding() -> None:
+def test_descriptive_turn_never_reaches_the_numeric_fit_checker() -> None:
+    """The fit prompt is calibrated against answers that ran SQL; a
+    description must not be judged by it. With the explore rubric in its
+    default shadow mode a checker *does* run — the descriptive one."""
     outcome, openai = _run(
         settings=_settings(), script=_descriptive_script()
     )
-    assert openai.structured_calls == []
-    assert not any(
-        isinstance(e, agent_events.Verification) for e in outcome.events
-    )
-    # Grounding skipped too: a summary quoting a monetary range would
-    # otherwise ground as `ungrounded` and paint a false "no computation
-    # behind this number" panel on a turn that claimed no total.
+    assert [c["schema_name"] for c in openai.structured_calls] == [
+        "verify_explore"
+    ]
+    # Grounding is skipped regardless of the rubric: a summary quoting a
+    # monetary range would ground as `ungrounded` and paint a false "no
+    # computation behind this number" panel on a turn that claimed no
+    # total.
     assert not any(
         isinstance(e, agent_events.DerivationEvent) for e in outcome.events
     )
@@ -216,20 +219,46 @@ def test_descriptive_scoped_turn_bypasses_verify_and_grounding() -> None:
     assert _record(outcome)["outcome"] == "explored"
 
 
+def test_full_bypass_when_the_explore_rubric_is_off() -> None:
+    """`off` is the interim posture the rubric replaced: no checker call
+    at all on a descriptive turn."""
+    outcome, openai = _run(
+        settings=_settings(agent_verify_explore_mode="off"),
+        script=_descriptive_script(),
+        checks=[_clarify_check()],
+    )
+    assert openai.structured_calls == []
+    assert not any(
+        isinstance(e, agent_events.Verification) for e in outcome.events
+    )
+    assert outcome.final_message == SUMMARY
+    assert _record(outcome)["outcome"] == "explored"
+
+
 def test_the_clarify_regression_that_motivates_the_prd() -> None:
     """A checker that *would* have replaced the summary with a question
-    never gets the chance. This is the failure the whole PRD exists to
-    close: the user clicks "summarize this dataset" and is asked a
-    question back."""
+    cannot. This is the failure the milestone exists to close: the user
+    clicks "summarize this dataset" and is asked a question back.
+
+    Two independent guards hold here, and the test exercises both. The
+    descriptive turn never reaches the fit checker; and the checker it
+    *does* reach has no `clarify` in its action enum, so a response
+    naming one fails validation and fails open to `answer`. The second
+    guard is what makes this safe even against a miscalibrated rubric.
+    """
     outcome, openai = _run(
-        settings=_settings(),
+        settings=_settings(agent_verify_explore_mode="act"),
         script=_descriptive_script(),
         checks=[_clarify_check()],
     )
     assert outcome.final_message == SUMMARY
     assert "couldn't confidently find" not in outcome.final_message
-    # The scripted clarify verdict was never consumed.
-    assert openai.structured_responses == [_clarify_check()]
+    # The verdict was consumed by the explore checker and rejected —
+    # not merely skipped. Even in `act` mode it changed nothing.
+    assert openai.structured_responses == []
+    assert [c["schema_name"] for c in openai.structured_calls] == [
+        "verify_explore"
+    ]
     assert _record(outcome)["outcome"] == "explored"
 
 

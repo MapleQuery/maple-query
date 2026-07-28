@@ -1,0 +1,1204 @@
+{
+  "run_id": "089058f0-ca2c-4801-b202-47e761e46ee4",
+  "mode": "agent",
+  "loop_impl": "v2",
+  "started_at": "2026-07-28T01:24:52.861575+00:00",
+  "finished_at": "2026-07-28T01:27:06.651505+00:00",
+  "fixture_path": "eval/questions-explore-shadow.yaml",
+  "prompt_hash": "a3e4269afc56a44ec574c1ff7664e7f9297143d4720d4cdcac123a3e51c4519a",
+  "system_prompt_tokens": 928,
+  "generation_model": "gpt-4o",
+  "questions_count": 15,
+  "totals": {
+    "dollars_spent": 0.567478,
+    "tool_calls": 33,
+    "terminal_counts": {
+      "done": 15
+    }
+  },
+  "similarity_calibration": {
+    "floor": 0.3,
+    "by_expected_outcome": {
+      "answered": {
+        "count": 1,
+        "min": 0.5067,
+        "median": 0.5067,
+        "max": 0.5067,
+        "below_floor": 0,
+        "values": [
+          0.5067
+        ]
+      },
+      "explored": {
+        "count": 13,
+        "min": 0.4169,
+        "median": 0.5794,
+        "max": 0.6511,
+        "below_floor": 0,
+        "values": [
+          0.4169,
+          0.4725,
+          0.5132,
+          0.5554,
+          0.5579,
+          0.5588,
+          0.5794,
+          0.593,
+          0.6184,
+          0.6201,
+          0.628,
+          0.6492,
+          0.6511
+        ]
+      }
+    }
+  },
+  "verify_fit": {
+    "answered": {
+      "checked": 1,
+      "fits_first": 0,
+      "unfit_ids": [
+        "ex-14"
+      ]
+    }
+  },
+  "guided_recovery": {
+    "turns": 15,
+    "surrenders": 0,
+    "surrender_ids": [],
+    "surrenders_with_packages": 0,
+    "surrenders_with_ok_retrieval": 0,
+    "exploitable_rate": 0.0,
+    "exploitable_ids": [],
+    "verdict": "no_surrenders",
+    "surrenders_with_footer": 0,
+    "search_queries": [
+      {
+        "id": "ex-01",
+        "outcome": "explored",
+        "queries": [
+          "Supplementary Estimates"
+        ]
+      },
+      {
+        "id": "ex-02",
+        "outcome": "explored",
+        "queries": [
+          "Public Accounts of Canada"
+        ]
+      },
+      {
+        "id": "ex-03",
+        "outcome": "explored",
+        "queries": [
+          "federal contracts dataset"
+        ]
+      },
+      {
+        "id": "ex-04",
+        "outcome": "explored",
+        "queries": [
+          "travel and hospitality expenditure data"
+        ]
+      },
+      {
+        "id": "ex-05",
+        "outcome": "explored",
+        "queries": [
+          "departmental results framework time range"
+        ]
+      },
+      {
+        "id": "ex-06",
+        "outcome": "explored",
+        "queries": [
+          "housing data in Canada"
+        ]
+      },
+      {
+        "id": "ex-07",
+        "outcome": "explored",
+        "queries": [
+          "immigration"
+        ]
+      },
+      {
+        "id": "ex-08",
+        "outcome": "explored",
+        "queries": [
+          "grants and contributions data"
+        ]
+      },
+      {
+        "id": "ex-09",
+        "outcome": "explored",
+        "queries": [
+          "trade data"
+        ]
+      },
+      {
+        "id": "ex-10",
+        "outcome": "explored",
+        "queries": [
+          "federal proactive disclosure datasets"
+        ]
+      },
+      {
+        "id": "ex-11",
+        "outcome": "explored",
+        "queries": [
+          "infrastructure projects data"
+        ]
+      },
+      {
+        "id": "ex-12",
+        "outcome": "explored",
+        "queries": [
+          "wages by education level"
+        ]
+      },
+      {
+        "id": "ex-13",
+        "outcome": "explored",
+        "queries": [
+          "federal employee travel"
+        ]
+      },
+      {
+        "id": "ex-14",
+        "outcome": "answered",
+        "queries": [
+          "government spending on air travel 2024-25",
+          "government spending on air travel 2024-25",
+          "federal government air travel expenses 2024-2025"
+        ]
+      },
+      {
+        "id": "ex-15",
+        "outcome": "deflected",
+        "queries": []
+      }
+    ]
+  },
+  "explore_shadow": {
+    "explore_turns": 13,
+    "rubric_checked": 13,
+    "fits": 13,
+    "unfit": 0,
+    "would_caveat_rate": 0.0,
+    "unfit_reasons": [],
+    "misrouted": []
+  },
+  "questions": [
+    {
+      "id": "ex-01",
+      "question": "what's in the Supplementary Estimates?",
+      "expected": {
+        "triage": "explore",
+        "outcome": "explored",
+        "packages_any_of": [],
+        "must_caveat": false
+      },
+      "observed_v1_trace": {
+        "outcome": "unmeasured",
+        "note": "canonical explore - names a dataset class, asks contents"
+      },
+      "run": {
+        "terminal": "done",
+        "final_message": "The search for datasets related to the Supplementary Estimates returned several relevant packages, including [Supplementary Estimates (C) 2025-26](https://open.canada.ca/data/en/dataset/7d3bcb7b-d7b3-419f-a68f-1df76d045a28), [Supplementary Estimates (B) 2025-26](https://open.canada.ca/data/en/dataset/ec676496-a50d-4afa-9a2f-4d97748e79e5), and [Supplementary Estimates (A) 2023-24](https://open.canada.ca/data/en/dataset/c1618876-a48e-41d0-ab30-31d798aaa075). These datasets provide details on proposed funding amounts, explanations of requirements, and financial allocations for various Canadian government organizations.\n\nHowever, the documents within these datasets did not satisfy the required columns for a detailed query, indicating that the specific data needed might not be available or is not structured in a way that allows for straightforward extraction. If you have specific aspects of the Supplementary Estimates you are interested in, such as particular organizations or types of expenditures, please let me know, and I can attempt a more targeted search.",
+        "tool_call_count": 3,
+        "dollars_spent": 0.053347,
+        "tokens_in_per_call": [
+          1255,
+          1545,
+          2447,
+          5568,
+          7325,
+          1007
+        ],
+        "tokens_out_per_call": [
+          55,
+          17,
+          98,
+          100,
+          259,
+          19
+        ],
+        "elapsed_ms": 16338,
+        "cached": false,
+        "top_similarities": [
+          0.5794
+        ],
+        "reformulations": 0,
+        "verify": null,
+        "triage": {
+          "category": "explore",
+          "confidence": 0.9,
+          "enforced": true
+        },
+        "verify_explore": {
+          "fits": true,
+          "action": "answer",
+          "confidence": 0.9,
+          "reason": "",
+          "enforced": false
+        },
+        "outcome": "explored",
+        "triage_category": "explore",
+        "packages_listed": [
+          {
+            "package_id": "7d3bcb7b-d7b3-419f-a68f-1df76d045a28",
+            "title": "Supplementary Estimates (C) 2025-26"
+          },
+          {
+            "package_id": "ec676496-a50d-4afa-9a2f-4d97748e79e5",
+            "title": "Supplementary Estimates (B) 2025-26"
+          },
+          {
+            "package_id": "c1618876-a48e-41d0-ab30-31d798aaa075",
+            "title": "Supplementary Estimates (A) 2023-24"
+          }
+        ],
+        "searches_tried": [
+          {
+            "query": "Supplementary Estimates",
+            "top_similarity": 0.5794,
+            "retrieval_quality": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-02",
+      "question": "summarize what data is in the Public Accounts of Canada",
+      "expected": {
+        "triage": "explore",
+        "outcome": "explored",
+        "packages_any_of": [],
+        "must_caveat": false
+      },
+      "observed_v1_trace": {
+        "outcome": "unmeasured",
+        "note": "explicit summarize verb"
+      },
+      "run": {
+        "terminal": "done",
+        "final_message": "The Public Accounts of Canada data includes detailed financial information on authorities and expenditures for various programs and activities within the Government of Canada. Specifically, the dataset titled [Authorities and Expenditures as per the Public Accounts of Canada](/datasets/51c3b869-9182-4ee3-a7c2-36da0dc2889c) covers fiscal years from 2012-13 to 2016-17. It provides insights into budgetary authority and actual expenditures for specific program activities or transfer payments. The data is organized by program-fiscal-year and includes dimensions such as organization, program activity, transfer payment name, and spending area.",
+        "tool_call_count": 1,
+        "dollars_spent": 0.017685,
+        "tokens_in_per_call": [
+          1259,
+          1549,
+          2560,
+          798
+        ],
+        "tokens_out_per_call": [
+          56,
+          18,
+          134,
+          19
+        ],
+        "elapsed_ms": 6583,
+        "cached": false,
+        "top_similarities": [
+          0.593
+        ],
+        "reformulations": 0,
+        "verify": null,
+        "triage": {
+          "category": "explore",
+          "confidence": 0.9,
+          "enforced": true
+        },
+        "verify_explore": {
+          "fits": true,
+          "action": "answer",
+          "confidence": 0.9,
+          "reason": "",
+          "enforced": false
+        },
+        "outcome": "explored",
+        "triage_category": "explore",
+        "packages_listed": [],
+        "searches_tried": [
+          {
+            "query": "Public Accounts of Canada",
+            "top_similarity": 0.593,
+            "retrieval_quality": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-03",
+      "question": "what columns does the federal contracts dataset have?",
+      "expected": {
+        "triage": "explore",
+        "outcome": "explored",
+        "packages_any_of": [],
+        "must_caveat": false
+      },
+      "observed_v1_trace": {
+        "outcome": "unmeasured",
+        "note": "column inventory - the browse case"
+      },
+      "run": {
+        "terminal": "done",
+        "final_message": "The federal contracts dataset, titled [Proactive Publication - Contracts](/datasets/d8f85d91-7dec-4fd1-8055-483b77225d8b), includes a variety of columns that provide detailed information about government contracts. Some of the key columns are:\n\n- `solicitation_procedure`: Procedure used for soliciting bids.\n- `socioeconomic_indicator`: Indicator related to the socioeconomic impact.\n- `vendor_name`: Name of the vendor awarded the contract.\n- `year`: Fiscal year of the contract.\n- `owner_org`: Organization that owns the contract.\n- `award_criteria`: Criteria used to award the contract.\n- `limited_tendering_reason`: Reason for using limited tendering.\n- `contract_construction_number_of`: Number of construction contracts.\n- `contracting_entity`: Entity responsible for the contract.\n- `instrument_type`: Type of instrument used for the contract.\n- `reporting_period`: Period during which the contract was reported.\n- `buyer_name`: Name of the buyer or government entity.\n- `procurement_id`: Unique identifier for the procurement process.\n- `contract_date`: Date on which the contract was awarded.\n- `description_fr`: Description of the contract in French.\n\nThese columns provide a comprehensive view of the contracting process, including procedural, organizational, and financial details.",
+        "tool_call_count": 2,
+        "dollars_spent": 0.03035,
+        "tokens_in_per_call": [
+          1257,
+          1546,
+          2589,
+          4126,
+          958
+        ],
+        "tokens_out_per_call": [
+          53,
+          18,
+          51,
+          275,
+          19
+        ],
+        "elapsed_ms": 8345,
+        "cached": false,
+        "top_similarities": [
+          0.6511
+        ],
+        "reformulations": 0,
+        "verify": null,
+        "triage": {
+          "category": "explore",
+          "confidence": 0.95,
+          "enforced": true
+        },
+        "verify_explore": {
+          "fits": true,
+          "action": "answer",
+          "confidence": 0.9,
+          "reason": "",
+          "enforced": false
+        },
+        "outcome": "explored",
+        "triage_category": "explore",
+        "packages_listed": [],
+        "searches_tried": [
+          {
+            "query": "federal contracts dataset",
+            "top_similarity": 0.6511,
+            "retrieval_quality": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-04",
+      "question": "what's covered in the travel and hospitality expenditure data?",
+      "expected": {
+        "triage": "explore",
+        "outcome": "explored",
+        "packages_any_of": [],
+        "must_caveat": false
+      },
+      "observed_v1_trace": {
+        "outcome": "unmeasured",
+        "note": "coverage question over a dataset class"
+      },
+      "run": {
+        "terminal": "done",
+        "final_message": "The dataset titled [Proactive Disclosure - Annual Expenditures on Travel, Hospitality and Conferences](/datasets/4ae27978-0931-49ab-9c17-0b119c0ba92f) captures annual expenditures on travel, hospitality, and conferences for various Canadian government organizations. It spans multiple fiscal years from 2014 to 2024 and includes details such as expenditure on travel, hospitality, conferences, training, and other activities. However, the specific documents I attempted to access did not contain the required columns for a detailed breakdown of travel and hospitality expenditures. \n\nIf you have specific questions about the data or need information on a particular aspect, please let me know!",
+        "tool_call_count": 3,
+        "dollars_spent": 0.052395,
+        "tokens_in_per_call": [
+          1258,
+          1548,
+          2633,
+          6135,
+          7149,
+          843
+        ],
+        "tokens_out_per_call": [
+          55,
+          19,
+          49,
+          64,
+          142,
+          19
+        ],
+        "elapsed_ms": 9379,
+        "cached": false,
+        "top_similarities": [
+          0.6492
+        ],
+        "reformulations": 0,
+        "verify": null,
+        "triage": {
+          "category": "explore",
+          "confidence": 0.9,
+          "enforced": true
+        },
+        "verify_explore": {
+          "fits": true,
+          "action": "answer",
+          "confidence": 0.9,
+          "reason": "",
+          "enforced": false
+        },
+        "outcome": "explored",
+        "triage_category": "explore",
+        "packages_listed": [
+          {
+            "package_id": "4ae27978-0931-49ab-9c17-0b119c0ba92f",
+            "title": "Proactive Disclosure - Annual Expenditures on Travel, Hospitality and Conferences"
+          }
+        ],
+        "searches_tried": [
+          {
+            "query": "travel and hospitality expenditure data",
+            "top_similarity": 0.6492,
+            "retrieval_quality": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-05",
+      "question": "what time range does the departmental results framework data cover?",
+      "expected": {
+        "triage": "explore",
+        "outcome": "explored",
+        "packages_any_of": [],
+        "must_caveat": false
+      },
+      "observed_v1_trace": {
+        "outcome": "unmeasured",
+        "note": "temporal coverage - descriptive, no figure"
+      },
+      "run": {
+        "terminal": "done",
+        "final_message": "The [2020-2021 Departmental Results Report - Results achieved](datasets/bedb480a-5810-41c6-bc89-ad5fe18ef0ad) dataset covers performance results for departmental activities from fiscal years 2018-19 through 2020-21. This dataset provides insights into the achievement of targets over these periods, detailing actual and planned spending and full-time equivalents.",
+        "tool_call_count": 1,
+        "dollars_spent": 0.0173,
+        "tokens_in_per_call": [
+          1259,
+          1548,
+          2590,
+          747
+        ],
+        "tokens_out_per_call": [
+          70,
+          20,
+          85,
+          19
+        ],
+        "elapsed_ms": 5770,
+        "cached": false,
+        "top_similarities": [
+          0.5579
+        ],
+        "reformulations": 0,
+        "verify": null,
+        "triage": {
+          "category": "explore",
+          "confidence": 0.9,
+          "enforced": true
+        },
+        "verify_explore": {
+          "fits": true,
+          "action": "answer",
+          "confidence": 0.9,
+          "reason": "",
+          "enforced": false
+        },
+        "outcome": "explored",
+        "triage_category": "explore",
+        "packages_listed": [],
+        "searches_tried": [
+          {
+            "query": "departmental results framework time range",
+            "top_similarity": 0.5579,
+            "retrieval_quality": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-06",
+      "question": "what kind of housing data do you have?",
+      "expected": {
+        "triage": "explore",
+        "outcome": "explored",
+        "packages_any_of": [],
+        "must_caveat": false
+      },
+      "observed_v1_trace": {
+        "outcome": "unmeasured",
+        "note": "boundary - reads corpus-ish but scopes to a subject"
+      },
+      "run": {
+        "terminal": "done",
+        "final_message": "I have access to several datasets related to housing in Canada:\n\n1. [Department of National Defence Housing Locations in Canada](/datasets/bff41ae1-72ba-4290-96b4-2933f0e08c04): This dataset provides information on housing units for the Canadian Department of National Defence across various locations in Canada. It includes data on the number of housing units at each location.\n\n2. [One-time top-up to the Canada Housing Benefit](/datasets/0f3765d1-3375-4423-8fd6-6da7f382fa1a): This dataset contains information on the number of unique applicants and total approved amounts for the one-time top-up to the Canada Housing Benefit, broken down by province and territory, age group, gender, adjusted family net income, and family type.\n\n3. [Department of National Defence Residential Housing Unit Bedroom Count by Location in Canada](/datasets/f2c1682b-0216-4439-85af-fc968cf79fce): This dataset provides a breakdown of bedroom counts for residential housing units managed by the Department of National Defence across various locations in Canada as of 2021.\n\nThese datasets cover different aspects of housing, including military housing locations, housing benefits, and bedroom counts in residential units.",
+        "tool_call_count": 2,
+        "dollars_spent": 0.023822,
+        "tokens_in_per_call": [
+          1257,
+          1546,
+          1640,
+          2627,
+          943
+        ],
+        "tokens_out_per_call": [
+          62,
+          11,
+          18,
+          269,
+          19
+        ],
+        "elapsed_ms": 7518,
+        "cached": false,
+        "top_similarities": [
+          0.6201
+        ],
+        "reformulations": 0,
+        "verify": null,
+        "triage": {
+          "category": "explore",
+          "confidence": 0.9,
+          "enforced": true
+        },
+        "verify_explore": {
+          "fits": true,
+          "action": "answer",
+          "confidence": 0.9,
+          "reason": "",
+          "enforced": false
+        },
+        "outcome": "explored",
+        "triage_category": "explore",
+        "packages_listed": [],
+        "searches_tried": [
+          {
+            "query": "housing data in Canada",
+            "top_similarity": 0.6201,
+            "retrieval_quality": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-07",
+      "question": "describe the immigration datasets",
+      "expected": {
+        "triage": "explore",
+        "outcome": "explored",
+        "packages_any_of": [],
+        "must_caveat": false
+      },
+      "observed_v1_trace": {
+        "outcome": "unmeasured",
+        "note": "boundary - plural dataset class"
+      },
+      "run": {
+        "terminal": "done",
+        "final_message": "Here are some of the immigration-related datasets available:\n\n1. [Echo survey on the inclusion of immigrants](/datasets/2faa580d-d127-4a30-a79a-1ebf9d255f9b): This dataset includes responses from a survey on the inclusion of immigrants, capturing various aspects of immigrant integration and experiences. It includes measures like integration score, satisfaction level, and participation rate, with dimensions such as age group and immigration status.\n\n2. [Immigration Records (1865-1883)](/datasets/0085f7eb-c87c-4d5f-962b-b8866be3b0f7): This dataset contains records of immigration applications from 1865 to 1883, primarily involving individuals from England and other nationalities arriving at Quebec. It includes details such as name, nationality, ship, and destination.\n\n3. [Immigration, Refugees and Citizenship Canada Glossaries](/datasets/17f69360-123a-4bd2-8eef-bba94468071f): This dataset provides definitions and terms related to immigration and citizenship processes in both English and French.\n\n4. [Facts and Figures 2017: Immigration Overview - Permanent Residents](/datasets/082f05ba-e333-4132-ba42-72828d95200b): This dataset provides an overview of permanent residents immigrating to Canada in 2017, detailing their gender, age group, immigration category, and number of individuals.\n\n5. [Statistics - Immigration and Citizenship Screening Programs](/datasets/5bcbb8b0-ebfe-4ad8-afea-2073867708d0): This dataset provides statistics on various immigration and citizenship screening programs in Canada, including permanent residents, refugees, and citizenship applications.",
+        "tool_call_count": 1,
+        "dollars_spent": 0.020375,
+        "tokens_in_per_call": [
+          1253,
+          1541,
+          2459,
+          1033
+        ],
+        "tokens_out_per_call": [
+          64,
+          16,
+          367,
+          19
+        ],
+        "elapsed_ms": 8297,
+        "cached": false,
+        "top_similarities": [
+          0.4169
+        ],
+        "reformulations": 0,
+        "verify": null,
+        "triage": {
+          "category": "explore",
+          "confidence": 0.9,
+          "enforced": true
+        },
+        "verify_explore": {
+          "fits": true,
+          "action": "answer",
+          "confidence": 0.9,
+          "reason": "",
+          "enforced": false
+        },
+        "outcome": "explored",
+        "triage_category": "explore",
+        "packages_listed": [],
+        "searches_tried": [
+          {
+            "query": "immigration",
+            "top_similarity": 0.4169,
+            "retrieval_quality": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-08",
+      "question": "what's in the grants and contributions data and how is it structured?",
+      "expected": {
+        "triage": "explore",
+        "outcome": "explored",
+        "packages_any_of": [],
+        "must_caveat": false
+      },
+      "observed_v1_trace": {
+        "outcome": "unmeasured",
+        "note": "structure question; likely to quote counts, tests claims_a_total"
+      },
+      "run": {
+        "terminal": "done",
+        "final_message": "The grants and contributions data is structured across several datasets, each focusing on different aspects and timeframes of financial activities related to grants and contributions by Canadian government organizations.\n\n1. **[Proactive Disclosure - Grants and Contributions](https://open.canada.ca/data/en/dataset/432527ab-7aac-45b5-81d6-7597107a7013)**: This dataset provides quarterly data on grants and contributions for various Canadian government organizations from fiscal years 2017-2018 to 2025-2026. It includes columns such as fiscal year, quarter, owner organization, and organization title.\n\n2. **[2018-19 Grants and Contributions](https://open.canada.ca/data/en/dataset/a834e18b-9b31-4a22-8eb8-a147100c57a4)**: This dataset details grants and contributions made to firms and organizations in Canada for the fiscal year 2018-2019. It includes information on the recipient, agreement type, value, and expected outcomes, with columns like agreement number, start date, title, type, value, and recipient details.\n\n3. **[2022-23 Grants and Contributions](https://open.canada.ca/data/en/dataset/b6fb8be7-f3eb-4995-8526-82ec53ec860e)**: This dataset captures details of grants and contributions awarded under various programs of the National Research Council of Canada for the fiscal year 2022-2023. It includes columns such as agreement number, start date, title, type, value, recipient details, and program information.\n\nThese datasets provide a comprehensive view of the financial activities related to grants and contributions, detailing specific agreements, financial values, and organizational involvement.",
+        "tool_call_count": 2,
+        "dollars_spent": 0.0356,
+        "tokens_in_per_call": [
+          1261,
+          1551,
+          2448,
+          5696,
+          1116
+        ],
+        "tokens_out_per_call": [
+          55,
+          19,
+          88,
+          361,
+          19
+        ],
+        "elapsed_ms": 8727,
+        "cached": false,
+        "top_similarities": [
+          0.628
+        ],
+        "reformulations": 0,
+        "verify": null,
+        "triage": {
+          "category": "explore",
+          "confidence": 0.95,
+          "enforced": true
+        },
+        "verify_explore": {
+          "fits": true,
+          "action": "answer",
+          "confidence": 0.9,
+          "reason": "",
+          "enforced": false
+        },
+        "outcome": "explored",
+        "triage_category": "explore",
+        "packages_listed": [
+          {
+            "package_id": "432527ab-7aac-45b5-81d6-7597107a7013",
+            "title": "Proactive Disclosure - Grants and Contributions"
+          },
+          {
+            "package_id": "a834e18b-9b31-4a22-8eb8-a147100c57a4",
+            "title": "2018-19 Grants and Contributions"
+          },
+          {
+            "package_id": "b6fb8be7-f3eb-4995-8526-82ec53ec860e",
+            "title": "2022-23 Grants and Contributions"
+          }
+        ],
+        "searches_tried": [
+          {
+            "query": "grants and contributions data",
+            "top_similarity": 0.628,
+            "retrieval_quality": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-09",
+      "question": "show me what the trade data looks like",
+      "expected": {
+        "triage": "explore",
+        "outcome": "explored",
+        "packages_any_of": [],
+        "must_caveat": false
+      },
+      "observed_v1_trace": {
+        "outcome": "unmeasured",
+        "note": "boundary - informal phrasing, no explicit dataset noun"
+      },
+      "run": {
+        "terminal": "done",
+        "final_message": "I attempted to retrieve trade data from several datasets, including \"Wholesale Trade,\" \"Natural Gas \u2013 Exports,\" and \"Electricity \u2013 Imports and Exports.\" However, the specific columns I was looking for, such as \"Year,\" \"Flow,\" and regional trade values, were not available in a single document that could satisfy the query requirements.\n\nThe closest dataset, [Wholesale Trade](/datasets/18801116-2014-43df-84fd-408bc2382051), provides seasonally adjusted wholesale trade values for Canadian provinces and territories from 1993 to 2013. It includes columns like \"Ontario,\" \"Canada,\" and \"British Columbia,\" which represent trade values in Canadian dollars.\n\nIf you have a specific aspect of trade data you're interested in, such as a particular commodity or trade partner, please let me know, and I can refine the search accordingly.",
+        "tool_call_count": 3,
+        "dollars_spent": 0.04666,
+        "tokens_in_per_call": [
+          1257,
+          1545,
+          2483,
+          4702,
+          5862,
+          931
+        ],
+        "tokens_out_per_call": [
+          71,
+          16,
+          88,
+          98,
+          179,
+          19
+        ],
+        "elapsed_ms": 11399,
+        "cached": false,
+        "top_similarities": [
+          0.4725
+        ],
+        "reformulations": 0,
+        "verify": null,
+        "triage": {
+          "category": "explore",
+          "confidence": 0.9,
+          "enforced": true
+        },
+        "verify_explore": {
+          "fits": true,
+          "action": "answer",
+          "confidence": 0.9,
+          "reason": "",
+          "enforced": false
+        },
+        "outcome": "explored",
+        "triage_category": "explore",
+        "packages_listed": [
+          {
+            "package_id": "18801116-2014-43df-84fd-408bc2382051",
+            "title": "Wholesale Trade"
+          },
+          {
+            "package_id": "fa258cb0-2429-4239-be19-e437419dbb3c",
+            "title": "Natural Gas \u2013 Exports "
+          },
+          {
+            "package_id": "5c358f51-bc8c-4565-854d-9d2e35e6b178",
+            "title": "Electricity \u2013 Imports and Exports"
+          }
+        ],
+        "searches_tried": [
+          {
+            "query": "trade data",
+            "top_similarity": 0.4725,
+            "retrieval_quality": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-10",
+      "question": "what fields are in the federal proactive disclosure datasets?",
+      "expected": {
+        "triage": "explore",
+        "outcome": "explored",
+        "packages_any_of": [],
+        "must_caveat": false
+      },
+      "observed_v1_trace": {
+        "outcome": "unmeasured",
+        "note": "field inventory, synonym for columns"
+      },
+      "run": {
+        "terminal": "done",
+        "final_message": "The federal proactive disclosure datasets contain various fields across different datasets. Here are some of the key fields:\n\n1. **Proactive Disclosure - Acts of Founded Wrongdoing**:\n   - `ref_number`: Reference numbers for each case.\n   - `file_id_number`: Unique identifiers for each case file.\n   - `case_description_en`: Detailed descriptions of cases in English.\n   - `case_description_fr`: Detailed descriptions of cases in French.\n   - `findings_conclusions`: Summaries of findings and conclusions.\n   - `recommendations_corrective_measures_en`: Recommendations and corrective measures in English.\n   - `recommendations_corrective_measures_fr`: Recommendations and corrective measures in French.\n   - `owner_org`: Organization responsible for the case.\n   - `owner_org_title`: Full title of the responsible organization.\n\n2. **Proactive Dissemination - Documents Submitted for Access to Information Requests**:\n   - `Numero_demande`: Unique identifier for each request.\n   - `Categorie`: Category of the documents submitted.\n   - `Sujet`: Subject matter of the request.\n   - `Date_reponse`: Date of response to the request.\n   - `Date_ajout`: Date when the document was added to the dissemination list.\n\nThese fields provide insights into the nature of the cases, the organizations involved, and the actions taken in response to the findings.",
+        "tool_call_count": 2,
+        "dollars_spent": 0.03991,
+        "tokens_in_per_call": [
+          1258,
+          1547,
+          2532,
+          7848,
+          963
+        ],
+        "tokens_out_per_call": [
+          66,
+          19,
+          73,
+          277,
+          19
+        ],
+        "elapsed_ms": 8500,
+        "cached": false,
+        "top_similarities": [
+          0.5588
+        ],
+        "reformulations": 0,
+        "verify": null,
+        "triage": {
+          "category": "explore",
+          "confidence": 0.9,
+          "enforced": true
+        },
+        "verify_explore": {
+          "fits": true,
+          "action": "answer",
+          "confidence": 0.9,
+          "reason": "",
+          "enforced": false
+        },
+        "outcome": "explored",
+        "triage_category": "explore",
+        "packages_listed": [],
+        "searches_tried": [
+          {
+            "query": "federal proactive disclosure datasets",
+            "top_similarity": 0.5588,
+            "retrieval_quality": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-11",
+      "question": "what does the infrastructure projects data contain?",
+      "expected": {
+        "triage": "explore",
+        "outcome": "explored",
+        "packages_any_of": [],
+        "must_caveat": false
+      },
+      "observed_v1_trace": {
+        "outcome": "unmeasured",
+        "note": "plain contents question"
+      },
+      "run": {
+        "terminal": "done",
+        "final_message": "The dataset titled [Dashboard for infrastructure projects worth $20 million and over](/datasets/67d85a7a-10af-4af0-b4da-abc64cfd735a) contains detailed information on infrastructure projects in Quebec that are valued at $20 million or more. It includes data on project descriptions, total costs, contributions from Quebec and partners, project status, and key dates such as the start and end of service. The dataset covers various sectors like transportation, healthcare, and education, and includes information on the nature of the work, the managing organization, and the region where the project is located.",
+        "tool_call_count": 2,
+        "dollars_spent": 0.048305,
+        "tokens_in_per_call": [
+          1256,
+          1545,
+          2515,
+          12163,
+          819
+        ],
+        "tokens_out_per_call": [
+          53,
+          18,
+          38,
+          128,
+          19
+        ],
+        "elapsed_ms": 7486,
+        "cached": false,
+        "top_similarities": [
+          0.6184
+        ],
+        "reformulations": 0,
+        "verify": null,
+        "triage": {
+          "category": "explore",
+          "confidence": 0.9,
+          "enforced": true
+        },
+        "verify_explore": {
+          "fits": true,
+          "action": "answer",
+          "confidence": 0.9,
+          "reason": "",
+          "enforced": false
+        },
+        "outcome": "explored",
+        "triage_category": "explore",
+        "packages_listed": [
+          {
+            "package_id": "67d85a7a-10af-4af0-b4da-abc64cfd735a",
+            "title": "Dashboard for infrastructure projects worth $20 million and over"
+          }
+        ],
+        "searches_tried": [
+          {
+            "query": "infrastructure projects data",
+            "top_similarity": 0.6184,
+            "retrieval_quality": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-12",
+      "question": "what's in the wages by education level dataset?",
+      "expected": {
+        "triage": "explore",
+        "outcome": "explored",
+        "packages_any_of": [],
+        "must_caveat": false
+      },
+      "observed_v1_trace": {
+        "outcome": "unmeasured",
+        "note": "names a dataset the surrender baseline actually surfaced"
+      },
+      "run": {
+        "terminal": "done",
+        "final_message": "The [Wages by education level](/datasets/1f14addd-e4fc-4a07-9982-ad98db07ef86) dataset provides detailed information on median hourly wages across different education levels, age groups, and types of work in Canada and Ontario from 2006 to 2024. It includes data for both sexes, men, and women, as well as immigrant status. The dataset contains columns such as age group, education level, geography, immigrant status, type of work, wage rate, and year.",
+        "tool_call_count": 2,
+        "dollars_spent": 0.024807,
+        "tokens_in_per_call": [
+          1257,
+          1547,
+          2461,
+          2831,
+          803
+        ],
+        "tokens_out_per_call": [
+          70,
+          19,
+          36,
+          112,
+          19
+        ],
+        "elapsed_ms": 6846,
+        "cached": false,
+        "top_similarities": [
+          0.5554
+        ],
+        "reformulations": 0,
+        "verify": null,
+        "triage": {
+          "category": "explore",
+          "confidence": 0.9,
+          "enforced": true
+        },
+        "verify_explore": {
+          "fits": true,
+          "action": "answer",
+          "confidence": 0.9,
+          "reason": "",
+          "enforced": false
+        },
+        "outcome": "explored",
+        "triage_category": "explore",
+        "packages_listed": [
+          {
+            "package_id": "1f14addd-e4fc-4a07-9982-ad98db07ef86",
+            "title": "Wages by education level"
+          }
+        ],
+        "searches_tried": [
+          {
+            "query": "wages by education level",
+            "top_similarity": 0.5554,
+            "retrieval_quality": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-13",
+      "question": "summarize the datasets you have on federal employee travel",
+      "expected": {
+        "triage": "explore",
+        "outcome": "explored",
+        "packages_any_of": [],
+        "must_caveat": false
+      },
+      "observed_v1_trace": {
+        "outcome": "unmeasured",
+        "note": "subject-scoped summarize; risk of routing to meta"
+      },
+      "run": {
+        "terminal": "done",
+        "final_message": "I found two relevant datasets on federal employee travel:\n\n1. [Proactive Disclosure - Travel Expenses](/datasets/009f9a49-c2d9-4d29-a6d4-1a228da335ce): This dataset includes detailed records of travel expenses incurred by Canadian government officials from 2010 to 2024. It covers individual trips and includes costs such as airfare, lodging, meals, and other expenses.\n\n2. [Proactive Disclosure - Annual Expenditures on Travel, Hospitality and Conferences](/datasets/4ae27978-0931-49ab-9c17-0b119c0ba92f): This dataset captures annual expenditures on travel, hospitality, and conferences for various Canadian government organizations from 2014 to 2024. It provides expenditure details for each organization by fiscal year, noting impacts from the COVID-19 pandemic on travel and hospitality costs.",
+        "tool_call_count": 1,
+        "dollars_spent": 0.01862,
+        "tokens_in_per_call": [
+          1258,
+          1548,
+          2641,
+          853
+        ],
+        "tokens_out_per_call": [
+          64,
+          18,
+          186,
+          19
+        ],
+        "elapsed_ms": 5890,
+        "cached": false,
+        "top_similarities": [
+          0.5132
+        ],
+        "reformulations": 0,
+        "verify": null,
+        "triage": {
+          "category": "explore",
+          "confidence": 0.9,
+          "enforced": true
+        },
+        "verify_explore": {
+          "fits": true,
+          "action": "answer",
+          "confidence": 0.9,
+          "reason": "",
+          "enforced": false
+        },
+        "outcome": "explored",
+        "triage_category": "explore",
+        "packages_listed": [],
+        "searches_tried": [
+          {
+            "query": "federal employee travel",
+            "top_similarity": 0.5132,
+            "retrieval_quality": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-14",
+      "question": "how much did the government spend on air travel in 2024-25?",
+      "expected": {
+        "triage": "in_scope",
+        "outcome": "answered",
+        "packages_any_of": [],
+        "must_caveat": false
+      },
+      "observed_v1_trace": {
+        "outcome": "unmeasured",
+        "note": "CONTROL - a figure request must not route to explore"
+      },
+      "run": {
+        "terminal": "done",
+        "final_message": "The Canadian government spent approximately $19,434,011 on air travel during the fiscal year 2024-25. This figure represents the total airfare expenses incurred by government officials for that period.\n\n[Proactive Disclosure - Travel Expenses](/datasets/009f9a49-c2d9-4d29-a6d4-1a228da335ce)",
+        "tool_call_count": 7,
+        "dollars_spent": 0.13466,
+        "tokens_in_per_call": [
+          1264,
+          1553,
+          2586,
+          6054,
+          7055,
+          1047,
+          1601,
+          2653,
+          3713,
+          6588,
+          7449,
+          7691,
+          1206
+        ],
+        "tokens_out_per_call": [
+          53,
+          24,
+          74,
+          51,
+          121,
+          57,
+          24,
+          26,
+          94,
+          48,
+          179,
+          76,
+          24
+        ],
+        "elapsed_ms": 21251,
+        "cached": false,
+        "top_similarities": [
+          0.5067,
+          0.548
+        ],
+        "reformulations": 1,
+        "verify": {
+          "fits_first": false,
+          "action_first": "retry",
+          "fits_final": true,
+          "retried": true
+        },
+        "triage": {
+          "category": "in_scope",
+          "confidence": 0.9,
+          "enforced": true
+        },
+        "verify_explore": null,
+        "outcome": "answered",
+        "triage_category": "in_scope",
+        "packages_listed": [
+          {
+            "package_id": "4ae27978-0931-49ab-9c17-0b119c0ba92f",
+            "title": "Proactive Disclosure - Annual Expenditures on Travel, Hospitality and Conferences"
+          },
+          {
+            "package_id": "009f9a49-c2d9-4d29-a6d4-1a228da335ce",
+            "title": "Proactive Disclosure - Travel Expenses"
+          }
+        ],
+        "searches_tried": [
+          {
+            "query": "government spending on air travel 2024-25",
+            "top_similarity": 0.5067,
+            "retrieval_quality": "ok"
+          },
+          {
+            "query": "government spending on air travel 2024-25",
+            "top_similarity": 0.5067,
+            "retrieval_quality": "ok"
+          },
+          {
+            "query": "federal government air travel expenses 2024-2025",
+            "top_similarity": 0.548,
+            "retrieval_quality": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ex-15",
+      "question": "how many datasets do you have access to?",
+      "expected": {
+        "triage": "meta",
+        "outcome": "deflected",
+        "packages_any_of": [],
+        "must_caveat": false
+      },
+      "observed_v1_trace": {
+        "outcome": "unmeasured",
+        "note": "CONTROL - corpus-wide is meta, not explore"
+      },
+      "run": {
+        "terminal": "done",
+        "final_message": "The corpus holds 278,901,893 rows across 14,322 loaded documents from 3,689 datasets on open.canada.ca. The most recent warehouse load was 2026-07-06 20:11:07.140458+00.",
+        "tool_call_count": 1,
+        "dollars_spent": 0.003642,
+        "tokens_in_per_call": [
+          1257
+        ],
+        "tokens_out_per_call": [
+          50
+        ],
+        "elapsed_ms": 1450,
+        "cached": false,
+        "top_similarities": [],
+        "reformulations": 0,
+        "verify": null,
+        "triage": {
+          "category": "meta",
+          "confidence": 0.9,
+          "enforced": true
+        },
+        "verify_explore": null,
+        "outcome": "deflected",
+        "triage_category": "meta",
+        "packages_listed": [],
+        "searches_tried": []
+      }
+    }
+  ]
+}

@@ -333,7 +333,17 @@ class Settings(BaseSettings):
     agent_triage_model: str = "gpt-4o-mini"
     # Hard deadline for the classifier call. Triage may slow a turn by
     # at most this much; on timeout the turn fails open to research.
-    agent_triage_timeout_ms: int = 2000
+    #
+    # Raised from 2000 when the taxonomy grew to five categories. The
+    # shadow run made the cost visible: at 2000ms, 5 of 15 exploratory
+    # questions timed out and failed open to `in_scope` — invisibly,
+    # since a fail-open is indistinguishable from a real `in_scope`
+    # verdict downstream. Re-running the same five at 8000ms classified
+    # all five correctly at 0.9-0.95 confidence, so the misses were the
+    # deadline, not the taxonomy. The prompt was trimmed back toward its
+    # pre-M10 size as well; this is the remaining headroom, and it costs
+    # at most 1.5s of added worst-case turn latency.
+    agent_triage_timeout_ms: int = 3500
     # Below this confidence a non-in_scope classification is not acted
     # on (fail-open) — it is still logged for shadow-mode tuning.
     agent_triage_min_confidence: float = 0.75
@@ -373,6 +383,24 @@ class Settings(BaseSettings):
     # descriptive turn: it skips the verify checker call it used to pay
     # for a check that could only harm it.
     agent_scoped_turns: bool = True
+    # The descriptive-fit rubric that replaces the blunt verify bypass
+    # on exploration turns. "off" keeps the bypass (verification skipped
+    # entirely — the interim posture); "log" runs the checker and emits
+    # an unenforced `verification` event, leaving the answer untouched
+    # (shadow data for the act-flip); "act" prepends a caveat. Default
+    # "log": no gate in this codebase has enforced on its first merge.
+    # Costs one cheap-model call per descriptive turn in log/act, which
+    # the bypass did not — "off" exists for exactly that reason.
+    agent_verify_explore_mode: Literal["off", "log", "act"] = "log"
+    agent_verify_explore_prompt_path: Path = Field(
+        default_factory=lambda: (
+            _find_service_dir()
+            / "agent"
+            / "prompts"
+            / "v2"
+            / "verify_explore.j2"
+        )
+    )
 
     # Model cost accounting (observability only; not enforced).
     # $/1K tokens; defaults match gpt-4o's published rates.
