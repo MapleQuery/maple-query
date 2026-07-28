@@ -93,6 +93,13 @@ def run_turn(
     # Stamped once, here, so every downstream predicate reads one field.
     if ctx.scope_package_ids or triage.category == "explore":
         ctx.turn_intent = "explore"
+    # A clicked chip carries its intent in the scope, so it survives a
+    # classifier failure. A typed question does not: if triage fell open
+    # the category is the `in_scope` default, and treating that as a
+    # reading of the question is what let a descriptive turn be judged
+    # by the answer-fit checker and caveated for not containing data.
+    if triage.fail_open_reason is not None and not ctx.scope_package_ids:
+        ctx.turn_intent_known = False
     for event in triage.events:
         yield record(event)
     if triage.short_circuit is not None:

@@ -316,3 +316,33 @@ def test_classifier_call_shape() -> None:
     assert call["timeout_s"] == pytest.approx(
         settings.agent_triage_timeout_ms / 1000.0
     )
+
+
+def test_a_failed_classification_reports_that_it_failed() -> None:
+    """The reason was computed and logged, then dropped at the return —
+    so nothing downstream could tell the `in_scope` default apart from a
+    real `in_scope` ruling, and a descriptive turn got judged by the
+    answer-fit checker as a result."""
+
+    class RaisingClient(FakeOpenAIClient):
+        def generate_structured(self, **kwargs: Any) -> Any:
+            raise RuntimeError("vendor down")
+
+    ctx = _ctx(settings=_settings(), openai=RaisingClient())
+    outcome = QueryTriage.from_settings(ctx.deps.settings).classify(ctx)
+
+    assert outcome.category == "in_scope"
+    assert outcome.fail_open_reason is not None
+
+
+def test_a_real_ruling_reports_no_failure() -> None:
+    ctx = _ctx(
+        settings=_settings(),
+        openai=FakeOpenAIClient(
+            structured_responses=[_classifier_output("explore")]
+        ),
+    )
+    outcome = QueryTriage.from_settings(ctx.deps.settings).classify(ctx)
+
+    assert outcome.category == "explore"
+    assert outcome.fail_open_reason is None

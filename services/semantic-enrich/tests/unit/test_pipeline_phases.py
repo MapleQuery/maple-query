@@ -320,3 +320,81 @@ def test_events_stream_lazily_not_all_at_once() -> None:
     assert openai.chat_calls == []
     rest = list(stream)
     assert rest[-1].event_type == "done"
+
+
+class _IntentSpy:
+    """Records what the verify phase was told about the turn's intent."""
+
+    def __init__(self) -> None:
+        self.turn_intent: str | None = None
+        self.turn_intent_known: bool | None = None
+
+    def check(
+        self,
+        ctx: TurnContext,
+        result: ResearchResult,
+        final: bool = False,
+    ) -> Verdict:
+        self.turn_intent = ctx.turn_intent
+        self.turn_intent_known = ctx.turn_intent_known
+        return Verdict(action="accept")
+
+
+def _spy_deps(spy: _IntentSpy, triage: TriageOutcome) -> PipelineDeps:
+    deps = _deps(
+        settings=_settings(),
+        openai=FakeOpenAIClient(chat_script=[{"content": "the answer."}]),
+        calls=[],
+        triage=triage,
+    )
+    deps.verifier = spy  # type: ignore[assignment]
+    return deps
+
+
+def test_a_failed_triage_marks_the_turns_intent_unknown() -> None:
+    """The wiring the fix depends on. Triage falls open to `in_scope`,
+    which is indistinguishable from a real ruling — so the verify phase
+    has to be told the question was never actually read."""
+    spy = _IntentSpy()
+    run_turn_collected(
+        request=_request("summarize the travel datasets"),
+        deps=_spy_deps(
+            spy,
+            TriageOutcome(
+                category="in_scope", fail_open_reason="classifier_timeout"
+            ),
+        ),
+    )
+    assert spy.turn_intent_known is False
+
+
+def test_a_real_triage_ruling_leaves_the_intent_known() -> None:
+    spy = _IntentSpy()
+    run_turn_collected(
+        request=_request("how much was spent on airfare"),
+        deps=_spy_deps(spy, TriageOutcome(category="in_scope")),
+    )
+    assert spy.turn_intent_known is True
+
+
+def test_a_scoped_turn_keeps_its_intent_through_a_failed_triage() -> None:
+    """A clicked chip carries intent in its scope, so a classifier
+    failure costs it nothing."""
+    spy = _IntentSpy()
+    request = ChatRequest(
+        conversation_id="c1",
+        history=[],
+        question="summarize this",
+        scope_package_ids=["0f3765d1-3375-4423-8fd6-6da7f382fa1a"],
+    )
+    run_turn_collected(
+        request=request,
+        deps=_spy_deps(
+            spy,
+            TriageOutcome(
+                category="in_scope", fail_open_reason="classifier_timeout"
+            ),
+        ),
+    )
+    assert spy.turn_intent == "explore"
+    assert spy.turn_intent_known is True
