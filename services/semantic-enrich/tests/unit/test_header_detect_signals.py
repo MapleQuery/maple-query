@@ -222,3 +222,25 @@ def test_detection_is_deterministic(
     produce the same names, or the corpus's vocabulary drifts under it."""
     rows, generated = table
     assert detect_header(rows, generated) == detect_header(rows, generated)
+
+
+def test_settings_defaults_match_the_detectors_own() -> None:
+    """The tunables exist in two places — here, where the algorithm is,
+    and in `Settings`, where the tool path can move them without a
+    release. Config sits below core in the layering, so it cannot import
+    these constants; this asserts they have not drifted apart instead."""
+    from semantic_enrich.config.settings import Settings
+    from semantic_enrich.core.header_recovery import (
+        HEADER_MIN_DENSITY,
+        HEADER_SCAN_ROWS,
+    )
+
+    settings = Settings(
+        gcp_project_id="proj",
+        openai_api_key="sk-test",  # type: ignore[arg-type]
+    )
+    assert settings.agent_header_scan_rows == HEADER_SCAN_ROWS
+    assert settings.agent_header_min_density == HEADER_MIN_DENSITY
+    # Ships off: the evidence for turning it on is the offline recovery
+    # report, not a live run.
+    assert settings.agent_header_recovery is False

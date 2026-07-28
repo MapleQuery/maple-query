@@ -74,21 +74,21 @@ def test_samples_extracted_and_truncated() -> None:
             ]
         ),
     )
-    columns, samples = fetch_document_columns_and_samples(
+    read = fetch_document_columns_and_samples(
         bq=bq, doc_ids=["doc-1"], settings=_settings()
     )
     # Rows are consumed in row_index order; values truncate to the cap
     # with the shared ellipsis marker, so a clipped value is
     # distinguishable from a genuinely short one.
-    assert samples["doc-1"]["Org"] == [
+    assert read.samples["doc-1"]["Org"] == [
         "N" * 39 + "\u2026",
         "National Capital Commission",
     ]
     # Non-string values are stringified; NULLs are skipped.
-    assert samples["doc-1"]["Amt"] == ["5"]
+    assert read.samples["doc-1"]["Amt"] == ["5"]
     # Columns derive from the lowest-index row's key set — NULL-valued
     # keys included, exactly as JSON_KEYS(row) reported them.
-    assert columns == {"doc-1": ["Org", "Amt"]}
+    assert read.columns == {"doc-1": ["Org", "Amt"]}
 
 
 def test_sampling_query_prunes_on_document_id_cluster() -> None:
@@ -119,10 +119,10 @@ def test_column_cap_respected() -> None:
         ),
     )
     settings = _settings(agent_sample_values_max_columns=30)
-    _columns, samples = fetch_document_columns_and_samples(
+    read = fetch_document_columns_and_samples(
         bq=bq, doc_ids=["doc-1"], settings=settings
     )
-    assert len(samples["doc-1"]) == 30
+    assert len(read.samples["doc-1"]) == 30
 
 
 def test_sampling_timeout_falls_back_to_keys_query() -> None:
@@ -140,20 +140,21 @@ def test_sampling_timeout_falls_back_to_keys_query() -> None:
         "JSON_KEYS(row)",
         [{"document_id": "doc-1", "columns": ["Org", "Amt"]}],
     )
-    columns, samples = fetch_document_columns_and_samples(
+    read = fetch_document_columns_and_samples(
         bq=bq, doc_ids=["doc-1"], settings=_settings()
     )
-    assert samples == {}
-    assert columns == {"doc-1": ["Org", "Amt"]}
+    assert read.samples == {}
+    assert read.columns == {"doc-1": ["Org", "Amt"]}
     # Degraded path: exactly two jobs (bounded + keys fallback).
     assert len(bq.bounded_calls) == 1
     keys_calls = [
         c for c in bq.calls if "JSON_KEYS(row)" in str(c.get("sql", ""))
     ]
     assert len(keys_calls) == 1
-    assert fetch_document_columns_and_samples(
+    empty = fetch_document_columns_and_samples(
         bq=bq, doc_ids=[], settings=_settings()
-    ) == ({}, {})
+    )
+    assert (empty.columns, empty.samples, empty.header_rows) == ({}, {}, {})
 
 
 def test_malformed_row_json_skipped() -> None:
@@ -172,12 +173,12 @@ def test_malformed_row_json_skipped() -> None:
             ]
         ),
     )
-    columns, samples = fetch_document_columns_and_samples(
+    read = fetch_document_columns_and_samples(
         bq=bq, doc_ids=["doc-1"], settings=_settings()
     )
-    assert samples == {"doc-1": {"Org": ["x"]}}
+    assert read.samples == {"doc-1": {"Org": ["x"]}}
     # The first *parseable dict* row supplies the key set.
-    assert columns == {"doc-1": ["Org"]}
+    assert read.columns == {"doc-1": ["Org"]}
 
 
 def _register_docs(bq: FakeBqClient, docs: list[dict[str, Any]]) -> None:
@@ -330,10 +331,10 @@ def test_null_columns_do_not_consume_sample_cap() -> None:
         ),
     )
     settings = _settings(agent_sample_values_max_columns=3)
-    _columns, samples = fetch_document_columns_and_samples(
+    read = fetch_document_columns_and_samples(
         bq=bq, doc_ids=["doc-1"], settings=settings
     )
-    assert samples["doc-1"] == {"d": ["val-d"], "e": ["val-e"]}
+    assert read.samples["doc-1"] == {"d": ["val-d"], "e": ["val-e"]}
 
 
 # ── consolidated read path (tool level) ──
@@ -403,7 +404,7 @@ def test_columns_parity_between_merged_and_keys_paths() -> None:
             ]
         ),
     )
-    merged_columns, _ = fetch_document_columns_and_samples(
+    merged_read = fetch_document_columns_and_samples(
         bq=merged_bq, doc_ids=["doc-1"], settings=_settings()
     )
 
@@ -419,10 +420,14 @@ def test_columns_parity_between_merged_and_keys_paths() -> None:
         "JSON_KEYS(row)",
         [{"document_id": "doc-1", "columns": list(body.keys())}],
     )
-    fallback_columns, _ = fetch_document_columns_and_samples(
+    fallback_read = fetch_document_columns_and_samples(
         bq=fallback_bq, doc_ids=["doc-1"], settings=_settings()
     )
-    assert merged_columns == fallback_columns == {"doc-1": ["A", "B", "C"]}
+    assert (
+        merged_read.columns
+        == fallback_read.columns
+        == {"doc-1": ["A", "B", "C"]}
+    )
 
 
 def test_sampling_timeout_does_not_disable_pairing_check() -> None:

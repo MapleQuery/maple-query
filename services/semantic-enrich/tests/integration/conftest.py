@@ -44,6 +44,10 @@ class FakeBqClient:
             elapsed_ms=0, timed_out=False, error=None,
         )
         self.bounded_calls: list[str] = []
+        # Parallel to `bounded_calls`: the bound params of each call, so
+        # a test can assert what a read was actually bounded to rather
+        # than trusting a comment about it.
+        self.bounded_params: list[dict[str, Any]] = []
         # describe_corpus surface: table_ref → num_rows metadata.
         self.table_num_rows_by_ref: dict[str, int] = {}
         self.table_num_rows_calls: list[str] = []
@@ -159,6 +163,10 @@ class FakeBqClient:
         row_limit: int,
     ) -> BoundedQueryResult:
         self.bounded_calls.append(sql)
+        self.bounded_params.append(
+            {p.name: getattr(p, "value", getattr(p, "values", None))
+             for p in params}
+        )
         for fragment, result in self._bounded_by_fragment.items():
             if fragment in sql:
                 return result
