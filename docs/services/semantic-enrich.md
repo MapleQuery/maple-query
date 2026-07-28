@@ -708,6 +708,24 @@ A document whose fetched rows have a gap (row 1 failed to parse) is **not** reco
 
 Tests: `test_header_recovery_payload.py`, `test_header_recovery_state.py`, `test_header_recovery_footer.py`.
 
+### In the SQL path (`core/sql_header_alias.py`)
+
+Two textual passes between what the model wrote and what the guard validates, both riding the same `agent_header_recovery` flag — with recovery off there is nothing on state, so both are no-ops by construction rather than by a second switch.
+
+**Translation.** `JSON_VALUE(r.row, '$."Total Amount ($000)"')` becomes `JSON_VALUE(r.row, '$.__col_3')`. This happens **before** `sql_guard`, and the ordering is the safety property, not a preference: a JSONPath to a key that does not exist doesn't fail in BigQuery, it returns NULL. A missed translation would pass the dry run, execute, and yield a silently all-NULL aggregate — a wrong number with nothing anywhere saying so. `test_sql_alias_ordering.py` asserts this on the guard's recorded input, because a comment cannot enforce an ordering.
+
+Translation is **per document**, resolved from the ids the query inlines. If two inlined documents give the same recovered name different columns — or one publishes a real `Total` while another recovers one — the tool **refuses** with a `recovered_name_conflict` naming both, and never reaches the dry run. Same posture as the detector: a rejected query announces itself, a wrong column does not.
+
+**Preamble exclusion.** `run_sql` appends `AND NOT (document_id = '<id>' AND row_index <= <k>)` per document with a known header row. Written per document rather than as a bare `row_index > k` so it is a tautology wherever it doesn't apply, which makes it safe to append to every arm of a per-document `UNION ALL` split. Applied only when every `WHERE` in the statement is a pure AND-chain; an `OR` (or unparseable SQL) sets `preamble_skipped` instead of guessing, since appending inside a disjunct would change what the query means.
+
+Only aggregates need this — `sample_rows` still shows the top of the file, because seeing the preamble is how a person diagnoses a bad recovery.
+
+Both passes are **span-based, not AST regeneration**, matching `sql_normalize`: sqlglot is used here only to inspect shape. Its generator reformats untouched SQL, and the evidence rail would show the user SQL nobody wrote. Both report back to the model through `normalizations` (`recovered_names_resolved`, `preamble_rows_excluded`).
+
+This module also owns `extract_json_path_columns` and `extract_inlined_document_ids` — the doc/column pairing check, the derivation builder, and the alias pass all read the same strings rather than growing second parsers that could disagree.
+
+Tests: `test_sql_alias_translation.py`, `test_sql_preamble_exclusion.py`, `test_sql_alias_ordering.py`.
+
 ## How the library API is used
 
 ```py

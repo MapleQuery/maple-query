@@ -29,6 +29,10 @@ from semantic_enrich.core.agent.derivation_units import (
     UnitSource,
     resolve_unit_scale,
 )
+from semantic_enrich.core.sql_header_alias import (
+    extract_inlined_document_ids,
+    extract_json_path_columns,
+)
 from semantic_enrich.core.sql_normalize import _mask_string_literals
 
 if TYPE_CHECKING:
@@ -124,7 +128,6 @@ def build_derivation(
 def _build(
     *, sql: str, result: dict[str, Any], state: LoopState
 ) -> list[Derivation]:
-    from semantic_enrich.core import agent_tools
 
     tree = sqlglot.parse_one(sql, dialect="bigquery")
     if tree is None:
@@ -133,7 +136,7 @@ def _build(
     has_group_by = tree.find(exp.Group) is not None
 
     # ── shared provenance (same for every column of one query) ──
-    source_documents = tuple(sorted(agent_tools._extract_inlined_document_ids(sql)))
+    source_documents = tuple(sorted(extract_inlined_document_ids(sql)))
     packages: list[str] = []
     titles: list[str] = []
     row_estimate = 0
@@ -246,7 +249,6 @@ def _scalar_aggregate_projections(
     (``f0_``-style for anonymous projections), so they key the result
     row dict. Mirrors ``_scalar_aggregate_columns`` but keeps per-column
     detail so each total is traced separately."""
-    from semantic_enrich.core import agent_tools
 
     out: list[tuple[str, str, tuple[str, ...]]] = []
     for select in tree.find_all(exp.Select):
@@ -267,7 +269,7 @@ def _scalar_aggregate_projections(
                 continue
             agg_name = _dominant_agg_name(scalar_aggs)
             value_cols = tuple(
-                sorted(agent_tools._extract_json_path_columns(projection.sql()))
+                sorted(extract_json_path_columns(projection.sql()))
             )
             out.append((name, agg_name, value_cols))
     return out
@@ -294,7 +296,6 @@ def _aggregation_and_value_columns(
     """The dominant scalar aggregate function and the JSON columns
     inside it. Prefers SUM/AVG (the money-bearing aggregates) over
     COUNT when both appear."""
-    from semantic_enrich.core import agent_tools
 
     best: exp.AggFunc | None = None
     best_rank = -1
@@ -309,7 +310,7 @@ def _aggregation_and_value_columns(
     if best is None:
         return "none", ()
     name = _agg_name(best)
-    columns = tuple(sorted(agent_tools._extract_json_path_columns(best.sql())))
+    columns = tuple(sorted(extract_json_path_columns(best.sql())))
     return name, columns
 
 
@@ -321,12 +322,11 @@ def _agg_name(agg: exp.AggFunc) -> str:
 
 
 def _group_by_columns(tree: exp.Expression) -> tuple[str, ...]:
-    from semantic_enrich.core import agent_tools
 
     keys: list[str] = []
     for group in tree.find_all(exp.Group):
         for e in group.expressions:
-            json_cols = sorted(agent_tools._extract_json_path_columns(e.sql()))
+            json_cols = sorted(extract_json_path_columns(e.sql()))
             # Fall back to the bare identifier (a select alias) when the
             # GROUP BY key is not an inline JSON_VALUE path.
             names = json_cols or [e.name] if e.name else json_cols

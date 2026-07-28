@@ -9,6 +9,10 @@ import pytest
 from semantic_enrich.clients.bq import BoundedQueryResult
 from semantic_enrich.config.settings import Settings
 from semantic_enrich.core import agent_events, agent_tools
+from semantic_enrich.core.sql_header_alias import (
+    extract_inlined_document_ids,
+    extract_json_path_columns,
+)
 from tests.integration.conftest import FakeBqClient
 from tests.integration.openai_fakes import FakeOpenAIClient
 
@@ -293,7 +297,7 @@ def test_extract_json_path_columns_covers_bare_and_quoted() -> None:
         "JSON_VALUE(r.row, '$.\"2020-21_Expenditures\"') AS e "
         "FROM raw.rows AS r WHERE r.document_id IN ('doc-1') LIMIT 10"
     )
-    keys = agent_tools._extract_json_path_columns(sql)
+    keys = extract_json_path_columns(sql)
     assert "Organization" in keys
     assert "2020-21_Expenditures" in keys
 
@@ -303,7 +307,7 @@ def test_extract_inlined_document_ids_finds_literals() -> None:
         "SELECT 1 FROM raw.rows WHERE document_id IN "
         "('doc-1', 'doc-2', 'doc-3') LIMIT 10"
     )
-    assert agent_tools._extract_inlined_document_ids(sql) == {
+    assert extract_inlined_document_ids(sql) == {
         "doc-1",
         "doc-2",
         "doc-3",
