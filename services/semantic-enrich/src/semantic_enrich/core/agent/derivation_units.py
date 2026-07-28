@@ -53,6 +53,35 @@ _NAME_MILLIONS_RE = re.compile(r"_?millions?\b|_mm?\b")
 _NAME_BILLIONS_RE = re.compile(r"_?billions?\b|_bn?\b")
 
 
+def _is_monetary(*, stype: str, name_spaced: str, desc: str) -> bool:
+    return (
+        any(t in stype for t in _MONETARY_TYPES)
+        or bool(_MONEY_CUE_RE.search(name_spaced))
+        or bool(_MONEY_CUE_RE.search(desc))
+    )
+
+
+def is_monetary_column(
+    *,
+    column_name: str,
+    semantic_type: str | None,
+    description: str | None,
+) -> bool:
+    """Whether a column looks like money, by the same rule the unit
+    resolver uses.
+
+    Exposed so the suggestion builder cannot drift from the unit scale
+    logic: offering to total a column the resolver would call
+    `not_monetary` is the UI-layer version of the guessing M6 removed
+    from the numeric layer.
+    """
+    return _is_monetary(
+        stype=(semantic_type or "").lower(),
+        name_spaced=(column_name or "").lower().replace("_", " "),
+        desc=(description or "").lower(),
+    )
+
+
 def resolve_unit_scale(
     *,
     column_name: str,
@@ -81,12 +110,7 @@ def resolve_unit_scale(
     # while the raw form still carries `_000`-style scale cues.
     name_spaced = name.replace("_", " ")
 
-    is_monetary = (
-        any(t in stype for t in _MONETARY_TYPES)
-        or bool(_MONEY_CUE_RE.search(name_spaced))
-        or bool(_MONEY_CUE_RE.search(desc))
-    )
-    if not is_monetary:
+    if not _is_monetary(stype=stype, name_spaced=name_spaced, desc=desc):
         return "not_monetary", "unresolved"
 
     desc_scale = _scale_from_description(desc)

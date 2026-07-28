@@ -32,6 +32,10 @@ export interface ChatRequest {
   /** Client-held turn records echoed back so the server-side memory
    * phase (replay skip-hints, clarify follow-ups) can use them. */
   turn_records?: Record<string, unknown>[];
+  /** Narrows the turn to specific datasets — set when the user accepts
+   * a suggestion. Validated server-side; a malformed scope degrades to
+   * an ordinary unscoped turn rather than an error. */
+  scope_package_ids?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +153,17 @@ const Derivation = z.object({
   flags: z.array(z.string()).default([]),
 });
 
+const Suggestion = z.object({
+  kind: z.string(),
+  label: z.string(),
+  question: z.string(),
+  package_ids: z.array(z.string()).default([]),
+});
+
+const Suggestions = z.object({
+  items: z.array(Suggestion).default([]),
+});
+
 const Done = z.object({
   turn_id: z.string(),
   total_tool_calls: z.number(),
@@ -179,6 +194,7 @@ export const AgentEventSchemas = {
   tool_error: ToolError,
   turn_record: TurnRecord,
   derivation: Derivation,
+  suggestions: Suggestions,
   done: Done,
   error: ErrorEvt,
 } as const;
@@ -194,6 +210,7 @@ export type ErrorEvent = z.infer<typeof ErrorEvt>;
 export type DatasetCandidateT = z.infer<typeof DatasetCandidate>;
 export type ColumnCandidateT = z.infer<typeof ColumnCandidate>;
 export type DerivationT = z.infer<typeof Derivation>;
+export type SuggestionT = z.infer<typeof Suggestion>;
 
 // ---------------------------------------------------------------------------
 // REST endpoints
