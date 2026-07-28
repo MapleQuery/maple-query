@@ -175,8 +175,16 @@ def _summarize_dataset(
     would have fired on a quarter of measured surrenders while
     retrieval was sound on all of them — screening out turns where the
     loop stopped one tool call short, not turns with nothing to offer.
+
+    Suppressed for a package already in this turn's scope. A scoped
+    turn opens and describes its packages by construction, so offering
+    "Summarize X" directly beneath a summary of X is an offer to redo
+    what the user just watched happen. The drill-down kinds below are
+    genuine next steps from a summary and are not suppressed.
     """
     package = evidence.packages[0]
+    if package.package_id in ctx.scope_package_ids:
+        return None
     name = _display_name(package)
     return Suggestion(
         kind="summarize_dataset",
@@ -249,7 +257,25 @@ def _group_total(
     """Conditional, and frequently absent — which is correct behaviour,
     not a gap. Offering to total a column that may not be monetary would
     reintroduce, at the UI layer, exactly the guessing the numeric-trust
-    work removed from the numeric layer."""
+    work removed from the numeric layer.
+
+    It is absent, in particular, whenever the turn never called
+    `search_columns`: that is what populates `column_metadata`, and
+    without it we cannot say a column is monetary. The kind appearing on
+    one run of a question and not the next looks like flakiness and is
+    the rule working — we offer to total a column only when we know it
+    holds money.
+
+    The grouping dimension is deliberately *not* named here. An earlier
+    version hardcoded "grouped by department" and produced a turn that
+    failed outright on a dataset whose columns are ARRONDISSEMENT,
+    CATEGORIE, DATE, ID_SDSR, MONTANT, TRANSACTION — no `department`
+    anywhere. Naming a dimension at composition time is a guess about
+    schema, which is the same class of invention this kind's monetary
+    check exists to prevent. The accepted turn lists the documents
+    before it writes any SQL, so it can see the real columns; the
+    question asks it to pick one.
+    """
     for package in _listed_packages(evidence, listed):
         column = _monetary_column(ctx, package.package_id)
         if column is None:
@@ -257,10 +283,11 @@ def _group_total(
         name = _display_name(package)
         return Suggestion(
             kind="group_total",
-            label=_label("Total ", column, " by department"),
+            label=_label("Total ", column),
             question=(
-                f"Total the {column} column in {name}, grouped by "
-                "department."
+                f"Total the {column} column in {name}, grouped by one "
+                "of the dataset's own dimension columns — pick a "
+                "column it actually has."
             ),
             package_ids=(package.package_id,),
         )
