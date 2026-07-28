@@ -1,4 +1,5 @@
 import type { StoredNotebook } from "@/lib/storage";
+import type { DatasetTitleMap } from "@/lib/dataset-titles";
 
 /**
  * Concatenate the notebook into a single Markdown document.
@@ -7,7 +8,7 @@ import type { StoredNotebook } from "@/lib/storage";
  *   - Prose blocks → their markdown verbatim
  *   - Query blocks →
  *       ### <question>
- *       _Scoped to: <package_ids>_   (only when the block is scoped)
+ *       _Scoped to: <datasets>_   (only when the block is scoped)
  *       <assistant text>
  *       ```sql
  *       <sql>
@@ -15,9 +16,16 @@ import type { StoredNotebook } from "@/lib/storage";
  *       | col1 | col2 |
  *       | ---- | ---- |
  *       | v1   | v2   |
- *       *Sources: <package_ids>*
+ *       *Sources: <datasets>*
+ *
+ * Datasets are named by title where one is known — a reader of the
+ * exported report has no way to look a UUID up. `titles` is the shared
+ * cache; a block's own recorded titles win over it.
  */
-export function exportNotebookAsMarkdown(nb: StoredNotebook): string {
+export function exportNotebookAsMarkdown(
+  nb: StoredNotebook,
+  titles?: DatasetTitleMap,
+): string {
   const parts: string[] = [];
   parts.push(`# ${nb.title || "Untitled notebook"}`);
   parts.push(
@@ -30,12 +38,14 @@ export function exportNotebookAsMarkdown(nb: StoredNotebook): string {
       parts.push(b.markdown.trim() || "_(empty prose)_");
       parts.push("");
     } else {
+      const name = (id: string): string =>
+        b.result?.packageTitles?.[id] ?? titles?.[id] ?? id;
       parts.push(`### ${b.question || "(empty query)"}`);
       if (b.scopePackageIds && b.scopePackageIds.length > 0) {
         // A reader of the exported Markdown should be able to see what
         // a question was narrowed to; otherwise a scoped block reads as
         // an unaccountably specific answer.
-        parts.push(`_Scoped to: ${b.scopePackageIds.join(", ")}_`);
+        parts.push(`_Scoped to: ${b.scopePackageIds.map(name).join(", ")}_`);
         parts.push("");
       }
       if (b.result?.assistantText) {
@@ -53,7 +63,7 @@ export function exportNotebookAsMarkdown(nb: StoredNotebook): string {
         parts.push("");
       }
       if (b.result?.packageIds && b.result.packageIds.length > 0) {
-        parts.push(`_Sources: ${b.result.packageIds.join(", ")}_`);
+        parts.push(`_Sources: ${b.result.packageIds.map(name).join(", ")}_`);
         parts.push("");
       }
     }

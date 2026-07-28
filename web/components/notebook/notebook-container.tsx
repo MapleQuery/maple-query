@@ -12,7 +12,6 @@ import {
   Trash2,
   ArrowUpCircle,
   ArrowDownCircle,
-  Download,
   Play,
   Loader2,
   Pencil,
@@ -27,12 +26,20 @@ import {
 } from "@/lib/storage";
 import { streamChat } from "@/lib/sse";
 import type { SuggestionT } from "@/lib/types";
-import { truncate, uuid } from "@/lib/utils";
+import {
+  getCachedDatasetTitles,
+  rememberDatasetTitles,
+  useDatasetTitles,
+} from "@/lib/dataset-titles";
+import { uuid } from "@/lib/utils";
 import { SqlBlock } from "@/components/evidence/sql-block";
 import { RowsTable } from "@/components/evidence/rows-table";
+import { DatasetChip } from "@/components/evidence/dataset-chip";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { exportNotebookAsMarkdown } from "./export";
+import { ExportMenu } from "./export-menu";
+import { printMarkdownAsPdf } from "./print-pdf";
 
 export interface NotebookContainerProps {
   notebookId: string;
@@ -149,9 +156,9 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
     if (id === notebookId) router.push(`/notebook/${uuid()}`);
   };
 
-  const handleExport = () => {
+  const handleExportMarkdown = () => {
     if (!nb) return;
-    const md = exportNotebookAsMarkdown(nb);
+    const md = exportNotebookAsMarkdown(nb, getCachedDatasetTitles());
     const blob = new Blob([md], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -161,6 +168,17 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
     a.click();
     URL.revokeObjectURL(url);
     toast.show("Downloaded Markdown export", "success");
+  };
+
+  const handleExportPdf = async () => {
+    if (!nb) return;
+    const md = exportNotebookAsMarkdown(nb, getCachedDatasetTitles());
+    try {
+      await printMarkdownAsPdf(nb.title || "Untitled notebook", md);
+      toast.show("Print view open — choose “Save as PDF”", "info");
+    } catch {
+      toast.show("Could not open the PDF view", "error");
+    }
   };
 
   if (!nb) return null;
@@ -253,13 +271,11 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
                 edited {new Date(nb.updatedAt).toLocaleString()}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleExport}
-              className="inline-flex items-center gap-1.5 rounded-md border border-hairline bg-white px-3 py-2 text-sm font-medium text-ink hover:bg-surface-soft"
-            >
-              <Download className="h-4 w-4" /> Export as Markdown
-            </button>
+            <ExportMenu
+              onExportMarkdown={handleExportMarkdown}
+              onExportPdf={() => void handleExportPdf()}
+              disabled={nb.blocks.length === 0}
+            />
           </header>
 
           {nb.blocks.length === 0 ? (
@@ -510,6 +526,17 @@ function QueryBlock({
 
   React.useEffect(() => setDraft(block.question), [block.question]);
 
+  // Chips name their dataset rather than print its UUID. A block that
+  // has run carries its own titles; a scope pinned from a suggestion,
+  // or a notebook saved before titles were recorded, is backfilled.
+  const scopeIds = block.scopePackageIds;
+  const resultIds = block.result?.packageIds;
+  const referencedIds = React.useMemo(
+    () => Array.from(new Set([...(scopeIds ?? []), ...(resultIds ?? [])])),
+    [scopeIds, resultIds],
+  );
+  const titles = useDatasetTitles(referencedIds, block.result?.packageTitles);
+
   const run = async () => {
     const question = draft.trim();
     if (!question) return;
@@ -517,6 +544,7 @@ function QueryBlock({
     let sql = "";
     let rows: Record<string, unknown>[] = [];
     const pkgIds = new Set<string>();
+    const pkgTitles: Record<string, string> = {};
     let localAssistantText = "";
     let offers: SuggestionT[] = [];
 
@@ -554,7 +582,14 @@ function QueryBlock({
           onEvent: (event) => {
             switch (event.name) {
               case "datasets_ranked":
-                for (const c of event.payload.candidates) pkgIds.add(c.package_id);
+                // Titles ride along on this frame, so the chips below
+                // never have to ask the API what a package is called.
+                rememberDatasetTitles(event.payload.candidates);
+                for (const c of event.payload.candidates) {
+                  pkgIds.add(c.package_id);
+                  const t = c.title?.trim();
+                  if (t) pkgTitles[c.package_id] = t;
+                }
                 break;
               case "sql_guarded":
                 if (event.payload.accepted) sql = event.payload.sql_final;
@@ -586,6 +621,7 @@ function QueryBlock({
                       sql,
                       rows,
                       packageIds: Array.from(pkgIds),
+                      packageTitles: { ...pkgTitles },
                     },
                   }
                 : b,
@@ -621,13 +657,7 @@ function QueryBlock({
         <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
           <span>Scoped to:</span>
           {block.scopePackageIds.map((p) => (
-            <Link
-              key={p}
-              href={`/datasets/${p}`}
-              className="rounded bg-surface-soft px-1.5 py-0.5 font-mono text-[10px] text-navy hover:underline"
-            >
-              {truncate(p, 24)}
-            </Link>
+            <DatasetChip key={p} packageId={p} title={titles[p]} />
           ))}
           <button
             type="button"
@@ -691,13 +721,7 @@ function QueryBlock({
               <Check className="h-3 w-3 text-success" />
               Datasets:{" "}
               {block.result.packageIds.map((p) => (
-                <Link
-                  key={p}
-                  href={`/datasets/${p}`}
-                  className="rounded bg-surface-soft px-1.5 py-0.5 font-mono text-[10px] text-navy hover:underline"
-                >
-                  {truncate(p, 24)}
-                </Link>
+                <DatasetChip key={p} packageId={p} title={titles[p]} />
               ))}
             </p>
           )}

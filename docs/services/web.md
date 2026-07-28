@@ -25,10 +25,10 @@ web/
 │   ├── ui/              # shadcn-style primitives (Button, Input, Toast, …)
 │   ├── layout/          # Site header
 │   ├── evidence/        # Shared across all three surfaces:
-│   │                    # Message, EvidenceRail, DatasetCard, ColumnList,
-│   │                    # SqlBlock, RowsTable, CostBadge
+│   │                    # Message, EvidenceRail, DatasetCard, DatasetChip,
+│   │                    # ColumnList, SqlBlock, RowsTable, CostBadge
 │   ├── chat/            # ChatContainer + composer + conversation switcher
-│   ├── notebook/        # NotebookContainer + Markdown export
+│   ├── notebook/        # NotebookContainer + Markdown/PDF export
 │   └── explorer/        # ExplorerContainer + step chain
 ├── lib/
 │   ├── api.ts           # REST wrappers (datasets, columns, /sql/run)
@@ -37,6 +37,7 @@ web/
 │   ├── types.ts         # zod schemas mirroring 5.1's event dataclasses
 │   ├── storage.ts       # localStorage with per-collection LRU index (max 50)
 │   │                    # + quota-exceeded eviction
+│   ├── dataset-titles.ts # package_id → title cache + backfill hook
 │   ├── history.ts       # append helpers + 200-message wall
 │   ├── highlight.ts     # shiki singleton for SQL highlighting
 │   ├── config.ts        # NEXT_PUBLIC_* env reading + bearer header builder
@@ -79,8 +80,17 @@ carry the visual distinction that separate serif / mono families would.
 
 ### /notebook · secondary
 - Ordered list of prose (Markdown) and query (single-turn `/chat`) blocks.
-- Export to Markdown concatenates every block, including SQL fenced blocks
-  and result tables (first 20 rows).
+- A single **Export** control with a format menu. Both formats build the
+  same Markdown document — every block, including SQL fenced blocks and
+  result tables (first 20 rows):
+  - **Markdown** downloads it as `.md`.
+  - **PDF** renders it with the same ReactMarkdown/remark-gfm pair used on
+    screen into an off-screen iframe and calls `print()` on that iframe,
+    so the output is real text with real pagination. It lands on the
+    browser's print dialog, where the user picks "Save as PDF".
+- Dataset references (the `Scoped to:` and `Datasets:` rows, and the
+  `Sources:` line in an export) are named by title, not package UUID. See
+  "Dataset titles" below.
 - Re-running a query block clears its result and re-streams.
 
 ### /explorer · secondary
@@ -98,6 +108,27 @@ carry the visual distinction that separate serif / mono families would.
   "Source files" table — per-file open.canada.ca download links, with an
   "Enriched" badge on the representative document. The section hides
   itself when the fetch fails or returns no files.
+
+---
+
+## Dataset titles
+
+`lib/dataset-titles.ts` keeps a `package_id → title` map so no surface has
+to print a UUID at the user. It is filled for free from three places that
+already carry titles: `datasets_ranked` stream frames, the `/datasets`
+list, and the `/datasets/{id}` detail fetch. The map is cached in
+localStorage under `mq:dataset-titles:v1` and read through
+`useDatasetTitles(ids, known?)`.
+
+An id still unknown after all that — a scope pinned from a suggestion, a
+notebook saved before titles were recorded — is backfilled with one
+`GET /datasets/{id}`, deduped across components and never retried once
+answered. `known` lets a caller pass titles it already holds (a notebook
+block stores its own in `packageTitles`), and those ids are never looked
+up at all, so reopening a saved notebook costs no requests.
+
+Every failure mode degrades to the raw id, which is what these surfaces
+showed before.
 
 ---
 
