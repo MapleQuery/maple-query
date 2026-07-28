@@ -194,3 +194,40 @@ def test_a_scoped_turn_still_offers_a_summary_of_a_different_package() -> None:
     ctx.scope_package_ids = (RANKED,)
     out = _build(ctx, _pkg(LISTED, 312))
     assert "summarize_dataset" in [s.kind for s in out]
+
+
+def test_browse_chip_declines_a_package_of_generated_headers() -> None:
+    """Seen live: a listed document whose header row never parsed
+    surfaced as `__col_1 … __col_7`. The chip rests on a human scanning
+    the names and recognising the bucket the question lives in — on
+    placeholders there is nothing to recognise, and "Show all N
+    columns" would promise an inventory and deliver noise. Size alone
+    cannot see this."""
+    ctx = _ctx(listed=(LISTED,))
+    ctx.state.doc_columns["doc-0"] = [f"__col_{i}" for i in range(30)]
+    out = _build(ctx, _pkg(LISTED, 30))
+    kinds = [s.kind for s in out]
+    assert "list_columns" not in kinds
+    # The other kinds still apply — sample rows shows the *values*,
+    # which is exactly what rescues a document with unreadable headers.
+    assert "sample_rows" in kinds
+
+
+def test_a_minority_of_generated_headers_is_still_browsable() -> None:
+    ctx = _ctx(listed=(LISTED,))
+    ctx.state.doc_columns["doc-0"] = [f"real_col_{i}" for i in range(24)] + [
+        f"__col_{i}" for i in range(6)
+    ]
+    out = _build(ctx, _pkg(LISTED, 30))
+    assert "list_columns" in [s.kind for s in out]
+
+
+def test_the_chip_and_the_tool_agree_on_unreadable() -> None:
+    """The gate reuses `list_documents`' own ratio and threshold rather
+    than a second definition that could drift from it."""
+    ctx = _ctx(listed=(LISTED,), agent_generated_header_ratio=0.9)
+    ctx.state.doc_columns["doc-0"] = [f"real_{i}" for i in range(6)] + [
+        f"__col_{i}" for i in range(24)
+    ]
+    # 0.8 generated — over the default 0.5, under this turn's 0.9.
+    assert "list_columns" in [s.kind for s in _build(ctx, _pkg(LISTED, 30))]

@@ -142,21 +142,43 @@ def titles_by_package(ctx: TurnContext) -> dict[str, str | None]:
     return titles
 
 
-def _column_counts_by_package(ctx: TurnContext) -> dict[str, int]:
-    """package_id → column count of its representative document.
+def columns_by_package(ctx: TurnContext) -> dict[str, list[str]]:
+    """package_id → the distinct column names across every document
+    listed for it, in listing order.
 
-    The representative is the first document `list_documents` returned
-    for that package — the tool sorts clean documents ahead of
-    generated-header ones, so the first is the one the model was
-    steered at. A package that was ranked but never listed has no
-    entry here and renders without a count.
+    An earlier version read only the *first* document per package, on
+    the reasoning that `list_documents` sorts clean documents first so
+    the first one is what the model was steered at. That undercounts
+    badly on a real package: one housing dataset reported "(3 columns)"
+    in the footer while its eight documents — a different breakdown per
+    table — carried nine distinct columns between them. A user reading
+    "3 columns" and then seeing nine has been told something false
+    about the dataset, and the browse chip built on the same number
+    would promise the wrong count.
+
+    Deduped by name, because heterogeneous documents in one package
+    routinely repeat a column.
     """
-    counts: dict[str, int] = {}
+    out: dict[str, list[str]] = {}
     for doc_id, columns in ctx.state.doc_columns.items():
         pid = ctx.state.doc_package.get(doc_id)
-        if pid and pid not in counts:
-            counts[pid] = len(columns)
-    return counts
+        if not pid:
+            continue
+        seen = out.setdefault(pid, [])
+        for column in columns:
+            if column not in seen:
+                seen.append(column)
+    return out
+
+
+def _column_counts_by_package(ctx: TurnContext) -> dict[str, int]:
+    """package_id → how many distinct columns it holds. A package that
+    was ranked but never listed has no entry and renders without a
+    count — never a guessed one."""
+    return {
+        pid: len(columns)
+        for pid, columns in columns_by_package(ctx).items()
+    }
 
 
 def _queries_tried(ctx: TurnContext) -> tuple[str, ...]:

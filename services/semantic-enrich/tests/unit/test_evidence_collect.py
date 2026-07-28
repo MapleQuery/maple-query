@@ -230,3 +230,43 @@ def test_search_titles_win_over_document_titles() -> None:
     evidence = collect_evidence(ctx, _result("pkg-1"))
 
     assert evidence.packages[0].title == "Package Title"
+
+
+def test_column_count_spans_every_document_in_the_package() -> None:
+    """The undercount seen live: a housing package reported "(3
+    columns)" in the footer while its eight documents — one breakdown
+    per table — carried nine distinct columns between them. Reading
+    only the first document told the user something false about the
+    dataset, and the browse chip built on the same number promised the
+    wrong count."""
+    ctx = _ctx()
+    ctx.state.search_results["q"] = _search(("pkg-1", "Housing Benefit"))
+    ctx.trace.packages_researched.append("pkg-1")
+    ctx.state.doc_package["t1"] = "pkg-1"
+    ctx.state.doc_columns["t1"] = ["Applicants", "Total"]
+    ctx.state.doc_package["t2"] = "pkg-1"
+    ctx.state.doc_columns["t2"] = ["Gender", "Total"]  # `Total` repeats
+    ctx.state.doc_package["t3"] = "pkg-1"
+    ctx.state.doc_columns["t3"] = ["Age Group", "Province"]
+
+    evidence = collect_evidence(ctx, _result("pkg-1"))
+
+    # Deduped by name — heterogeneous documents in one package
+    # routinely repeat a column.
+    assert evidence.packages[0].column_count == 5
+
+
+def test_documents_of_other_packages_are_not_counted() -> None:
+    ctx = _ctx()
+    ctx.state.search_results["q"] = _search(("pkg-1", "A"), ("pkg-2", "B"))
+    ctx.trace.packages_researched.append("pkg-1")
+    ctx.state.doc_package["d1"] = "pkg-1"
+    ctx.state.doc_columns["d1"] = ["a", "b"]
+    ctx.state.doc_package["d2"] = "pkg-2"
+    ctx.state.doc_columns["d2"] = ["c", "d", "e"]
+
+    counts = {
+        p.package_id: p.column_count
+        for p in collect_evidence(ctx, _result("pkg-1")).packages
+    }
+    assert counts == {"pkg-1": 2, "pkg-2": 3}
