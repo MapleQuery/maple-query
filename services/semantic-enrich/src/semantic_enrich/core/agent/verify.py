@@ -444,6 +444,7 @@ class AnswerFitVerifier:
             )
         )
         self._log(
+            kind="explore",
             mode=mode,
             action=action,
             fits=check.fits,
@@ -547,6 +548,7 @@ class AnswerFitVerifier:
             )
         )
         self._log(
+            kind="fit",
             mode=mode,
             action=action,
             fits=check.fits,
@@ -664,10 +666,17 @@ class AnswerFitVerifier:
         enforced: bool,
         fail_open_reason: str | None,
         started: float,
+        kind: str = "fit",
         demotions: list[str] | None = None,
     ) -> None:
         _LOG.info(
             "verification",
+            # Without this the fit checker and the descriptive rubric are
+            # indistinguishable in the logs, and the only way to tell
+            # them apart was `mode=log` — which works solely because
+            # explore happens to be the one gate in shadow. Demote verify
+            # for any reason and that proxy silently merges the two.
+            kind=kind,
             mode=mode,
             action=action,
             fits=fits,

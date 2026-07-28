@@ -281,6 +281,7 @@ def run_agent_eval(
                     "triage": observer.triage,
                     "suggestions": observer.suggestions,
                     "verify_explore": observer.verify_explore,
+                    "magnitude": observer.magnitude,
                     "outcome": _record_field(observer, "outcome"),
                     "triage_category": _record_field(observer, "category"),
                     "packages_listed": _record_field(observer, "packages"),
@@ -324,6 +325,7 @@ def run_agent_eval(
         "verify_fit": _verify_fit(results),
         "guided_recovery": _guided_recovery(results),
         "explore_shadow": _explore_shadow(results),
+        "magnitude_shadow": _magnitude_shadow(results),
         "suggestions": _suggestions_summary(results),
         "questions": results,
     }
@@ -441,6 +443,63 @@ def _suggestions_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
             {"id": r["id"], "question": r["question"], "items": r["run"]["suggestions"]}
             for r in with_offers
         ],
+    }
+
+
+# The act-flip bar for the deterministic numeric gate, as data rather
+# than as a sentence someone has to remember. Mirrors the descriptive
+# rubric's criteria deliberately: the two gates protect different things
+# (a wrong number versus an unfaithful description) but the *shape* of
+# the decision is identical, and one of them having its bar written down
+# while the other had only prose is why one of them soaked for a
+# milestone without ever being decided.
+MAGNITUDE_ACT_FLIP_CRITERIA: dict[str, Any] = {
+    "min_shadow_findings": 20,
+    # Zero, not a rate. A caveat on a correct total teaches users to
+    # distrust correct totals, which is the failure this gate exists to
+    # prevent inverted.
+    "max_false_positive_findings": 0,
+    "min_true_positive_findings": 1,
+    "no_go_behaviour": (
+        "stay in log; the gate computes and reports but never alters an "
+        "answer, which is exactly today's behaviour and safe indefinitely"
+    ),
+}
+
+
+def _magnitude_shadow(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Act-flip precision data for the deterministic bounds gate.
+
+    This gate had no harness at all: it is not in Braintrust (no model
+    call for `wrap_openai` to capture), it was not in this report, and
+    Cloud Logging expires at 30 days — so the only evidence that ever
+    existed was whatever sat inside a rolling window.
+
+    Same posture as the rubric above: hard findings are read by eye,
+    because a floor that misfires caveats a correct total and there is
+    no rate at which that is acceptable.
+    """
+    findings = [
+        {"id": r["id"], "question": r["question"], **f}
+        for r in results
+        for f in (r["run"].get("magnitude") or [])
+    ]
+    hard = [f for f in findings if "hard" in str(f.get("reason", ""))]
+    by_tag: dict[str, int] = {}
+    for f in findings:
+        tag = str(f.get("reason", "")).split(":", 1)[0].strip() or "unknown"
+        by_tag[tag] = by_tag.get(tag, 0) + 1
+    return {
+        "findings": len(findings),
+        "turns_with_findings": len(
+            {f["id"] for f in findings}
+        ),
+        "by_tag": dict(sorted(by_tag.items())),
+        "act_flip_criteria": MAGNITUDE_ACT_FLIP_CRITERIA,
+        # Read these before flipping: each is a caveat that would have
+        # shipped, and a wrong one is a correct number called into doubt.
+        "finding_details": findings,
+        "hard_findings": len(hard),
     }
 
 

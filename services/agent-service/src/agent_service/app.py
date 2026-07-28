@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from semantic_enrich.providers.logging import configure_logging
 
 from agent_service.config import AgentServiceSettings
 from agent_service.deps import AppState, build_app_state
@@ -32,6 +33,12 @@ def create_app(
     fakes can be swapped in without monkeypatching.
     """
     settings = service_settings or AgentServiceSettings()
+    # Without this structlog keeps its default ConsoleRenderer and the
+    # service emits `key=value` prose, so Cloud Logging files everything
+    # as textPayload and none of it can be aggregated by field. The CLI
+    # has always called this; the service never did, which is why two
+    # shadow-mode gates had no queryable record.
+    configure_logging()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
