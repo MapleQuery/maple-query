@@ -641,6 +641,25 @@ Eight cases pinning the milestone's promises, in two tiers. `RecoveryCase` decla
 
 **Deterministic tier** (`tests/unit/test_recovery_eval.py`): six cases on scripted `FakeOpenAI` + fake BQ. Free, offline, runs on every change — the milestone's promises are shape promises, and a lock priced at a dollar a run is a lock that gets skipped. **Live tier** (`tests/integration/test_recovery_eval_live.py`, `WHENRICH_RUN_LIVE_EVALS=1`, ~$1) covers only what fakes cannot: real triage classification on the two boundary questions, and whether the research model produces a genuine description on a scoped turn. It grades outcome leniently for retrieval-dependent cases — a question that fails for vocabulary reasons is a *correct* outcome here as long as it fails informatively — but treats clarify-replacement and missing derivations as hard failures regardless. It writes `eval/reports/guided-recovery-eval.json` carrying `ACT_FLIP_CRITERIA` for `agent_verify_explore_mode`, so the go/no-go is a lookup: ≥30 shadow explore turns, **zero** false-positive caveats, ≥1 true positive, p95 added latency ≤400 ms. The zero is deliberate — a rubric that caveats faithful descriptions is strictly worse than the bypass it replaces, and the bypass is free to keep.
 
+## Shadow-gate telemetry
+
+Two gates ship in `log` and are meant to accumulate evidence for an act-flip. Neither was reaching anywhere the evidence survives, which is why both soaked for a milestone without being decided:
+
+- The descriptive rubric's verdict was assembled onto `TurnObserver.verify_explore` and then **dropped before the span was written** — `metadata()` never included it.
+- The deterministic magnitude gate was skipped by the observer entirely. It makes **no model call**, so `wrap_openai` never saw it either.
+
+That left Cloud Logging as the only record — and application logs land in the `_Default` bucket at **30-day retention**, which expires faster than the evidence accrues. At observed traffic the descriptive rubric's `min_shadow_explore_turns: 30` could never be reached from production, no matter how long anyone waited.
+
+Now: both verdicts ride the turn span (`meta["verify_explore"]`, `meta["magnitude"]` — the latter a list, since one turn can produce several findings), so Braintrust is the durable record and there is no retention cliff. Neither seeds the fit-rate metric — that is about the LLM fit checker, and mixing a deterministic bounds verdict into it would make both act-flip gates share one meaningless number.
+
+The `verification` log line also gains `kind` (`fit` | `explore`). Without it the two checkers were indistinguishable in the logs and the only way to separate them was `mode=log`, which works solely because explore happens to be the one gate in shadow — demote verify for any reason and that proxy silently merges two populations.
+
+`agent-service` now calls `configure_logging()`. It never did, so structlog kept its default `ConsoleRenderer` and the deployed service emitted `key=value` prose while the CLI emitted JSON; Cloud Logging filed everything as `textPayload` and none of it could be aggregated by field.
+
+**`MAGNITUDE_ACT_FLIP_CRITERIA`** gives the numeric gate the harness it never got — ≥20 shadow findings, **zero** false positives, ≥1 true positive — mirroring the descriptive rubric's shape deliberately. The two protect different things (a wrong number versus an unfaithful description) but the decision has the same form, and one of them having its bar written down as data while the other had only prose is precisely why one stalled. `eval --agent-mode` now emits a `magnitude_shadow` block with every finding verbatim for reading by eye.
+
+Tests: `tests/unit/test_shadow_gate_telemetry.py`. Telemetry fails silently by nature — nothing breaks, a number just stops arriving — so the wiring is asserted rather than trusted.
+
 ## Session memory (v2 only)
 
 `core/agent/records.py` + `core/agent/memory.py` implement the memory phase around one primitive — the deterministic **TurnRecord**, built by the pipeline's finish step from the turn trace with no LLM involved. Schema (v1): question + gist (casefold, punctuation/stopword-stripped), triage category, outcome (`answered | answered_with_caveat | no_data | deflected | clarified | error` — note `no_data` means a final answer with no successful SQL behind it), packages with titles, columns used, document ids, the final executed SQL verbatim, row count, searches tried with similarities, a 300-char answer digest, dollars, snapshot hash. Records ride to the client in the `turn_record` event and come back as `ChatRequest.turn_records`; the server stays stateless. Ingest validates defensively (version, types, length caps, 16 KB/record, newest `WHENRICH_AGENT_TURN_RECORDS_MAX` = 50 kept) — invalid records drop with a log, never a 400. Both the CLI (`--history-file` stores `{"_turn_record": …}` JSONL lines) and the web app (localStorage `turnRecords`, echoed on send) carry them.

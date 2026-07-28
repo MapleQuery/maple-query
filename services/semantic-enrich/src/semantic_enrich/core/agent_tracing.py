@@ -92,6 +92,10 @@ class TurnObserver:
         # the two checkers judge different things and averaging them
         # would make the act-flip precision gate meaningless.
         self.verify_explore: dict[str, object] | None = None
+        # Deterministic numeric-bounds findings. Kept as a list because
+        # a turn can produce several, and every one is evidence for the
+        # act-flip precision gate — it has no other durable record.
+        self.magnitude: list[dict[str, object]] = []
         # top_similarity of every datasets_ranked event, in call order.
         # Feeds the similarity-floor calibration report.
         self.top_similarities: list[float | None] = []
@@ -144,8 +148,19 @@ class TurnObserver:
                 "enforced": event.enforced,
             }
         elif isinstance(event, agent_events.Verification) and (
-            event.kind != "magnitude"
+            event.kind == "magnitude"
         ):
+            # Deliberately NOT folded into `self.verify`: the fits-rate
+            # metric is about the LLM fit checker, and seeding it with a
+            # deterministic bounds verdict would make it meaningless.
+            self.magnitude.append(
+                {
+                    "action": event.action,
+                    "reason": event.reason,
+                    "enforced": event.enforced,
+                }
+            )
+        elif isinstance(event, agent_events.Verification):
             # Only fit-check verdicts feed the fits-rate metric; the
             # deterministic magnitude gate emits its own verification
             # events (kind="magnitude") which must not seed fits_first.
@@ -189,6 +204,14 @@ class TurnObserver:
             meta["triage"] = self.triage
         if self.verify is not None:
             meta["verify"] = self.verify
+        # Both of these were collected and then dropped before the span,
+        # which left two shadow-mode gates with no durable record: the
+        # only trace was Cloud Logging, on a 30-day roll-off that expires
+        # faster than the evidence accumulates.
+        if self.verify_explore is not None:
+            meta["verify_explore"] = self.verify_explore
+        if self.magnitude:
+            meta["magnitude"] = self.magnitude
         return meta
 
 
