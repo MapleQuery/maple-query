@@ -39,11 +39,11 @@ export function exportNotebookAsMarkdown(
   // appended — an export is the finished piece.
   const blocks = exportableBlocks(nb);
 
+  // No "exported at" line: a timestamp is metadata about the act of
+  // exporting rather than part of the piece, and it dates a document
+  // that is about to be edited anyway.
   const parts: string[] = [];
   parts.push(`# ${nb.title || "Untitled notebook"}`);
-  parts.push(
-    `_Exported ${new Date().toISOString()} · ${blocks.length} block${blocks.length === 1 ? "" : "s"}_`,
-  );
   parts.push("");
 
   for (const b of blocks) {
