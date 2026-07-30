@@ -178,9 +178,11 @@ resource "google_cloud_run_v2_service" "agent_service" {
     timeout = "300s"
 
     scaling {
-      # Avoid cold starts on the first question of every demo session.
-      # ~$15/mo idle cost; drop to 0 after the demo period.
-      min_instance_count = 1
+      # Scale to zero: the demo period is over and a warm idle instance
+      # was ~$15/mo, the single largest line item on the project. The
+      # cost is a cold start (container pull + the three /readyz
+      # canaries) on the first request after an idle window.
+      min_instance_count = 0
       max_instance_count = 10
     }
 
