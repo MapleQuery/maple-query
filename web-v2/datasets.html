@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MapleQuery · Datasets</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/atlas.css" />
+  <script>
+    function tok(v){return function(o){o=o||{};return "rgb(var(--"+v+") / "+(o.opacityValue==null?1:o.opacityValue)+")";};}
+    var T=["canvas","paper","raised","ink","ink-soft","muted","faint","line","line-strong","accent","accent-press","ok","warn","graph-1","graph-2"];
+    var colors={};T.forEach(function(t){colors[t]=tok(t);});
+    tailwind.config={theme:{extend:{colors:colors,fontFamily:{display:['"Space Grotesk"','system-ui','sans-serif'],sans:['Inter','system-ui','sans-serif'],mono:['"JetBrains Mono"','ui-monospace','monospace']},boxShadow:{orbit:"var(--shadow-orbit)",lens:"var(--shadow-lens)",card:"var(--shadow-card)",pop:"var(--shadow-pop)"}}}};
+  </script>
+</head>
+<body class="font-sans min-h-screen bg-canvas text-ink-soft">
+
+  <!-- NAV -->
+  <header class="sticky top-0 z-30 border-b border-line bg-canvas/80 backdrop-blur">
+    <div class="mx-auto flex h-14 max-w-[1400px] items-center gap-6 px-4 md:px-6">
+      <a href="notebook.html" class="flex items-center gap-2">
+        <span class="grid h-7 w-7 place-items-center rounded-lg bg-accent text-white shadow-card"><svg viewBox="0 0 80 80" class="h-4 w-4" fill="none"><circle cx="34" cy="34" r="20" stroke="currentColor" stroke-width="5"/><line x1="48" y1="48" x2="66" y2="66" stroke="currentColor" stroke-width="6" stroke-linecap="round"/></svg></span>
+        <span class="font-display text-[15px] font-semibold tracking-tight text-ink">MapleQuery</span>
+      </a>
+      <nav class="ml-auto flex items-center gap-1">
+        <a href="chat.html" class="rounded-md px-3 py-1.5 text-sm font-medium text-muted hover:bg-raised hover:text-ink">Ask</a>
+        <a href="notebook.html" class="rounded-md px-3 py-1.5 text-sm font-medium text-muted hover:bg-raised hover:text-ink">Notebook</a>
+        <a href="explorer.html" class="rounded-md px-3 py-1.5 text-sm font-medium text-muted hover:bg-raised hover:text-ink">Explorer</a>
+        <a href="datasets.html" class="rounded-md bg-accent/10 px-3 py-1.5 text-sm font-medium text-accent">Datasets</a>
+      </nav>
+      <a href="../auth.html" class="ml-2 rounded-lg border border-line bg-raised px-3 py-1.5 text-sm font-medium text-ink hover:border-accent">Sign in</a>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-6xl px-4 py-10 md:px-6">
+    <!-- Header -->
+    <header class="mb-8">
+      <p class="mb-2 font-mono text-xs font-semibold uppercase tracking-[0.18em] text-accent">Corpus</p>
+      <h1 class="font-display text-3xl font-semibold tracking-tight text-ink md:text-4xl">Browse the datasets MapleQuery can cite</h1>
+      <p class="mt-3 max-w-2xl text-ink-soft">Canadian federal open data, indexed by semantic type and searchable by plain-language description. Click a dataset to see its columns and sample rows.</p>
+    </header>
+
+    <!-- Search -->
+    <div class="mb-6 flex items-center gap-2 rounded-xl border border-line bg-paper px-3 py-2.5 shadow-card focus-within:border-accent">
+      <svg viewBox="0 0 24 24" class="h-4 w-4 text-muted" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="searchInput" placeholder="Search: housing grants, IT contracts, immigration…" class="flex-1 bg-transparent text-[15px] text-ink placeholder:text-faint focus:outline-none" />
+      <span id="countLabel" class="shrink-0 font-mono text-[11px] text-muted"></span>
+      <span id="loadingLabel" class="hidden shrink-0 font-mono text-[11px] text-faint">loading…</span>
+    </div>
+
+    <!-- Grid view -->
+    <div id="gridView">
+      <ul id="grid" class="grid gap-4 md:grid-cols-2 lg:grid-cols-3"></ul>
+      <p id="emptyMsg" class="hidden rounded-xl border border-dashed border-line bg-paper/60 px-6 py-12 text-center text-sm text-muted">No datasets match your search.</p>
+      <div id="skeleton" class="hidden grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div class="h-48 animate-pulse rounded-xl border border-line bg-paper/60"></div>
+        <div class="h-48 animate-pulse rounded-xl border border-line bg-paper/60"></div>
+        <div class="h-48 animate-pulse rounded-xl border border-line bg-paper/60"></div>
+        <div class="h-48 animate-pulse rounded-xl border border-line bg-paper/60"></div>
+        <div class="h-48 animate-pulse rounded-xl border border-line bg-paper/60"></div>
+        <div class="h-48 animate-pulse rounded-xl border border-line bg-paper/60"></div>
+      </div>
+    </div>
+
+    <!-- Detail view -->
+    <div id="detailView" class="hidden">
+      <button id="backBtn" class="mb-4 flex items-center gap-1 text-sm font-medium text-accent hover:underline cursor-pointer">
+        <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M5 12l6-6M5 12l6 6"/></svg>
+        Back to datasets
+      </button>
+      <div class="rounded-2xl border border-line bg-paper p-6 md:p-8">
+        <div class="mb-2 flex items-center gap-2">
+          <span id="detailGrain" class="rounded bg-accent/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-accent"></span>
+        </div>
+        <h2 id="detailTitle" class="font-display text-2xl font-semibold text-ink md:text-3xl"></h2>
+        <p id="detailSummary" class="mt-2 text-ink-soft"></p>
+        <p id="detailPkg" class="mt-2 font-mono text-[11px] text-faint"></p>
+
+        <!-- Columns -->
+        <div class="mt-8">
+          <h3 class="mb-3 font-display text-lg font-semibold text-ink">Columns</h3>
+          <div id="colsList" class="space-y-1"></div>
+          <p id="colsEmpty" class="hidden text-sm text-muted">No columns loaded.</p>
+        </div>
+
+        <!-- Documents -->
+        <div class="mt-8">
+          <h3 class="mb-3 font-display text-lg font-semibold text-ink">Documents</h3>
+          <div id="docsList" class="space-y-1"></div>
+          <p id="docsEmpty" class="hidden text-sm text-muted">No documents loaded.</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/store.js"></script>
+  <script>
+  (function(){
+    var api=MQ.api;
+    var $=function(s){return document.querySelector(s);};
+    var searchTimeout=null;
+
+    function init(){
+      initTheme();
+      $("#searchInput").addEventListener("input",function(){
+        clearTimeout(searchTimeout);
+        searchTimeout=setTimeout(function(){loadDatasets($("#searchInput").value.trim());},250);
+      });
+      $("#backBtn").addEventListener("click",showGrid);
+      loadDatasets("");
+    }
+
+    var SAMPLE_DATASETS=[
+      {package_id:"public_accounts_contracts",title:"Public Accounts — Contracts",summary:"Annual contracted spending by federal department. Covers IT services, consulting, and professional services.",grain:"spending",distance:null},
+      {package_id:"cmhc_approvals",title:"CMHC Housing Approvals",summary:"Canada Mortgage and Housing Corp. program funding approvals by province and year.",grain:"housing",distance:null},
+      {package_id:"ircc_pr_inventory",title:"IRCC PR Processing Inventory",summary:"Permanent-residence applications in the processing inventory, tracked by year since 2019.",grain:"immigration",distance:null},
+      {package_id:"statcan_cpi",title:"Statistics Canada — Consumer Price Index",summary:"Monthly CPI by province and product category. Base year 2002=100.",grain:"economics",distance:null},
+      {package_id:"tc_grants_contributions",title:"Transport Canada Grants & Contributions",summary:"Federal grants and contributions administered by Transport Canada, including infrastructure programs.",grain:"transport",distance:null},
+      {package_id:"nrcan_energy_use",title:"NRCan Energy Use Database",summary:"Energy consumption by sector, fuel type, and province. Updated annually from RESD.",grain:"energy",distance:null}
+    ];
+
+    function loadDatasets(q){
+      $("#loadingLabel").classList.remove("hidden");
+      $("#skeleton").classList.remove("hidden");
+      $("#grid").classList.add("hidden");
+      $("#emptyMsg").classList.add("hidden");
+
+      api.listDatasets({q:q||undefined,limit:40}).then(function(res){
+        $("#loadingLabel").classList.add("hidden");
+        $("#skeleton").classList.add("hidden");
+        var datasets=res.datasets||[];
+        var total=res.total||0;
+        $("#countLabel").textContent=total.toLocaleString()+" datasets";
+        if(datasets.length===0){
+          $("#emptyMsg").classList.remove("hidden");
+          $("#grid").innerHTML="";$("#grid").classList.add("hidden");
+          return;
+        }
+        renderGrid(datasets);
+      }).catch(function(err){
+        // Fallback to hardcoded samples
+        $("#loadingLabel").classList.add("hidden");
+        $("#skeleton").classList.add("hidden");
+        var filtered=q?SAMPLE_DATASETS.filter(function(d){return (d.title+d.summary).toLowerCase().indexOf(q.toLowerCase())>-1;}):SAMPLE_DATASETS;
+        $("#countLabel").textContent=filtered.length+" datasets (offline)";
+        if(filtered.length===0){$("#emptyMsg").classList.remove("hidden");return;}
+        renderGrid(filtered);
+      });
+    }
+
+    function renderGrid(datasets){
+      var grid=$("#grid");
+      grid.innerHTML="";grid.classList.remove("hidden");
+      datasets.forEach(function(d){
+        var li=document.createElement("li");
+        li.className="ds-card group flex h-full cursor-pointer flex-col rounded-xl border border-line bg-paper p-5 transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lg";
+        li.innerHTML='<div class="mb-2 flex items-center gap-2"><span class="rounded bg-accent/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-accent">'+esc(d.grain||"dataset")+'</span>'+
+          (d.distance!=null?'<span class="rounded bg-canvas border border-line px-2 py-0.5 font-mono text-[10px] text-faint">d='+d.distance.toFixed(3)+'</span>':'')+
+          '</div><h3 class="font-display text-[15px] font-semibold leading-snug text-ink">'+esc(truncate(d.title||d.package_id,80))+'</h3>'+
+          '<p class="mt-2 line-clamp-3 flex-1 text-sm leading-relaxed text-muted">'+esc(d.summary||"No summary available.")+'</p>'+
+          '<div class="mt-4 flex items-center justify-between border-t border-line pt-3"><span class="font-mono text-[10px] text-faint">'+esc(truncate(d.package_id,24))+'</span>'+
+          '<span class="inline-flex items-center gap-1 text-xs font-medium text-accent group-hover:underline">Open <svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17 17 7M7 7h10v10"/></svg></span></div>';
+        li.addEventListener("click",function(){showDetail(d.package_id);});
+        grid.appendChild(li);
+      });
+    }
+
+    function showDetail(packageId){
+      $("#gridView").classList.add("hidden");
+      $("#detailView").classList.remove("hidden");
+      $("#detailTitle").textContent="Loading\u2026";
+      $("#detailSummary").textContent="";
+      $("#detailPkg").textContent=packageId;
+      $("#detailGrain").textContent="";
+      $("#colsList").innerHTML="";$("#docsEmpty").classList.add("hidden");
+      $("#docsList").innerHTML="";$("#colsEmpty").classList.add("hidden");
+
+      api.getDataset(packageId).then(function(d){
+        $("#detailTitle").textContent=d.title||d.package_id;
+        $("#detailSummary").textContent=d.summary||"";
+        $("#detailGrain").textContent=d.grain||"dataset";
+      }).catch(function(){
+        $("#detailTitle").textContent=packageId;
+        $("#detailSummary").textContent="Could not load dataset details.";
+        $("#detailGrain").textContent="dataset";
+      });
+
+      api.getDatasetColumns(packageId).then(function(res){
+        var list=$("#colsList");list.innerHTML="";
+        if(!res.columns||res.columns.length===0){$("#colsEmpty").classList.remove("hidden");return;}
+        res.columns.forEach(function(c){
+          var div=document.createElement("div");
+          div.className="flex items-center gap-3 rounded-lg border border-line bg-canvas px-4 py-2.5";
+          div.innerHTML='<span class="font-mono text-sm font-medium text-ink">'+esc(c.column_name)+'</span>'+
+            (c.semantic_type?'<span class="rounded bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] text-accent">'+esc(c.semantic_type)+'</span>':'')+
+            '<span class="flex-1 text-sm text-muted">'+esc(c.description||"")+'</span>';
+          list.appendChild(div);
+        });
+      }).catch(function(){$("#colsEmpty").classList.remove("hidden");});
+
+      api.getDatasetDocuments(packageId).then(function(res){
+        var list=$("#docsList");list.innerHTML="";
+        if(!res.documents||res.documents.length===0){$("#docsEmpty").classList.remove("hidden");return;}
+        res.documents.forEach(function(d){
+          var div=document.createElement("div");
+          div.className="rounded-lg border border-line bg-canvas px-4 py-2.5";
+          div.innerHTML='<p class="text-sm font-medium text-ink">'+esc(d.title||d.document_id)+'</p>'+
+            '<p class="mt-0.5 font-mono text-[11px] text-muted">'+esc(d.file_format)+' \u00B7 '+esc(d.language)+(d.row_count?' \u00B7 '+d.row_count.toLocaleString()+' rows':'')+(d.published_date?' \u00B7 '+d.published_date:'')+'</p>';
+          list.appendChild(div);
+        });
+      }).catch(function(){$("#docsEmpty").classList.remove("hidden");});
+    }
+
+    function showGrid(){
+      $("#detailView").classList.add("hidden");
+      $("#gridView").classList.remove("hidden");
+    }
+
+    // --- Helpers ---
+    function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+    function truncate(s,n){return s&&s.length>n?s.slice(0,n)+"\u2026":s;}
+    function initTheme(){var s=null;try{s=localStorage.getItem("mq-atlas-theme");}catch(e){}document.documentElement.setAttribute("data-theme",s||(window.matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light"));}
+
+    if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init);else init();
+  })();
+  </script>
+</body>
+</html>

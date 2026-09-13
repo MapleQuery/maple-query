@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MapleQuery · Notebook</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/atlas.css" />
+  <script>
+    function tok(v){return function(o){o=o||{};return "rgb(var(--"+v+") / "+(o.opacityValue==null?1:o.opacityValue)+")";};}
+    var T=["canvas","paper","raised","ink","ink-soft","muted","faint","line","line-strong","accent","accent-press","ok","warn","graph-1","graph-2"];
+    var colors={};T.forEach(function(t){colors[t]=tok(t);});
+    tailwind.config={theme:{extend:{colors:colors,fontFamily:{display:['"Space Grotesk"','system-ui','sans-serif'],sans:['Inter','system-ui','sans-serif'],mono:['"JetBrains Mono"','ui-monospace','monospace']},boxShadow:{orbit:"var(--shadow-orbit)",card:"var(--shadow-card)",pop:"var(--shadow-pop)"}}}};
+  </script>
+  <style>
+    .doc-card{transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease}
+    .doc-card:hover{transform:translateY(-3px);border-color:rgb(var(--accent)/.4);box-shadow:0 8px 24px -8px rgb(var(--ink)/.12)}
+    .block:hover .block-handle{opacity:1}
+    .block-handle{opacity:0;transition:opacity .15s ease}
+    .block-in{animation:rise .4s cubic-bezier(.16,1,.3,1) both}
+    @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+    .grow-bar{transition:height 1s cubic-bezier(.16,1,.3,1)}
+    .row-in{opacity:0;transform:translateX(-6px);animation:rowin .4s ease forwards}
+    @keyframes rowin{to{opacity:1;transform:none}}
+    .dragging{opacity:.4}
+    .drop-target{box-shadow:inset 0 2px 0 rgb(var(--accent))}
+    [draggable="true"]{cursor:grab}
+    .modal-in{animation:modalin .25s ease both}
+    @keyframes modalin{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+  </style>
+</head>
+<body class="font-sans antialiased">
+
+  <!-- ===== NAV (consistent across all pages) ===== -->
+  <header class="sticky top-0 z-30 border-b border-line bg-canvas/80 backdrop-blur">
+    <div class="mx-auto flex h-14 max-w-[1400px] items-center gap-6 px-4 md:px-6">
+      <a href="notebook.html" class="flex items-center gap-2">
+        <span class="grid h-7 w-7 place-items-center rounded-lg bg-accent text-white shadow-card"><svg viewBox="0 0 80 80" class="h-4 w-4" fill="none"><circle cx="34" cy="34" r="20" stroke="currentColor" stroke-width="5"/><line x1="48" y1="48" x2="66" y2="66" stroke="currentColor" stroke-width="6" stroke-linecap="round"/></svg></span>
+        <span class="font-display text-[15px] font-semibold tracking-tight text-ink">MapleQuery</span>
+      </a>
+      <nav class="ml-auto flex items-center gap-1">
+        <a href="chat.html" class="rounded-md px-3 py-1.5 text-sm font-medium text-muted hover:bg-raised hover:text-ink">Ask</a>
+        <a href="notebook.html" class="rounded-md bg-accent/10 px-3 py-1.5 text-sm font-medium text-accent">Notebook</a>
+        <a href="explorer.html" class="rounded-md px-3 py-1.5 text-sm font-medium text-muted hover:bg-raised hover:text-ink">Explorer</a>
+        <a href="datasets.html" class="rounded-md px-3 py-1.5 text-sm font-medium text-muted hover:bg-raised hover:text-ink">Datasets</a>
+      </nav>
+      <a href="../auth.html" class="ml-2 rounded-lg border border-line bg-raised px-3 py-1.5 text-sm font-medium text-ink hover:border-accent">Sign in</a>
+    </div>
+  </header>
+
+  <!-- ===== LANDING VIEW (Google Docs-style grid) ===== -->
+  <div id="landingView">
+    <div class="mx-auto max-w-5xl px-4 py-10 md:px-6">
+      <div class="mb-8 flex items-center justify-between">
+        <div>
+          <h1 class="font-display text-2xl font-semibold tracking-tight text-ink md:text-3xl">Notebooks</h1>
+          <p class="mt-1 text-sm text-muted">Investigations you've drafted. Each one interleaves prose with live queries.</p>
+        </div>
+      </div>
+
+      <!-- Grid -->
+      <div id="docGrid" class="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        <!-- New doc card (always first) -->
+        <button id="newDocBtn" class="doc-card flex h-52 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-line bg-raised hover:border-accent">
+          <span class="grid h-12 w-12 place-items-center rounded-xl bg-accent/10 text-accent">
+            <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          </span>
+          <span class="mt-3 text-sm font-medium text-ink">New investigation</span>
+        </button>
+        <!-- Existing docs injected here by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== EDITOR VIEW (hidden until a doc is opened) ===== -->
+  <div id="editorView" class="hidden">
+    <div class="flex h-[calc(100vh-3.5rem)] min-h-0">
+      <!-- Back + meta bar -->
+      <div class="flex min-w-0 flex-1 flex-col">
+        <div class="flex items-center gap-3 border-b border-line bg-raised/60 px-4 py-2 md:px-8">
+          <button id="backToGrid" class="flex cursor-pointer items-center gap-1 rounded-lg px-2 py-1 text-sm text-muted hover:bg-canvas hover:text-ink">
+            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M5 12l6-6M5 12l6 6"/></svg>
+            All notebooks
+          </button>
+          <span class="mx-2 text-line">|</span>
+          <span id="editorDocTitle" class="truncate text-sm font-medium text-ink"></span>
+          <button id="promoteBtn" class="ml-auto cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-press">Promote to report</button>
+        </div>
+
+        <!-- Document editor -->
+        <main class="flex-1 overflow-y-auto">
+          <article class="mx-auto max-w-3xl px-4 py-10 md:px-8">
+            <input id="docTitleInput" aria-label="Title" class="mb-2 w-full bg-transparent font-display text-3xl font-bold tracking-tight text-ink placeholder:text-faint focus:outline-none md:text-[38px]" value="Untitled investigation" />
+            <p id="docMeta" class="mb-8 font-mono text-[11px] text-muted"></p>
+
+            <div id="blocks"></div>
+
+            <!-- Insert -->
+            <div class="relative mt-3">
+              <button id="insertBtn" class="group flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm text-muted hover:bg-raised">
+                <span class="grid h-5 w-5 place-items-center rounded border border-line text-faint group-hover:border-accent group-hover:text-accent"><svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></span>
+                Add a block
+              </button>
+              <div id="insertMenu" class="absolute left-0 z-10 mt-1 hidden w-56 overflow-hidden rounded-xl border border-line bg-raised py-1 shadow-pop">
+                <button data-add="query" class="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-canvas"><span class="rounded bg-accent/10 px-1.5 py-0.5 font-mono text-[11px] text-accent">/query</span> Live query</button>
+                <button data-add="text" class="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-canvas"><span class="rounded bg-canvas border border-line px-1.5 py-0.5 font-mono text-[11px] text-muted">/text</span> Prose</button>
+                <button data-add="source" class="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-canvas"><span class="rounded bg-ok/10 px-1.5 py-0.5 font-mono text-[11px] text-ok">/source</span> Citation</button>
+              </div>
+            </div>
+          </article>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 translate-y-4 rounded-xl bg-ink px-4 py-2.5 text-sm font-medium text-canvas opacity-0 shadow-pop transition-all duration-300"></div>
+
+  <!-- Modal -->
+  <div id="modal" class="fixed inset-0 z-40 hidden items-center justify-center bg-ink/40 p-4 backdrop-blur-sm">
+    <div class="modal-in w-full max-w-md rounded-2xl border border-line bg-raised p-6 shadow-pop">
+      <div class="mb-3 flex items-center gap-2.5">
+        <span class="grid h-9 w-9 place-items-center rounded-xl bg-accent text-white"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg></span>
+        <h2 class="font-display text-lg font-semibold text-ink">Report assembled</h2>
+      </div>
+      <p class="text-sm text-muted">Your blocks were compiled into a report with <span id="modalSrc" class="font-medium text-ink">1 source</span> and inline citations.</p>
+      <div class="mt-4 grid grid-cols-3 gap-2">
+        <button class="exp cursor-pointer rounded-xl border border-line bg-canvas px-3 py-3 text-center text-xs font-medium text-ink hover:border-accent">Google Docs</button>
+        <button class="exp cursor-pointer rounded-xl border border-line bg-canvas px-3 py-3 text-center text-xs font-medium text-ink hover:border-accent">Word</button>
+        <button class="exp cursor-pointer rounded-xl border border-line bg-canvas px-3 py-3 text-center text-xs font-medium text-ink hover:border-accent">CSV</button>
+      </div>
+      <div class="mt-5 flex justify-end"><button id="modalClose" class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium text-muted hover:text-ink">Close</button></div>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/store.js"></script>
+  <script>
+  (function(){
+    "use strict";
+    var reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var $=function(s){return document.querySelector(s);};
+    var uid=0;function nid(){return "nb_"+(uid++)+"_"+Math.random().toString(36).slice(2,7);}
+
+    // Theme
+    (function(){var s;try{s=localStorage.getItem("mq-atlas-theme");}catch(e){}document.documentElement.setAttribute("data-theme",s||(window.matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light"));})();
+
+    // State
+    var currentDoc=null;
+
+    // ==== LANDING GRID ====
+    function showLanding(){
+      $("#landingView").classList.remove("hidden");
+      $("#editorView").classList.add("hidden");
+      currentDoc=null;
+      renderGrid();
+    }
+    function showEditor(doc){
+      $("#landingView").classList.add("hidden");
+      $("#editorView").classList.remove("hidden");
+      currentDoc=doc;
+      renderEditor();
+    }
+
+    function renderGrid(){
+      var grid=$("#docGrid");
+      // Remove all except the "new" button
+      grid.querySelectorAll(".doc-entry").forEach(function(el){el.remove();});
+      var docs=getDocList();
+      if(docs.length===0 || !docs.some(function(d){return d.title==="Federal IT contracting: a 6-year trend";})){
+        // Always ensure the demo doc exists
+        var demo=createDoc("Federal IT contracting: a 6-year trend",true);
+        docs=getDocList();
+      }
+      docs.forEach(function(doc){
+        var card=document.createElement("div");
+        card.className="doc-entry doc-card relative flex h-52 cursor-pointer flex-col rounded-xl border border-line bg-raised p-4";
+        var blockCount=doc.blocks?doc.blocks.length:0;
+        card.innerHTML='<div class="mb-auto"><span class="inline-block rounded bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-accent">'+blockCount+' blocks</span></div>'+
+          '<h3 class="font-display text-sm font-semibold leading-snug text-ink line-clamp-2">'+esc(doc.title)+'</h3>'+
+          '<p class="mt-1 font-mono text-[10px] text-faint">'+fmtDate(doc.updatedAt)+'</p>'+
+          '<button class="del-btn absolute bottom-3 right-3 grid h-7 w-7 place-items-center rounded-lg text-faint opacity-0 transition-opacity hover:bg-accent/10 hover:text-accent" title="Delete"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
+        card.addEventListener("click",function(e){if(e.target.closest(".del-btn"))return;showEditor(doc);});
+        card.querySelector(".del-btn").addEventListener("click",function(e){e.stopPropagation();deleteDoc(doc.id);});
+        card.addEventListener("mouseenter",function(){card.querySelector(".del-btn").classList.add("opacity-100");});
+        card.addEventListener("mouseleave",function(){card.querySelector(".del-btn").classList.remove("opacity-100");});
+        grid.appendChild(card);
+      });
+    }
+
+    $("#newDocBtn").addEventListener("click",function(){
+      var doc=createDoc("Untitled investigation",false);
+      showEditor(doc);
+    });
+
+    // ==== DOCUMENT STORAGE (localStorage) ====
+    function getDocList(){
+      try{var raw=localStorage.getItem("mq-nb-list");return raw?JSON.parse(raw):[];}catch(e){return [];}
+    }
+    function saveDocList(list){
+      try{localStorage.setItem("mq-nb-list",JSON.stringify(list));}catch(e){}
+    }
+    function saveDoc(doc){
+      doc.updatedAt=new Date().toISOString();
+      var list=getDocList().filter(function(d){return d.id!==doc.id;});
+      list.unshift(doc);saveDocList(list);
+    }
+    function deleteDoc(id){
+      var list=getDocList().filter(function(d){return d.id!==id;});
+      saveDocList(list);
+      renderGrid();
+    }
+    function createDoc(title,withSeed){
+      var doc={id:nid(),title:title,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),blocks:[]};
+      if(withSeed){
+        doc.blocks=[
+          {type:"prose",id:nid(),text:"Federal departments have leaned harder on outside IT contractors since the pandemic. To size the shift, I pulled contract spend from the Public Accounts and asked MapleQuery to track it over six fiscal years."},
+          {type:"query",id:nid(),q:"Total federal IT-services contract spend by fiscal year, 2018\u20132024",ran:true,result:{
+            text:"Federal spending on contracted IT services grew from **$3.1B** in 2018\u201319 to **$5.4B** in 2023\u201324 \u2014 about a **74% increase**. National Defence grew the most, followed by Shared Services Canada.",
+            sql:"SELECT fiscal_year,\n       ROUND(SUM(amount_cad) / 1e9, 1) AS spend_b\nFROM   curated.contracts\nWHERE  object_code = 'IT_SERVICES'\n  AND  fiscal_year BETWEEN '2018-19' AND '2023-24'\nGROUP  BY fiscal_year\nORDER  BY fiscal_year;",
+            rows:[{fiscal_year:"2018-19",spend_b:3.1},{fiscal_year:"2019-20",spend_b:3.5},{fiscal_year:"2020-21",spend_b:4.0},{fiscal_year:"2021-22",spend_b:4.5},{fiscal_year:"2022-23",spend_b:5.0},{fiscal_year:"2023-24",spend_b:5.4}],
+            sources:["Public Accounts of Canada \u2014 Contracts"]
+          }},
+          {type:"prose",id:nid(),text:"The next question is whether the growth is concentrated \u2014 so I broke it down by department."}
+        ];
+      }
+      saveDoc(doc);return doc;
+    }
+
+    // ==== EDITOR ====
+
+    function renderEditor(){
+      $("#docTitleInput").value=currentDoc.title;
+      $("#editorDocTitle").textContent=currentDoc.title;
+      renderBlocks();
+      updateMeta();
+      // title change
+      $("#docTitleInput").oninput=function(){currentDoc.title=this.value;$("#editorDocTitle").textContent=this.value;saveDoc(currentDoc);};
+    }
+
+    function renderBlocks(){
+      var blocksEl=$("#blocks");blocksEl.innerHTML="";
+      currentDoc.blocks.forEach(function(b){
+        var el;
+        if(b.type==="prose") el=proseBlock(b);
+        else if(b.type==="query") el=queryBlock(b);
+        else el=sourceBlock(b);
+        blocksEl.appendChild(el);
+      });
+    }
+
+    function proseBlock(b){
+      var div=document.createElement("div");div.className="block block-in group relative mb-3";div.dataset.id=b.id;div.setAttribute("draggable","true");
+      div.innerHTML=handle(4)+'<p contenteditable="true" class="rounded text-[15px] leading-relaxed text-ink-soft focus:outline-none">'+esc(b.text||"")+'</p>';
+      div.querySelector("p").addEventListener("blur",function(){b.text=this.textContent;saveDoc(currentDoc);});
+      return div;
+    }
+
+    function queryBlock(b){
+      var div=document.createElement("div");div.className="block block-in group relative mb-3";div.dataset.id=b.id;div.setAttribute("draggable","true");
+      div.innerHTML=handle(12)+
+        '<div class="rounded-xl border border-line bg-paper"><div class="border-b border-line px-3 py-2.5">'+
+        '<div class="flex items-center gap-2 mb-2"><span class="rounded-lg bg-accent/10 px-1.5 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wide text-accent">Query</span>'+
+        '<button class="run-btn ml-auto flex cursor-pointer items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-press">'+
+        '<svg viewBox="0 0 24 24" class="h-3 w-3" fill="currentColor"><path d="M5 3 19 12 5 21Z"/></svg> '+(b.ran?"Re-run":"Run")+'</button></div>'+
+        '<textarea class="query-input w-full resize-none rounded-lg border border-line bg-canvas p-2 font-mono text-[13px] text-ink placeholder:text-faint focus:border-accent focus:outline-none" rows="2" placeholder="Describe what you want to know\u2026">'+esc(b.q)+'</textarea>'+
+        '</div>'+
+        '<div class="result'+(b.ran?"":" hidden")+' border-t border-line"></div></div>';
+      // Sync textarea back to data
+      var ta=div.querySelector(".query-input");
+      ta.addEventListener("input",function(){b.q=ta.value;saveDoc(currentDoc);});
+      if(b.ran && b.result) setTimeout(function(){renderLiveResult(div.querySelector(".result"),b.result);},50);
+      div.querySelector(".run-btn").addEventListener("click",function(){b.q=ta.value;runQuery(div,b);});
+      return div;
+    }
+
+    function sourceBlock(b){
+      var div=document.createElement("div");div.className="block block-in group relative mb-3";div.dataset.id=b.id;div.setAttribute("draggable","true");
+      div.innerHTML=handle(6)+'<div class="flex flex-wrap items-center gap-2 rounded-lg bg-ok/8 px-3 py-2 text-xs"><svg viewBox="0 0 24 24" class="h-4 w-4 text-ok" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span class="font-medium text-ink">Source:</span><span class="font-medium text-accent">'+(b.name||"Unknown")+'</span></div>';
+      return div;
+    }
+
+    function handle(top){return '<div class="block-handle absolute right-2 top-2 flex items-center gap-0.5 rounded-lg border border-line bg-raised px-1 py-0.5 shadow-card"><button data-act="up" class="grid h-6 w-6 place-items-center rounded text-muted hover:text-ink cursor-pointer"><svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 15l-6-6-6 6"/></svg></button><button data-act="down" class="grid h-6 w-6 place-items-center rounded text-muted hover:text-ink cursor-pointer"><svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></button><button data-act="del" class="grid h-6 w-6 place-items-center rounded text-muted hover:text-accent cursor-pointer"><svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></div>';}
+
+    function runQuery(div,b){
+      var btn=div.querySelector(".run-btn"),result=div.querySelector(".result");
+      btn.disabled=true;btn.innerHTML='<svg viewBox="0 0 24 24" class="h-3 w-3 animate-spin" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg> Running';
+      result.classList.remove("hidden");result.innerHTML='<div class="space-y-2 p-3"><div class="sk h-3 w-full rounded"></div><div class="sk h-3 w-5/6 rounded"></div><div class="sk h-3 w-2/3 rounded"></div></div>';
+
+      // Try real backend first
+      var sql="",rows=[],text="",sources=[];
+      MQ.api.streamChat({
+        conversation_id:MQ.store.uid("conv"),
+        question:b.q,
+        history:[],
+        turn_records:[]
+      },{
+        onEvent:function(ev){
+          if(ev.name==="message_delta"){text+=ev.payload.delta;result.innerHTML='<div class="p-4 text-[14px] leading-relaxed text-ink-soft">'+mdRender(text)+'</div>';}
+          if(ev.name==="sql_guarded"&&ev.payload.accepted)sql=ev.payload.sql_final;
+          if(ev.name==="sql_executed")rows=ev.payload.sample_rows||[];
+          if(ev.name==="rows"&&rows.length===0)rows=ev.payload.rows||[];
+          if(ev.name==="datasets_ranked")(ev.payload.candidates||[]).forEach(function(c){sources.push(c.title||c.package_id);});
+        },
+        onDone:function(summary){
+          b.ran=true;b.result={text:text,sql:sql,rows:rows,sources:sources};saveDoc(currentDoc);
+          renderLiveResult(result,b.result);
+          btn.innerHTML='<svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg> Ran';
+          btn.classList.remove("bg-accent","hover:bg-accent-press");btn.classList.add("bg-ok");btn.disabled=false;
+          showToast("Query ran \u00B7 "+fmtMs(summary.elapsed_ms)+" \u00B7 $"+summary.total_dollars.toFixed(3));
+        },
+        onError:function(){
+          result.innerHTML='<div class="p-4 text-sm text-accent">Could not reach the backend. Check your connection and try again.</div>';
+          btn.innerHTML='<svg viewBox="0 0 24 24" class="h-3 w-3" fill="currentColor"><path d="M5 3 19 12 5 21Z"/></svg> Run';
+          btn.classList.remove("bg-accent","hover:bg-accent-press");btn.disabled=false;
+          showToast("Query failed — backend unreachable");
+        }
+      });
+    }
+
+    function fmtMs(ms){return ms==null?"":ms>=1000?(ms/1000).toFixed(1)+"s":ms+"ms";}
+
+    function mdRender(s){
+      if(!s)return"";
+      var lines=s.split("\n"),html="",inTable=false,tableRows=[];
+      for(var i=0;i<lines.length;i++){
+        var line=lines[i];
+        if(line.trim().match(/^\|.*\|$/)&&line.trim().indexOf("|")===0){
+          if(!inTable){inTable=true;tableRows=[];}
+          if(line.trim().match(/^\|[\s\-:|]+\|$/))continue;
+          tableRows.push(line);
+        }else{
+          if(inTable){html+=renderMdTable(tableRows);inTable=false;tableRows=[];}
+          html+=renderMdLine(line)+"<br>";
+        }
+      }
+      if(inTable)html+=renderMdTable(tableRows);
+      return html.replace(/<br>$/,"");
+    }
+    function renderMdLine(line){
+      var s=esc(line);
+      if(s.match(/^### /))return'<h4 class="text-sm font-semibold text-ink mt-3 mb-1">'+s.slice(4)+'</h4>';
+      if(s.match(/^## /))return'<h3 class="text-base font-semibold text-ink mt-3 mb-1">'+s.slice(3)+'</h3>';
+      if(s.match(/^# /))return'<h2 class="text-lg font-semibold text-ink mt-3 mb-1">'+s.slice(2)+'</h2>';
+      s=s.replace(/\*\*(.+?)\*\*/g,'<strong class="text-ink">$1</strong>');
+      s=s.replace(/`(.+?)`/g,'<code class="rounded bg-canvas px-1 py-0.5 font-mono text-[12px]">$1</code>');
+      s=s.replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" class="text-accent hover:underline">$1</a>');
+      return s;
+    }
+    function renderMdTable(rows){
+      if(!rows.length)return"";
+      var html='<div class="my-3 overflow-x-auto rounded-lg border border-line"><table class="w-full text-left text-[13px]">';
+      rows.forEach(function(row,idx){
+        var cells=row.split("|").filter(function(c){return c.trim()!=="";});
+        if(idx===0){html+='<thead><tr class="border-b border-line bg-canvas">';cells.forEach(function(c){html+='<th class="px-3 py-2 font-medium text-muted whitespace-nowrap">'+esc(c.trim())+'</th>';});html+='</tr></thead><tbody>';}
+        else{html+='<tr class="border-b border-line last:border-0 hover:bg-canvas/50">';cells.forEach(function(c){html+='<td class="px-3 py-2 text-ink">'+esc(c.trim())+'</td>';});html+='</tr>';}
+      });
+      html+='</tbody></table></div>';return html;
+    }
+
+    function renderLiveResult(result,data){
+      var html='<div class="p-5">';
+
+      // Parse markdown tables from text for charting
+      var parsedRows = data.rows && data.rows.length > 0 ? data.rows : extractTableFromText(data.text);
+
+      if(data.text)html+='<div class="mb-4 text-[14px] leading-relaxed text-ink-soft">'+mdRender(data.text)+'</div>';
+      if(data.sql)html+='<details class="mb-3"><summary class="cursor-pointer font-mono text-[11px] text-accent hover:underline">View SQL</summary><pre class="mt-1 overflow-x-auto rounded-lg bg-ink p-3 font-mono text-[11px] text-canvas leading-relaxed">'+esc(data.sql)+'</pre></details>';
+
+      if(parsedRows && parsedRows.length > 0){
+        var cols=Object.keys(parsedRows[0]);
+        // Detect column types
+        var numericCols=[], textCols=[];
+        cols.forEach(function(c){
+          var isNumeric = parsedRows.every(function(r){ var v=r[c]; return v!==null && v!=="" && !isNaN(Number(String(v).replace(/[,$%\s]/g,""))); });
+          if(isNumeric) numericCols.push(c); else textCols.push(c);
+        });
+
+        var labelCol = textCols.length > 0 ? textCols[0] : null;
+        var valueCol = numericCols.length > 0 ? numericCols[numericCols.length - 1] : null;
+
+        // Special case: ALL columns are numeric (no text label) — pivot columns as categories
+        var pivotMode = textCols.length === 0 && numericCols.length >= 2;
+
+        // Render chart + table toggle
+        var showChart = pivotMode || (labelCol && valueCol && parsedRows.length >= 2 && parsedRows.length <= 30);
+        if(showChart){
+          var chartTitle = pivotMode ? 'Column comparison' : esc(valueCol)+' by '+esc(labelCol);
+          html+='<div class="mb-4"><div class="mb-2 flex items-center justify-between"><span class="font-mono text-[10px] uppercase tracking-wider text-muted">'+chartTitle+'</span>';
+          html+='<div class="flex gap-1"><button class="vtoggle active cursor-pointer rounded-lg bg-raised border border-line px-2 py-1 text-xs font-medium text-ink" data-v="chart">Chart</button><button class="vtoggle cursor-pointer rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-raised" data-v="table">Table</button></div></div>';
+
+          if(pivotMode){
+            // Pivot: use column names as labels, first row values as bars
+            var row = parsedRows[0];
+            var maxVal = Math.max.apply(null, numericCols.map(function(c){ return Math.abs(parseNum(row[c])); }));
+            html+='<div class="view-chart flex h-44 items-end gap-2">';
+            numericCols.forEach(function(c,i){
+              var val=Math.abs(parseNum(row[c]));
+              var pct=maxVal>0?(val/maxVal*100):0;
+              var isMax=val===maxVal;
+              html+='<div class="flex flex-1 flex-col items-center gap-1"><div class="flex h-32 w-full items-end"><div class="grow-bar w-full rounded-t-sm" style="height:'+pct+'%;background:'+(isMax?'rgb(var(--accent))':'rgb(var(--graph-2) / '+(0.35+0.55*(i/(numericCols.length-1||1))).toFixed(2)+')')+'"></div></div>';
+              html+='<span class="font-mono text-[10px] font-medium text-ink">'+parseNum(row[c]).toLocaleString()+'</span>';
+              html+='<span class="font-mono text-[9px] text-muted truncate max-w-full text-center" title="'+esc(c)+'">'+esc(c.replace(/_/g,' ').slice(0,15))+'</span></div>';
+            });
+            html+='</div>';
+            // Legend
+            html+='<div class="mt-3 flex flex-wrap gap-3">';
+            numericCols.forEach(function(c,i){
+              var isMax = Math.abs(parseNum(row[c])) === maxVal;
+              var color = isMax ? 'rgb(var(--accent))' : 'rgb(var(--graph-2) / '+(0.35+0.55*(i/(numericCols.length-1||1))).toFixed(2)+')';
+              html+='<span class="flex items-center gap-1.5 text-[11px] text-muted"><span class="h-2.5 w-2.5 rounded-sm" style="background:'+color+'"></span>'+esc(c.replace(/_/g,' '))+'</span>';
+            });
+            html+='</div>';
+          } else {
+            // Normal: label column as x-axis, value column(s) as bars
+            // Grouped bar chart when multiple numeric columns
+            var maxVal=Math.max.apply(null,parsedRows.map(function(r){ return Math.max.apply(null,numericCols.map(function(c){return Math.abs(parseNum(r[c]))||0;})); }));
+            html+='<div class="view-chart flex h-44 items-end gap-3">';
+            parsedRows.slice(0,10).forEach(function(r,i){
+              html+='<div class="flex flex-1 flex-col items-center gap-1"><div class="flex h-32 w-full items-end gap-0.5">';
+              numericCols.forEach(function(c,ci){
+                var val=Math.abs(parseNum(r[c]))||0;
+                var pct=maxVal>0?(val/maxVal*100):0;
+                var colors=['rgb(var(--accent))','rgb(var(--graph-2) / 0.55)','rgb(var(--ok))','rgb(var(--warn))'];
+                html+='<div class="grow-bar flex-1 rounded-t-sm" style="height:'+pct+'%;background:'+colors[ci%colors.length]+'" title="'+esc(c)+': '+val.toLocaleString()+'"></div>';
+              });
+              html+='</div>';
+              html+='<span class="font-mono text-[9px] text-muted truncate max-w-full text-center" title="'+esc(String(r[labelCol]))+'">'+esc(String(r[labelCol]).slice(0,12))+'</span></div>';
+            });
+            html+='</div>';
+            // Legend
+            html+='<div class="mt-3 flex flex-wrap items-center gap-4 text-[11px] text-muted">';
+            var colors=['rgb(var(--accent))','rgb(var(--graph-2) / 0.55)','rgb(var(--ok))','rgb(var(--warn))'];
+            numericCols.forEach(function(c,ci){
+              html+='<span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm" style="background:'+colors[ci%colors.length]+'"></span>'+esc(c.replace(/_/g,' '))+'</span>';
+            });
+            html+='<span class="ml-auto font-mono text-[10px] text-faint">x-axis: '+esc(labelCol.replace(/_/g,' '))+'</span>';
+            html+='</div>';
+          }
+
+          // Table (hidden by default)
+          html+='<div class="view-table hidden mt-3 overflow-x-auto rounded-xl border border-line"><table class="w-full text-left text-[13px]"><thead><tr class="border-b border-line bg-canvas text-[11px] uppercase tracking-wider text-muted">'+cols.map(function(c){return'<th class="px-3 py-2 font-medium whitespace-nowrap">'+esc(c)+'</th>';}).join("")+'</tr></thead><tbody class="font-mono text-[13px] text-ink">'+parsedRows.slice(0,30).map(function(r){return'<tr class="border-b border-line last:border-0 hover:bg-canvas/50">'+cols.map(function(c){return'<td class="px-3 py-2">'+esc(r[c])+'</td>';}).join("")+'</tr>';}).join("")+'</tbody></table></div>';
+          if(parsedRows.length>30)html+='<p class="mt-1 font-mono text-[10px] text-faint">+'+(parsedRows.length-30)+' more rows</p>';
+          html+='</div>';
+        } else {
+          // Just table, no chart (too many rows or no numeric col)
+          html+='<div class="overflow-x-auto rounded-xl border border-line"><table class="w-full text-left text-[13px]"><thead><tr class="border-b border-line bg-canvas text-[11px] uppercase tracking-wider text-muted">'+cols.map(function(c){return'<th class="px-3 py-2 font-medium whitespace-nowrap">'+esc(c)+'</th>';}).join("")+'</tr></thead><tbody class="font-mono text-[13px] text-ink">'+parsedRows.slice(0,30).map(function(r){return'<tr class="border-b border-line last:border-0 hover:bg-canvas/50">'+cols.map(function(c){return'<td class="px-3 py-2">'+esc(r[c])+'</td>';}).join("")+'</tr>';}).join("")+'</tbody></table></div>';
+        }
+      }
+      html+='</div>';
+      if(data.sources&&data.sources.length>0)html+='<div class="flex flex-wrap items-center gap-2 border-t border-line bg-ok/8 px-4 py-2.5 text-xs"><svg viewBox="0 0 24 24" class="h-4 w-4 text-ok" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span class="font-medium text-ink">Source:</span>'+data.sources.map(function(s){return'<span class="font-medium text-accent">'+esc(s)+'</span>';}).join("")+'</div>';
+      result.innerHTML=html;
+
+      // Toggle chart/table
+      result.querySelectorAll(".vtoggle").forEach(function(btn){
+        btn.addEventListener("click",function(){
+          result.querySelectorAll(".vtoggle").forEach(function(b){b.classList.toggle("active",b===btn);b.classList.toggle("bg-raised",b===btn);b.classList.toggle("border",b===btn);b.classList.toggle("border-line",b===btn);b.classList.toggle("text-ink",b===btn);b.classList.toggle("text-muted",b!==btn);});
+          var v=btn.getAttribute("data-v");
+          var chart=result.querySelector(".view-chart");
+          var table=result.querySelector(".view-table");
+          if(chart)chart.classList.toggle("hidden",v!=="chart");
+          if(table)table.classList.toggle("hidden",v!=="table");
+        });
+      });
+      // Animate bars
+      setTimeout(function(){result.querySelectorAll(".grow-bar").forEach(function(b){b.style.transition="height 1s cubic-bezier(.16,1,.3,1)";});},50);
+    }
+
+    function parseNum(v){return Number(String(v||0).replace(/[,$%\s]/g,""))||0;}
+
+    // Extract table data from markdown text (pipe tables)
+    function extractTableFromText(text){
+      if(!text)return null;
+      var lines=text.split("\n");
+      var tableLines=[];var inTable=false;
+      for(var i=0;i<lines.length;i++){
+        var line=lines[i].trim();
+        if(line.match(/^\|.*\|$/)&&line.indexOf("|")===0){
+          if(!line.match(/^\|[\s\-:|]+\|$/)){tableLines.push(line);}
+          inTable=true;
+        }else if(inTable&&tableLines.length>1){break;}
+        else{inTable=false;tableLines=[];}
+      }
+      if(tableLines.length<2)return null;
+      var headers=tableLines[0].split("|").filter(function(c){return c.trim()!=="";}).map(function(c){return c.trim();});
+      var rows=[];
+      for(var j=1;j<tableLines.length;j++){
+        var cells=tableLines[j].split("|").filter(function(c){return c.trim()!=="";}).map(function(c){return c.trim();});
+        var row={};headers.forEach(function(h,k){row[h]=cells[k]||"";});
+        rows.push(row);
+      }
+      return rows.length>0?rows:null;
+    }
+
+    function updateMeta(){
+      var n=currentDoc.blocks.length;
+      $("#docMeta").textContent="Draft investigation \u00B7 "+n+" block"+(n===1?"":"s")+" \u00B7 edited "+fmtDate(currentDoc.updatedAt);
+    }
+
+    // ==== INSERT MENU ====
+    var insertBtn=$("#insertBtn"),insertMenu=$("#insertMenu");
+    insertBtn.addEventListener("click",function(e){e.stopPropagation();insertMenu.classList.toggle("hidden");});
+    document.addEventListener("click",function(e){if(!insertMenu.contains(e.target)&&e.target!==insertBtn)insertMenu.classList.add("hidden");});
+    insertMenu.querySelectorAll("[data-add]").forEach(function(opt){
+      opt.addEventListener("click",function(){
+        var type=opt.getAttribute("data-add"),b;
+        if(type==="query")b={type:"query",id:nid(),q:"",ran:false};
+        else if(type==="text")b={type:"prose",id:nid(),text:""};
+        else b={type:"source",id:nid(),name:"New citation"};
+        currentDoc.blocks.push(b);saveDoc(currentDoc);renderBlocks();updateMeta();
+        insertMenu.classList.add("hidden");showToast("Added "+type+" block");
+      });
+    });
+
+    // ==== VIEW TOGGLE ====
+    document.addEventListener("click",function(e){
+      var vt=e.target.closest(".vtoggle");if(!vt)return;
+      var result=vt.closest(".result"),v=vt.getAttribute("data-v");
+      result.querySelectorAll(".vtoggle").forEach(function(b){b.classList.toggle("bg-raised",b===vt);b.classList.toggle("border",b===vt);b.classList.toggle("border-line",b===vt);b.classList.toggle("text-ink",b===vt);b.classList.toggle("text-muted",b!==vt);});
+      result.querySelector(".view-bar").classList.toggle("hidden",v!=="bar");
+      result.querySelector(".view-table").classList.toggle("hidden",v!=="table");
+    });
+
+    // ==== DRAG ====
+    var blocksEl,dragEl=null;
+    function initDrag(){
+      blocksEl=$("#blocks");
+      // Handle up/down/delete clicks
+      blocksEl.addEventListener("click",function(e){
+        var actBtn=e.target.closest("[data-act]");
+        if(!actBtn)return;
+        var block=actBtn.closest(".block");if(!block)return;
+        var id=block.dataset.id;
+        var act=actBtn.getAttribute("data-act");
+        var idx=currentDoc.blocks.findIndex(function(b){return b.id===id;});
+        if(idx<0)return;
+        if(act==="del"){
+          currentDoc.blocks.splice(idx,1);saveDoc(currentDoc);renderBlocks();showToast("Block deleted");
+        }else if(act==="up"&&idx>0){
+          var tmp=currentDoc.blocks[idx];currentDoc.blocks[idx]=currentDoc.blocks[idx-1];currentDoc.blocks[idx-1]=tmp;saveDoc(currentDoc);renderBlocks();
+        }else if(act==="down"&&idx<currentDoc.blocks.length-1){
+          var tmp2=currentDoc.blocks[idx];currentDoc.blocks[idx]=currentDoc.blocks[idx+1];currentDoc.blocks[idx+1]=tmp2;saveDoc(currentDoc);renderBlocks();
+        }
+      });
+      blocksEl.addEventListener("dragstart",function(e){var b=e.target.closest(".block");if(!b)return;dragEl=b;b.classList.add("dragging");e.dataTransfer.effectAllowed="move";});
+      blocksEl.addEventListener("dragend",function(){if(dragEl)dragEl.classList.remove("dragging");blocksEl.querySelectorAll(".drop-target").forEach(function(x){x.classList.remove("drop-target");});dragEl=null;});
+      blocksEl.addEventListener("dragover",function(e){e.preventDefault();var over=e.target.closest(".block");blocksEl.querySelectorAll(".drop-target").forEach(function(x){x.classList.remove("drop-target");});if(over&&over!==dragEl)over.classList.add("drop-target");});
+      blocksEl.addEventListener("drop",function(e){e.preventDefault();var over=e.target.closest(".block");if(!over||!dragEl||over===dragEl)return;var rect=over.getBoundingClientRect();var after=e.clientY>rect.top+rect.height/2;blocksEl.insertBefore(dragEl,after?over.nextSibling:over);showToast("Block reordered");});
+    }
+
+    // ==== MODAL ====
+    var modal=$("#modal");
+    function openModal(){modal.classList.remove("hidden");modal.classList.add("flex");}
+    function closeModal(){modal.classList.add("hidden");modal.classList.remove("flex");}
+    $("#promoteBtn").addEventListener("click",openModal);
+    $("#modalClose").addEventListener("click",closeModal);
+    modal.addEventListener("click",function(e){if(e.target===modal)closeModal();});
+    document.querySelectorAll(".exp").forEach(function(b){b.addEventListener("click",function(){closeModal();showToast("Exporting\u2026");});});
+
+    // ==== NAVIGATION ====
+    $("#backToGrid").addEventListener("click",showLanding);
+
+    // ==== HELPERS ====
+    function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+    function fmtDate(iso){try{return new Date(iso).toLocaleDateString();}catch(e){return iso;}}
+    var toast=$("#toast"),tt;
+    function showToast(msg){toast.textContent=msg;toast.classList.remove("opacity-0","translate-y-4");toast.classList.add("opacity-100","translate-y-0");clearTimeout(tt);tt=setTimeout(function(){toast.classList.add("opacity-0","translate-y-4");toast.classList.remove("opacity-100","translate-y-0");},2200);}
+
+    // ==== BOOT ====
+    initDrag();
+    showLanding();
+  })();
+  </script>
+</body>
+</html>

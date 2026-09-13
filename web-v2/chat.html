@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MapleQuery · Chat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/atlas.css" />
+  <script>
+    function tok(v){return function(o){o=o||{};return "rgb(var(--"+v+") / "+(o.opacityValue==null?1:o.opacityValue)+")";};}
+    var T=["canvas","paper","raised","ink","ink-soft","muted","faint","line","line-strong","accent","accent-press","ok","warn","graph-1","graph-2"];
+    var colors={};T.forEach(function(t){colors[t]=tok(t);});
+    tailwind.config={theme:{extend:{colors:colors,fontFamily:{display:['"Space Grotesk"','system-ui','sans-serif'],sans:['Inter','system-ui','sans-serif'],mono:['"JetBrains Mono"','ui-monospace','monospace']},boxShadow:{orbit:"var(--shadow-orbit)",card:"var(--shadow-card)",pop:"var(--shadow-pop)"}}}};
+  </script>
+</head>
+<body class="font-sans antialiased min-h-screen bg-canvas">
+
+  <!-- NAV -->
+  <header class="sticky top-0 z-30 border-b border-line bg-canvas/80 backdrop-blur">
+    <div class="mx-auto flex h-14 max-w-[1400px] items-center gap-6 px-4 md:px-6">
+      <a href="notebook.html" class="flex items-center gap-2">
+        <span class="grid h-7 w-7 place-items-center rounded-lg bg-accent text-white shadow-card"><svg viewBox="0 0 80 80" class="h-4 w-4" fill="none"><circle cx="34" cy="34" r="20" stroke="currentColor" stroke-width="5"/><line x1="48" y1="48" x2="66" y2="66" stroke="currentColor" stroke-width="6" stroke-linecap="round"/></svg></span>
+        <span class="font-display text-[15px] font-semibold tracking-tight text-ink">MapleQuery</span>
+      </a>
+      <nav class="ml-auto flex items-center gap-1">
+        <a href="chat.html" class="rounded-md bg-accent/10 px-3 py-1.5 text-sm font-medium text-accent">Ask</a>
+        <a href="notebook.html" class="rounded-md px-3 py-1.5 text-sm font-medium text-muted hover:bg-raised hover:text-ink">Notebook</a>
+        <a href="explorer.html" class="rounded-md px-3 py-1.5 text-sm font-medium text-muted hover:bg-raised hover:text-ink">Explorer</a>
+        <a href="datasets.html" class="rounded-md px-3 py-1.5 text-sm font-medium text-muted hover:bg-raised hover:text-ink">Datasets</a>
+      </nav>
+      <a href="../auth.html" class="ml-2 rounded-lg border border-line bg-raised px-3 py-1.5 text-sm font-medium text-ink hover:border-accent">Sign in</a>
+    </div>
+  </header>
+
+  <!-- LAYOUT -->
+  <div class="flex h-[calc(100vh-3.5rem)]">
+    <!-- Sidebar -->
+    <aside class="hidden w-60 shrink-0 flex-col border-r border-line bg-raised/60 lg:flex">
+      <div class="p-3">
+        <button id="newBtn" class="flex w-full items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-press cursor-pointer">
+          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          New conversation
+        </button>
+      </div>
+      <div id="convList" class="flex-1 overflow-y-auto px-2 space-y-0.5"></div>
+    </aside>
+
+    <!-- Chat area -->
+    <div class="flex min-w-0 flex-1 flex-col">
+      <div id="messages" class="flex-1 overflow-y-auto px-4 py-6">
+        <div id="thread" class="mx-auto max-w-3xl space-y-4"></div>
+      </div>
+      <div class="border-t border-line bg-raised/60 px-4 py-3">
+        <div class="mx-auto max-w-3xl flex items-end gap-2 rounded-xl border border-line bg-paper p-2 shadow-card focus-within:border-accent">
+          <textarea id="input" rows="1" placeholder="Ask a question about government data…" class="min-h-[42px] max-h-40 flex-1 resize-none bg-transparent px-2 py-2 text-[15px] text-ink placeholder:text-faint focus:outline-none"></textarea>
+          <button id="sendBtn" class="grid h-9 w-9 shrink-0 cursor-pointer place-items-center rounded-lg bg-accent text-white hover:bg-accent-press">
+            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/store.js"></script>
+  <script>
+  (function() {
+    // Theme
+    var s; try{s=localStorage.getItem("mq-atlas-theme")}catch(e){} document.documentElement.setAttribute("data-theme",s||(window.matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light"));
+
+    // DOM refs
+    var threadEl = document.getElementById("thread");
+    var inputEl = document.getElementById("input");
+    var convListEl = document.getElementById("convList");
+    var newBtn = document.getElementById("newBtn");
+    var sendBtn = document.getElementById("sendBtn");
+
+    // State
+    var convId = null;
+    var history = [];
+
+    // --- Event bindings ---
+    newBtn.addEventListener("click", function() { newChat(); });
+    sendBtn.addEventListener("click", function() { doSend(); });
+    inputEl.addEventListener("keydown", function(e) {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); doSend(); }
+    });
+    inputEl.addEventListener("input", function() {
+      this.style.height = "auto";
+      this.style.height = Math.min(this.scrollHeight, 160) + "px";
+    });
+
+    // --- Boot ---
+    newChat();
+    loadSidebar();
+    var qParam = new URLSearchParams(window.location.search).get("q");
+    if (qParam) { inputEl.value = qParam; doSend(); }
+
+    // --- Core functions ---
+    function newChat() {
+      convId = "c_" + Math.random().toString(36).slice(2, 9);
+      history = [];
+      threadEl.innerHTML = '<div class="flex flex-col items-center justify-center py-16 text-center">' +
+        '<span class="grid h-12 w-12 place-items-center rounded-xl bg-accent/10 text-accent mb-4"><svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>' +
+        '<h2 class="font-display text-xl font-semibold text-ink">Ask anything about Canadian government data</h2>' +
+        '<p class="mt-2 max-w-md text-sm text-muted">Every answer is sourced. Try: "How has federal IT spending changed since 2018?"</p></div>';
+      inputEl.value = "";
+      inputEl.focus();
+      loadSidebar();
+    }
+
+    function doSend() {
+      var q = inputEl.value.trim();
+      if (!q) return;
+      inputEl.value = "";
+      inputEl.style.height = "auto";
+
+      // Clear welcome
+      var w = threadEl.querySelector(".flex-col.items-center"); if (w) w.remove();
+
+      // Show user bubble
+      threadEl.insertAdjacentHTML("beforeend",
+        '<div class="flex justify-end"><div class="max-w-[80%] rounded-xl bg-accent/10 px-4 py-3 text-[15px] text-ink">' + esc(q) + '</div></div>');
+      history.push({ role: "user", content: q });
+
+      // Thinking indicator
+      var thinkId = "t" + Date.now();
+      threadEl.insertAdjacentHTML("beforeend",
+        '<div id="' + thinkId + '" class="flex items-center gap-2 py-2">' +
+        '<span class="dots inline-flex gap-1"><i></i><i></i><i></i></span>' +
+        '<span class="font-mono text-[11px] text-muted">thinking\u2026</span></div>');
+      scrollBottom();
+
+      // Call API
+      var answer = "";
+      MQ.api.streamChat({
+        conversation_id: convId,
+        question: q,
+        history: history.slice(-20),
+        turn_records: []
+      }, {
+        onEvent: function(ev) {
+          if (ev.name === "message_delta") {
+            answer += ev.payload.delta;
+            var el = document.getElementById(thinkId);
+            if (el) {
+              el.innerHTML = '<div class="rounded-xl border border-line bg-paper p-4">' +
+                '<p class="mb-1 font-mono text-[10px] uppercase tracking-wider text-accent">MapleQuery</p>' +
+                '<div class="text-[15px] leading-relaxed text-ink-soft">' + streamRender(answer) + '</div></div>';
+            }
+            scrollBottom();
+          }
+        },
+        onDone: function(summary) {
+          var el = document.getElementById(thinkId);
+          if (el) {
+            el.innerHTML = '<div class="rounded-xl border border-line bg-paper p-4">' +
+              '<p class="mb-1 font-mono text-[10px] uppercase tracking-wider text-accent">MapleQuery</p>' +
+              '<div class="text-[15px] leading-relaxed text-ink-soft">' + mdRender(answer) + '</div>' +
+              '<p class="mt-2 font-mono text-[10px] text-faint">' + (summary.elapsed_ms / 1000).toFixed(1) + 's \u00B7 $' + summary.total_dollars.toFixed(3) + '</p></div>';
+          }
+          history.push({ role: "assistant", content: answer });
+          saveConv();
+          loadSidebar();
+        },
+        onError: function(err) {
+          var el = document.getElementById(thinkId);
+          if (el) el.innerHTML = '<div class="rounded-lg border border-accent/30 bg-accent/5 p-3 text-sm text-accent">Error: ' + esc(err.message || "Failed to connect") + '</div>';
+        }
+      });
+    }
+
+    // --- Helpers ---
+    function esc(s) { return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+    // Simple render for streaming (no tables since they arrive incomplete)
+    function streamRender(s) {
+      if (!s) return "";
+      return esc(s)
+        .replace(/\*\*(.+?)\*\*/g, '<strong class="text-ink">$1</strong>')
+        .replace(/`(.+?)`/g, '<code class="rounded bg-canvas px-1 py-0.5 font-mono text-[12px]">$1</code>')
+        .replace(/\n/g, '<br>');
+    }
+    function mdRender(s) {
+      if (!s) return "";
+      // Split into lines to handle tables
+      var lines = s.split("\n");
+      var html = "";
+      var inTable = false;
+      var tableRows = [];
+
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        // Table row detection
+        if (line.trim().indexOf("|") === 0 || (line.trim().match(/\|/) && line.trim().match(/\|.*\|/))) {
+          if (!inTable) { inTable = true; tableRows = []; }
+          // Skip separator rows (|---|---|)
+          if (line.trim().match(/^\|[\s\-:|]+\|$/)) continue;
+          tableRows.push(line);
+        } else {
+          // Flush table if we were in one
+          if (inTable) { html += renderTable(tableRows); inTable = false; tableRows = []; }
+          // Regular line
+          html += renderLine(line) + "<br>";
+        }
+      }
+      // Flush remaining table
+      if (inTable) html += renderTable(tableRows);
+      // Remove trailing <br>
+      html = html.replace(/<br>$/, "");
+      return html;
+    }
+
+    function renderLine(line) {
+      var s = esc(line);
+      // Headers
+      if (s.match(/^### /)) return '<h4 class="text-sm font-semibold text-ink mt-3 mb-1">' + s.slice(4) + '</h4>';
+      if (s.match(/^## /)) return '<h3 class="text-base font-semibold text-ink mt-3 mb-1">' + s.slice(3) + '</h3>';
+      if (s.match(/^# /)) return '<h2 class="text-lg font-semibold text-ink mt-3 mb-1">' + s.slice(2) + '</h2>';
+      // Bold
+      s = s.replace(/\*\*(.+?)\*\*/g, '<strong class="text-ink">$1</strong>');
+      // Inline code
+      s = s.replace(/`(.+?)`/g, '<code class="rounded bg-canvas px-1 py-0.5 font-mono text-[12px]">$1</code>');
+      // Links [text](/url)
+      s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-accent hover:underline">$1</a>');
+      // List items
+      if (s.match(/^\s*[-*]\s/)) return '<li class="ml-4 list-disc text-ink-soft">' + s.replace(/^\s*[-*]\s/, '') + '</li>';
+      if (s.match(/^\s*\d+\.\s/)) return '<li class="ml-4 list-decimal text-ink-soft">' + s.replace(/^\s*\d+\.\s/, '') + '</li>';
+      return s;
+    }
+
+    function renderTable(rows) {
+      if (rows.length === 0) return "";
+      var html = '<div class="my-3 overflow-x-auto rounded-lg border border-line"><table class="w-full text-left text-[13px]">';
+      rows.forEach(function(row, idx) {
+        var cells = row.split("|").filter(function(c) { return c.trim() !== ""; });
+        if (idx === 0) {
+          html += '<thead><tr class="border-b border-line bg-canvas">';
+          cells.forEach(function(c) { html += '<th class="px-3 py-2 font-medium text-muted whitespace-nowrap">' + esc(c.trim()) + '</th>'; });
+          html += '</tr></thead><tbody>';
+        } else {
+          html += '<tr class="border-b border-line last:border-0 hover:bg-canvas/50">';
+          cells.forEach(function(c) { html += '<td class="px-3 py-2 text-ink whitespace-nowrap">' + esc(c.trim()) + '</td>'; });
+          html += '</tr>';
+        }
+      });
+      html += '</tbody></table></div>';
+      return html;
+    }
+    function scrollBottom() { document.getElementById("messages").scrollTop = document.getElementById("messages").scrollHeight; }
+
+    // --- Persistence ---
+    function saveConv() {
+      if (!convId || history.length === 0) return;
+      var title = (history[0] && history[0].content || "Chat").slice(0, 50);
+      var data = { id: convId, title: title, history: history, updatedAt: new Date().toISOString() };
+      try { localStorage.setItem("mq_chat_" + convId, JSON.stringify(data)); } catch (e) {}
+    }
+
+    function loadSidebar() {
+      var items = [];
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf("mq_chat_") === 0 && k !== "mq_chat_index") {
+          try { var d = JSON.parse(localStorage.getItem(k)); if (d && d.id) items.push(d); } catch (e) {}
+        }
+      }
+      items.sort(function(a, b) { return (b.updatedAt || "").localeCompare(a.updatedAt || ""); });
+      convListEl.innerHTML = "";
+      items.slice(0, 20).forEach(function(item) {
+        var div = document.createElement("div");
+        div.className = "group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm cursor-pointer " + (item.id === convId ? "bg-accent/10 text-ink font-medium" : "text-muted hover:bg-canvas hover:text-ink");
+        div.innerHTML = '<span class="min-w-0 flex-1 truncate">' + esc(item.title || "Chat") + '</span>' +
+          '<button class="del-chat grid h-5 w-5 shrink-0 place-items-center rounded text-faint opacity-0 group-hover:opacity-100 hover:text-accent cursor-pointer"><svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>';
+        div.querySelector("span").addEventListener("click", function() { loadConv(item.id); });
+        div.querySelector(".del-chat").addEventListener("click", function(e) {
+          e.stopPropagation();
+          try { localStorage.removeItem("mq_chat_" + item.id); } catch(ex) {}
+          if (item.id === convId) newChat();
+          loadSidebar();
+        });
+        convListEl.appendChild(div);
+      });
+    }
+
+    function loadConv(id) {
+      try {
+        var data = JSON.parse(localStorage.getItem("mq_chat_" + id));
+        if (!data) return;
+        convId = data.id;
+        history = data.history || [];
+        threadEl.innerHTML = "";
+        history.forEach(function(m) {
+          if (m.role === "user") {
+            threadEl.insertAdjacentHTML("beforeend", '<div class="flex justify-end"><div class="max-w-[80%] rounded-xl bg-accent/10 px-4 py-3 text-[15px] text-ink">' + esc(m.content) + '</div></div>');
+          } else if (m.role === "assistant" && m.content) {
+            threadEl.insertAdjacentHTML("beforeend", '<div class="rounded-xl border border-line bg-paper p-4"><p class="mb-1 font-mono text-[10px] uppercase tracking-wider text-accent">MapleQuery</p><div class="text-[15px] leading-relaxed text-ink-soft">' + mdRender(m.content) + '</div></div>');
+          }
+        });
+        loadSidebar();
+      } catch (e) {}
+    }
+  })();
+  </script>
+</body>
+</html>
