@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MapleQuery Atlas — command-driven investigation</title>
+  <meta name="description" content="A chrome-less writing stage driven by a single command bar. Ask, query, and cite Canadian open-government data without ever leaving the page." />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/atlas.css" />
+
+  <script>
+    // Palette bound to CSS variables so alpha modifiers + theming both work.
+    function tok(v){ return function(o){ o=o||{}; return "rgb(var(--"+v+") / "+(o.opacityValue==null?1:o.opacityValue)+")"; }; }
+    var T = ["canvas","paper","raised","ink","ink-soft","muted","faint","line","line-strong","accent","accent-press","ok","warn","graph-1","graph-2"];
+    var colors = {}; T.forEach(function(t){ colors[t] = tok(t); });
+    tailwind.config = { theme: { extend: {
+      colors: colors,
+      fontFamily: {
+        display: ['"Space Grotesk"','system-ui','sans-serif'],
+        sans: ['Inter','system-ui','sans-serif'],
+        mono: ['"JetBrains Mono"','ui-monospace','monospace']
+      },
+      boxShadow: { orbit:"var(--shadow-orbit)", lens:"var(--shadow-lens)", card:"var(--shadow-card)", pop:"var(--shadow-pop)" }
+    } } };
+  </script>
+</head>
+<body class="font-sans">
+
+  <div id="app" class="relative min-h-screen">
+
+    <!-- Brand — top-left. Logo links to sign in; caret opens the workspace library. -->
+    <div class="fixed left-5 top-5 z-30 flex items-center gap-1">
+      <a id="brand" href="../auth.html" class="group flex cursor-pointer items-center gap-2 text-ink" aria-label="MapleQuery — sign in">
+        <span class="grid h-7 w-7 place-items-center rounded-lg bg-accent text-white shadow-card">
+          <svg viewBox="0 0 80 80" class="h-4 w-4" fill="none"><circle cx="34" cy="34" r="20" stroke="currentColor" stroke-width="5"/><line x1="48" y1="48" x2="66" y2="66" stroke="currentColor" stroke-width="6" stroke-linecap="round"/></svg>
+        </span>
+        <span class="font-display text-[15px] font-semibold tracking-tight">MapleQuery</span>
+      </a>
+      <button id="workspaceMenu" class="grid h-7 w-7 cursor-pointer place-items-center rounded-lg text-faint transition-colors hover:bg-raised hover:text-muted" aria-label="Open your workspace">
+        <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+    </div>
+
+    <!-- Status cluster — top-right, no dashboard, just signals. -->
+    <div class="fixed right-5 top-5 z-30 flex items-center gap-2.5">
+      <div id="presence" class="hidden items-center sm:flex" aria-label="People here"></div>
+      <span id="syncPill" class="hidden items-center gap-1.5 rounded-full border border-line bg-raised/80 px-2.5 py-1 text-[11px] font-medium text-ok backdrop-blur sm:inline-flex">
+        <span class="h-1.5 w-1.5 rounded-full bg-ok"></span> Synced
+      </span>
+      <button id="srcBtn" class="hidden cursor-pointer items-center gap-1.5 rounded-full border border-line bg-raised/80 px-2.5 py-1 text-[11px] font-medium text-muted backdrop-blur transition-colors hover:text-ink sm:inline-flex" aria-label="Open sources in Lens">
+        <span class="h-1.5 w-1.5 rounded-full bg-accent"></span> <span id="srcCount">0</span> sources
+      </button>
+      <button id="themeToggle" class="grid h-8 w-8 cursor-pointer place-items-center rounded-full border border-line bg-raised/80 text-muted backdrop-blur transition-colors hover:text-ink" aria-label="Toggle theme">
+        <span id="themeIcon"></span>
+      </button>
+    </div>
+
+    <!-- ================= THE STAGE (chrome-less writing surface) ============= -->
+    <main id="stage" class="scroll relative z-10 mx-auto min-h-screen max-w-[720px] px-6 pb-48 pt-28 md:px-8">
+      <input id="docTitle" aria-label="Title"
+        class="w-full bg-transparent font-display text-[34px] font-bold leading-tight tracking-tight text-ink placeholder:text-faint focus:outline-none md:text-[42px]"
+        value="Untitled investigation" />
+      <div id="docMeta" class="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-muted"></div>
+
+      <div id="blocks" class="mt-9 space-y-1"></div>
+
+      <!-- trailing composer hint — write like a doc, summon anything with a key -->
+      <button id="stageHint" class="mt-3 flex w-full cursor-text items-center gap-2 rounded-lg px-1 py-2 text-left text-[15px] text-faint transition-colors hover:text-muted">
+        Write, or press <span class="cap">/</span> for a query · <span class="cap">⌘K</span> to ask
+      </button>
+    </main>
+
+    <!-- ================= THE ORBIT (single command surface) ================== -->
+    <div id="orbit" class="fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-6">
+      <!-- collapsed pill -->
+      <button id="orbitPill" class="pointer-events-auto flex w-full max-w-xl cursor-text items-center gap-3 rounded-2xl border border-line bg-raised/90 px-4 py-3.5 text-left shadow-orbit backdrop-blur-md transition-transform duration-200 hover:-translate-y-0.5">
+        <svg viewBox="0 0 24 24" class="h-5 w-5 shrink-0 text-accent" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18" opacity=".0"/><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <span class="flex-1 text-[15px] text-muted">Ask a question, <span class="font-mono text-[13px] text-faint">/query</span> the data, or type a command…</span>
+        <span class="cap hidden sm:inline">⌘K</span>
+      </button>
+
+      <!-- expanded panel -->
+      <div id="orbitPanel" class="pointer-events-auto hidden w-full max-w-xl overflow-hidden rounded-2xl border border-line bg-raised/95 shadow-orbit backdrop-blur-xl">
+        <div id="orbitSuggest" class="scroll max-h-[46vh] overflow-y-auto"></div>
+        <form id="orbitForm" class="flex items-center gap-2 border-t border-line px-3 py-2.5">
+          <span id="orbitMode" class="shrink-0 rounded-lg bg-accent/10 px-2 py-1 font-mono text-[11px] font-semibold uppercase tracking-wide text-accent">Ask</span>
+          <input id="orbitInput" autocomplete="off" class="min-w-0 flex-1 bg-transparent text-[15px] text-ink placeholder:text-faint focus:outline-none" placeholder="Ask anything about government data…" />
+          <button type="submit" id="orbitGo" class="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg bg-accent text-white transition-colors hover:bg-accent-press" aria-label="Run">
+            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- ================= THE LIBRARY (left slide-over doc navigator) ========= -->
+    <div id="library" class="fixed inset-0 z-50 hidden">
+      <div id="libScrim" class="absolute inset-0 bg-ink/30 backdrop-blur-[2px]"></div>
+      <aside id="libSheet" class="scroll absolute left-0 top-0 flex h-full w-full max-w-[300px] flex-col overflow-y-auto border-r border-line bg-raised">
+        <div class="flex items-center gap-2.5 border-b border-line px-4 py-4">
+          <span class="grid h-8 w-8 place-items-center rounded-lg bg-accent text-white">
+            <svg viewBox="0 0 80 80" class="h-4 w-4" fill="none"><circle cx="34" cy="34" r="20" stroke="currentColor" stroke-width="5"/><line x1="48" y1="48" x2="66" y2="66" stroke="currentColor" stroke-width="6" stroke-linecap="round"/></svg>
+          </span>
+          <div class="min-w-0 flex-1">
+            <p class="font-display text-sm font-semibold leading-tight text-ink">Your workspace</p>
+            <p class="font-mono text-[10px] text-muted">MapleQuery Atlas</p>
+          </div>
+          <button id="libClose" class="grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-muted transition-colors hover:bg-canvas hover:text-ink" aria-label="Close library">
+            <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <div class="px-3 pt-3">
+          <div class="flex items-center gap-2 rounded-lg border border-line bg-canvas px-2.5 py-2 text-sm text-muted focus-within:border-accent">
+            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input id="libSearch" placeholder="Search documents" class="w-full bg-transparent text-ink placeholder:text-faint focus:outline-none" />
+          </div>
+          <button id="libNew" class="mt-2 flex w-full cursor-pointer items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-press">
+            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            New investigation
+          </button>
+        </div>
+
+        <nav class="scroll flex-1 space-y-5 overflow-y-auto px-3 py-4 text-sm">
+          <div>
+            <p class="px-2 pb-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-faint">Saved</p>
+            <ul id="libSaved" class="space-y-0.5"></ul>
+          </div>
+          <div>
+            <p class="px-2 pb-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-faint">All documents</p>
+            <ul id="libList" class="space-y-0.5"></ul>
+          </div>
+        </nav>
+
+        <div class="border-t border-line px-3 py-3">
+          <p class="px-2 font-mono text-[10px] text-faint">⌘\ toggles this panel · click the logo anytime</p>
+        </div>
+      </aside>
+    </div>
+
+    <!-- ================= THE LENS (right slide-over data inspector) ========== -->
+    <div id="lens" class="fixed inset-0 z-50 hidden">
+      <div id="lensScrim" class="absolute inset-0 bg-ink/30 backdrop-blur-[2px]"></div>
+      <aside id="lensSheet" class="scroll absolute right-0 top-0 flex h-full w-full max-w-[540px] flex-col overflow-y-auto border-l border-line bg-raised shadow-lens">
+        <div class="sticky top-0 z-10 flex items-center gap-3 border-b border-line bg-raised/95 px-5 py-4 backdrop-blur">
+          <span class="grid h-8 w-8 place-items-center rounded-lg bg-accent/10 text-accent">
+            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5h18v14H3z"/><path d="M3 10h18M9 5v14"/></svg>
+          </span>
+          <div class="min-w-0 flex-1">
+            <p class="font-mono text-[10px] uppercase tracking-[0.16em] text-accent">Lens</p>
+            <h2 id="lensTitle" class="truncate font-display text-lg font-semibold text-ink">Data</h2>
+          </div>
+          <button id="lensClose" class="grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-muted transition-colors hover:bg-canvas hover:text-ink" aria-label="Close Lens">
+            <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <div class="px-5 py-4">
+          <div id="lensChips" class="mb-4 flex flex-wrap gap-1.5"></div>
+          <p id="lensDesc" class="text-sm text-ink-soft"></p>
+          <dl id="lensMeta" class="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-4"></dl>
+
+          <div class="mt-4 flex items-center gap-2">
+            <div class="flex flex-1 items-center gap-2 rounded-lg border border-line bg-canvas px-2.5 py-2 text-sm text-muted focus-within:border-accent">
+              <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+              <input id="lensSearch" placeholder="Filter rows" class="w-full bg-transparent text-ink placeholder:text-faint focus:outline-none" />
+            </div>
+            <button id="lensDownload" class="shrink-0 cursor-pointer rounded-lg border border-line bg-canvas px-3 py-2 text-xs font-medium text-ink transition-colors hover:border-accent" aria-label="Download CSV">CSV</button>
+          </div>
+          <div class="mt-1.5 flex justify-end"><span id="lensCount" class="font-mono text-[11px] text-faint">0 rows</span></div>
+
+          <div class="mt-2 overflow-x-auto rounded-xl border border-line">
+            <table class="w-full text-left text-sm"><thead id="lensHead"></thead><tbody id="lensBody" class="text-ink"></tbody></table>
+            <div id="lensEmpty" class="hidden px-6 py-10 text-center text-sm text-muted">No rows match.</div>
+          </div>
+          <p id="lensSource" class="mt-3 flex items-start gap-2 text-[11px] text-muted"></p>
+          <p class="mt-2 font-mono text-[10px] text-faint">Drag a row onto the page — or click it — to pin a cited figure into your document.</p>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Promote modal -->
+    <div id="modal" class="fixed inset-0 z-[55] hidden items-center justify-center bg-ink/40 p-4 backdrop-blur-sm">
+      <div class="settle w-full max-w-md rounded-2xl border border-line bg-raised p-6 shadow-pop">
+        <div class="mb-3 flex items-center gap-2.5">
+          <span class="grid h-9 w-9 place-items-center rounded-xl bg-accent text-white"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg></span>
+          <h2 class="font-display text-lg font-semibold text-ink">Report compiled</h2>
+        </div>
+        <p class="text-sm text-ink-soft">Your stage compiled into a structured report with <span id="modalSrc" class="font-medium text-ink">1 source</span>. Citations travel as native footnotes. Choose an export:</p>
+        <div class="mt-4 grid grid-cols-3 gap-2">
+          <button class="exp cursor-pointer rounded-xl border border-line bg-canvas px-3 py-3 text-xs font-medium text-ink transition-colors hover:border-accent">Google Docs</button>
+          <button class="exp cursor-pointer rounded-xl border border-line bg-canvas px-3 py-3 text-xs font-medium text-ink transition-colors hover:border-accent">Word</button>
+          <button class="exp cursor-pointer rounded-xl border border-line bg-canvas px-3 py-3 text-xs font-medium text-ink transition-colors hover:border-accent">CSV</button>
+        </div>
+        <div class="mt-5 flex justify-end">
+          <button id="modalClose" class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-canvas hover:text-ink">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="pointer-events-none fixed bottom-28 left-1/2 z-[60] -translate-x-1/2 translate-y-3 rounded-xl bg-ink px-4 py-2.5 text-sm font-medium text-canvas opacity-0 shadow-pop transition-all duration-300"></div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/atlas.js"></script>
+</body>
+</html>
