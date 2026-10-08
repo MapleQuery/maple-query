@@ -186,11 +186,10 @@ def main() -> int:
     args = ap.parse_args()
 
     questions: list[dict[str, Any]] = yaml.safe_load(args.fixture.read_text())
-    if args.sets:
-        questions = [q for q in questions if q["set"] in args.sets]
-    if args.ids:
-        wanted = set(args.ids.split(","))
-        questions = [q for q in questions if q["id"] in wanted]
+    # --set and --ids add up: "the stay_great set plus these new ones".
+    if args.sets or args.ids:
+        wanted = set(args.ids.split(",")) if args.ids else set()
+        questions = [q for q in questions if q["set"] in (args.sets or []) or q["id"] in wanted]
     if not questions:
         print("no questions selected", file=sys.stderr)
         return 2

@@ -101,7 +101,8 @@ CLASSIFIER_SCHEMA: dict[str, Any] = {
 
 _DEFLECTION_BASE = (
     "MapleQuery answers questions about Canada from federal open data "
-    "(open.canada.ca) and Statistics Canada's official tables."
+    "(open.canada.ca), Statistics Canada's official tables and the House "
+    "of Commons record."
 )
 
 # Fixed clauses keyed on the classifier's sub-reason — never free text,
@@ -131,8 +132,9 @@ _HINT_MAX_CHARS = 160
 
 IDENTITY_LINE = (
     "MapleQuery is a research agent that answers questions from "
-    "Canadian federal open data (open.canada.ca) and Statistics "
-    "Canada's official tables. It doesn't disclose "
+    "Canadian federal open data (open.canada.ca), Statistics "
+    "Canada's official tables and the House of Commons record. It "
+    "doesn't disclose "
     "or discuss its underlying model configuration."
 )
 

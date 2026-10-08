@@ -3,8 +3,8 @@
  "endpoint": "https://agent-service-f2ihvaiw6q-uc.a.run.app (direct)",
  "fixture": "eval/questions-live-sources.yaml",
  "baseline": null,
- "note": "Assembled from the 2026-10-08 routing before/after runs: the latest fresh post-routing run per question (homes-needed and top-departments-grants predate routing).",
- "total_dollars": 1.3213,
+ "note": "Assembled from the 2026-10-08 routing before/after runs: the latest fresh post-routing run per question (homes-needed and top-departments-grants predate routing). Updated 2026-10-08 after the Parliament tools: stay_great and the five Parliament questions re-run (live-2026-10-08T211610Z).",
+ "total_dollars": 1.4914,
  "skipped_for_budget": [],
  "results": [
   {
@@ -12,8 +12,9 @@
    "set": "stay_great",
    "question": "What percentage of Canadian exports go to the United States?",
    "expected_source": "statcan",
-   "secs": 7.5,
-   "dollars": 0.0617,
+   "expected_category": null,
+   "secs": 8.7,
+   "dollars": 0.0694,
    "tool_calls": 4,
    "route": {
     "category": "in_scope",
@@ -23,14 +24,14 @@
    "sources": [
     {
      "source": "statcan",
-     "table": "International merchandise trade for all countries and by Principal Trading Partners, monthly",
+     "table": "Canadian international merchandise trade by country and by product section, customs-based, annual",
      "rows": 2
     }
    ],
    "read_data": true,
    "tool_errors": [],
    "error": null,
-   "answer": "As of August 2026, approximately 69.8% of Canadian exports go to the United States. This is based on a total export value of $77.9 billion, with $54.3 billion going to the United States. You can find more details in the [StatCan table](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1210001101).",
+   "answer": "In 2025, approximately 72.3% of Canadian exports went to the United States. This data is based on the total export value of $778.0 billion, with $562.7 billion going to the United States. For more details, you can refer to the [Canadian international merchandise trade by country and by product section, customs-based, annual (12-10-0171-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1210017101).",
    "flags": []
   },
   {
@@ -38,9 +39,10 @@
    "set": "stay_great",
    "question": "How much revenue does Canada collect from tariffs?",
    "expected_source": "statcan",
-   "secs": 7.0,
-   "dollars": 0.0385,
-   "tool_calls": 2,
+   "expected_category": null,
+   "secs": 8.4,
+   "dollars": 0.0549,
+   "tool_calls": 3,
    "route": {
     "category": "in_scope",
     "source": "statcan",
@@ -56,7 +58,7 @@
    "read_data": true,
    "tool_errors": [],
    "error": null,
-   "answer": "In 2024, Canada collected approximately $6.16 billion from customs and other import duties. Here is a summary of the revenue from tariffs over the past five years:\n\n| Year | Revenue from Tariffs (CAD) |\n|------|----------------------------|\n| 2020 | $4.31 billion              |\n| 2021 | $5.30 billion              |\n| 2022 | $6.11 billion              |\n| 2023 | $5.71 billion (revised)    |\n| 2024 | $6.16 billion (preliminary)|\n\nThese figures are sourced from the [Canadian government finance statistics for the federal government (10-10-0016-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1010001601).",
+   "answer": "In 2024, Canada collected approximately $6.16 billion from customs and other import duties. Here is a summary of the revenue from tariffs over the past few years:\n\n| Year | Revenue (in billions) |\n|------|-----------------------|\n| 2020 | $4.31                 |\n| 2021 | $5.30                 |\n| 2022 | $6.11                 |\n| 2023 | $5.71 (revised)       |\n| 2024 | $6.16 (preliminary)   |\n\nThese figures are sourced from the [Canadian government finance statistics for the federal government (10-10-0016-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1010001601).",
    "flags": []
   },
   {
@@ -64,8 +66,9 @@
    "set": "stay_great",
    "question": "Has Canada's GDP per capita actually grown over the last decade?",
    "expected_source": "statcan",
-   "secs": 8.4,
-   "dollars": 0.0585,
+   "expected_category": null,
+   "secs": 10.1,
+   "dollars": 0.0609,
    "tool_calls": 4,
    "route": {
     "category": "in_scope",
@@ -82,7 +85,7 @@
    "read_data": true,
    "tool_errors": [],
    "error": null,
-   "answer": "Canada's GDP per capita has grown by 5.5% over the last decade, from $57,754 in Q1 2016 to $60,944 in Q2 2026, measured in chained (2017) dollars. This indicates a modest increase in economic output per person over this period.\n\nFor more details, you can refer to the [Gross domestic product per capita and other per capita macroeconomic indicators (36-10-0706-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3610070601).",
+   "answer": "Canada's GDP per capita has grown by approximately 5.5% over the last decade, from $57,754 in Q1 2016 to $60,944 in Q2 2026, measured in chained (2017) dollars. This indicates a moderate increase in economic output per person over this period.\n\nFor more details, you can refer to the [Gross domestic product per capita and other per capita macroeconomic indicators (36-10-0706-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3610070601).",
    "flags": []
   },
   {
@@ -90,9 +93,10 @@
    "set": "stay_great",
    "question": "How much money does the federal government spend on healthcare?",
    "expected_source": "statcan",
-   "secs": 5.7,
-   "dollars": 0.04,
-   "tool_calls": 2,
+   "expected_category": null,
+   "secs": 6.8,
+   "dollars": 0.0563,
+   "tool_calls": 3,
    "route": {
     "category": "in_scope",
     "source": "statcan",
@@ -108,7 +112,7 @@
    "read_data": true,
    "tool_errors": [],
    "error": null,
-   "answer": "The federal government of Canada spent approximately $65.2 billion on healthcare in 2024. Here is a summary of the healthcare spending over the past few years:\n\n| Year | Federal Healthcare Spending (in billions) |\n|------|------------------------------------------|\n| 2020 | $58.6                                    |\n| 2021 | $62.8                                    |\n| 2022 | $59.1                                    |\n| 2023 | $65.9 (revised)                          |\n| 2024 | $65.2 (preliminary)                      |\n\nThese figures are in Canadian dollars and represent the federal government's expenditure on health. For more details, you can refer to the [Canadian classification of functions of government, by general government component (10-10-0024-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1010002401).",
+   "answer": "In 2024, the federal government of Canada spent approximately $65.2 billion on healthcare. Here is a summary of the healthcare spending over the past few years:\n\n| Year | Federal Healthcare Spending (in billions) |\n|------|------------------------------------------|\n| 2020 | $58.6                                    |\n| 2021 | $62.8                                    |\n| 2022 | $59.1                                    |\n| 2023 | $65.9 (revised)                          |\n| 2024 | $65.2 (preliminary)                      |\n\nThese figures are in Canadian dollars and represent the federal government's expenditure on health services. For more details, you can refer to the [Canadian classification of functions of government, by general government component (10-10-0024-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1010002401).",
    "flags": []
   },
   {
@@ -116,8 +120,9 @@
    "set": "stay_great",
    "question": "Which provinces are building the most housing per capita?",
    "expected_source": "statcan",
-   "secs": 10.5,
-   "dollars": 0.108,
+   "expected_category": null,
+   "secs": 10.2,
+   "dollars": 0.1109,
    "tool_calls": 7,
    "route": {
     "category": "in_scope",
@@ -139,7 +144,7 @@
    "read_data": true,
    "tool_errors": [],
    "error": null,
-   "answer": "Prince Edward Island is building the most housing per capita, with approximately 0.0103 units per person. Here is a comparison of housing starts per capita for each province as of the latest data:\n\n| Province             | Housing Starts per Capita |\n|----------------------|---------------------------|\n| Newfoundland and Labrador | 0.00313                  |\n| Prince Edward Island | 0.01033                  |\n| Nova Scotia          | 0.00666                  |\n| New Brunswick        | 0.00733                  |\n| Quebec               | 0.00690                  |\n| Ontario              | 0.00370                  |\n| Manitoba             | 0.00604                  |\n| Saskatchewan         | 0.00585                  |\n| Alberta              | 0.00948                  |\n| British Columbia     | 0.00681                  |\n\nThese figures are based on the latest available data for housing starts and population estimates as of August 2026 and July 2026, respectively. [Source: Housing Starts](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3410015901), [Source: Population Estimates](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1710000901).",
+   "answer": "As of the latest data, Prince Edward Island is building the most housing per capita, with approximately 0.0103 units per person. Here is a breakdown of housing starts per capita for each province:\n\n| Province               | Housing Starts per Capita |\n|------------------------|---------------------------|\n| Newfoundland and Labrador | 0.00313                  |\n| Prince Edward Island   | 0.01033                   |\n| Nova Scotia            | 0.00666                   |\n| New Brunswick          | 0.00733                   |\n| Quebec                 | 0.00690                   |\n| Ontario                | 0.00370                   |\n| Manitoba               | 0.00604                   |\n| Saskatchewan           | 0.00585                   |\n| Alberta                | 0.00948                   |\n| British Columbia       | 0.00681                   |\n\nThese figures are based on the most recent housing starts data from August 2026 and population estimates from July 2026. For more details, you can refer to the [housing starts data](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3410015901) and [population estimates](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1710000901).",
    "flags": []
   },
   {
@@ -147,8 +152,9 @@
    "set": "stay_great",
    "question": "how much has canadian federal government donated to ukraine in the last year",
    "expected_source": "payments",
-   "secs": 7.8,
-   "dollars": 0.0241,
+   "expected_category": null,
+   "secs": 6.2,
+   "dollars": 0.0253,
    "tool_calls": 1,
    "route": {
     "category": "in_scope",
@@ -165,7 +171,7 @@
    "read_data": true,
    "tool_errors": [],
    "error": null,
-   "answer": "In the last fiscal year (2025-26), the Canadian federal government donated approximately $8.29 million to Ukraine. Note that the data for the fiscal year 2025-26 may still be incomplete. Here is a summary of donations over recent years:\n\n| Fiscal Year | Donation Amount (CAD) |\n|-------------|-----------------------|\n| 2023-24     | $486.54 million       |\n| 2024-25     | $236.26 million       |\n| 2025-26     | $8.29 million         |\n\nFor more details, you can refer to the [Proactive Disclosure - Grants and Contributions (open.canada.ca)](https://open.canada.ca/data/en/dataset/432527ab-7aac-45b5-81d6-7597107a7013/resource/1d15a62f-5656-49ad-8c88-f40ce689d831).",
+   "answer": "In the last fiscal year (2025-26), the Canadian federal government donated approximately $8.29 million to Ukraine. This figure is likely incomplete as the reporting for the latest fiscal year may still be ongoing. Here is a summary of donations over recent years:\n\n| Fiscal Year | Donation Amount (CAD) |\n|-------------|-----------------------|\n| 2023-24     | $486.54 million       |\n| 2024-25     | $236.26 million       |\n| 2025-26     | $8.29 million         |\n\nFor more details, you can refer to the [Proactive Disclosure - Grants and Contributions (open.canada.ca)](https://open.canada.ca/data/en/dataset/432527ab-7aac-45b5-81d6-7597107a7013/resource/1d15a62f-5656-49ad-8c88-f40ce689d831).",
    "flags": []
   },
   {
@@ -173,8 +179,9 @@
    "set": "stay_great",
    "question": "How much has the average Canadian household's purchasing power changed since 2015?",
    "expected_source": "statcan",
-   "secs": 11.9,
-   "dollars": 0.1127,
+   "expected_category": null,
+   "secs": 9.1,
+   "dollars": 0.1151,
    "tool_calls": 8,
    "route": {
     "category": "in_scope",
@@ -201,7 +208,7 @@
    "read_data": true,
    "tool_errors": [],
    "error": null,
-   "answer": "The average Canadian household's purchasing power, as measured by real household disposable income per capita, has increased by approximately 4.9% from 2015 to 2025. This calculation accounts for inflation using the Consumer Price Index (CPI) over the same period. \n\nHere are the relevant data points:\n\n- Household disposable income per capita increased from $31,423 in Q1 2015 to $42,737 in Q1 2025.\n- The Consumer Price Index (CPI) rose from 126.6 in 2015 to 164.2 in 2025.\n\nFor more details, you can refer to the [Gross domestic product per capita and other per capita macroeconomic indicators (36-10-0706-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3610070601) and the [Consumer Price Index, annual average, not seasonally adjusted (18-10-0005-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810000501).",
+   "answer": "The average Canadian household's purchasing power, as measured by real household disposable income per capita, increased by approximately 4.9% from 2015 to 2025. This calculation accounts for inflation using the Consumer Price Index (CPI) over the same period.\n\nHere are the relevant data points:\n\n- Household disposable income per capita increased from $31,423 in Q1 2015 to $42,737 in Q1 2025.\n- The Consumer Price Index (CPI) rose from 126.6 in 2015 to 164.2 in 2025.\n\nFor more details, you can refer to the [Gross domestic product per capita and other per capita macroeconomic indicators (36-10-0706-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3610070601) and the [Consumer Price Index, annual average, not seasonally adjusted (18-10-0005-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810000501).",
    "flags": []
   },
   {
@@ -209,8 +216,9 @@
    "set": "stay_great",
    "question": "How has immigration changed Canada's population growth over the last 10 years?",
    "expected_source": "statcan",
-   "secs": 8.6,
-   "dollars": 0.0615,
+   "expected_category": null,
+   "secs": 7.0,
+   "dollars": 0.0637,
    "tool_calls": 4,
    "route": {
     "category": "in_scope",
@@ -473,6 +481,150 @@
    "tool_errors": [],
    "error": null,
    "answer": "**Partial answer:** this does not cover total grants and contributions by department.\n\nI was unable to find a dataset specifically detailing the total grants and contributions by federal departments for the fiscal year 2025-2026. The closest dataset I found was titled \"Proactive Disclosure - Grants and Contributions,\" which provides quarterly data for various Canadian government organizations but does not include financial values in the metadata.\n\nI attempted to search for datasets with financial values by department for the fiscal year 2025-2026, but the search did not yield relevant results. If you have any specific departments or programs in mind, please let me know, and I can refine the search further.\n\n**What I searched:** *Proactive Disclosure - Grants and Contributions* (4 columns) \u00b7 *2022-23 Grants and Contributions* \u00b7 *Grants - City and Agglomeration Council* \u00b7 *2022 - Supplier and Grant Payments by Department* \u00b7 +4 more\n\n**Search terms tried:** \"federal grants and contributions by department\", \"federal grants and contributions by department fiscal year\"",
+   "flags": []
+  },
+  {
+   "id": "c4-votes-by-party",
+   "set": "get_better",
+   "question": "How did each party vote on Bill C-4?",
+   "expected_source": "parliament",
+   "expected_category": null,
+   "secs": 5.1,
+   "dollars": 0.0292,
+   "tool_calls": 2,
+   "route": {
+    "category": "in_scope",
+    "source": "parliament",
+    "source_confidence": 1.0
+   },
+   "sources": [
+    {
+     "source": "parliament",
+     "table": "Bills before Parliament",
+     "rows": 1
+    },
+    {
+     "source": "parliament",
+     "table": "House of Commons recorded votes",
+     "rows": 1
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [],
+   "error": null,
+   "answer": "Bill C-4, titled \"An Act respecting certain affordability measures for Canadians and another measure,\" was passed unanimously at its 2nd reading on June 12, 2025. The vote breakdown by party was as follows:\n\n- Conservative: Yes\n- Liberal: Yes\n- Bloc Qu\u00e9b\u00e9cois: Yes\n- NDP: Yes\n- Green: Yes\n\nThe vote result was 335 in favor and 0 against. You can view the detailed voting record [here](https://openparliament.ca/votes/45-1/8/).",
+   "flags": []
+  },
+  {
+   "id": "c4-became-law",
+   "set": "get_better",
+   "question": "Did bill C-4 become law, and who sponsored it?",
+   "expected_source": "parliament",
+   "expected_category": null,
+   "secs": 3.6,
+   "dollars": 0.021,
+   "tool_calls": 1,
+   "route": {
+    "category": "in_scope",
+    "source": "parliament",
+    "source_confidence": 0.9
+   },
+   "sources": [
+    {
+     "source": "parliament",
+     "table": "Bills before Parliament",
+     "rows": 1
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [],
+   "error": null,
+   "answer": "Bill C-4, titled \"An Act respecting certain affordability measures for Canadians and another measure\" (short title: \"Making Life More Affordable for Canadians Act\"), did become law. It was sponsored by Fran\u00e7ois-Philippe Champagne. You can find more details about the bill [here](https://openparliament.ca/bills/45-1/C-4/).",
+   "flags": []
+  },
+  {
+   "id": "poilievre-housing-speeches",
+   "set": "get_better",
+   "question": "What has Pierre Poilievre said about housing in the House of Commons recently?",
+   "expected_source": "parliament",
+   "expected_category": null,
+   "secs": 7.3,
+   "dollars": 0.033,
+   "tool_calls": 2,
+   "route": {
+    "category": "in_scope",
+    "source": "parliament",
+    "source_confidence": 0.9
+   },
+   "sources": [
+    {
+     "source": "parliament",
+     "table": "Members of Parliament",
+     "rows": 4
+    },
+    {
+     "source": "parliament",
+     "table": "House of Commons debates (Hansard)",
+     "rows": 5
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [],
+   "error": null,
+   "answer": "Recently, Pierre Poilievre has spoken extensively about housing in the House of Commons. On October 7, 2026, he criticized the current government's handling of housing affordability, citing that it takes 53% of disposable income for the average family to make payments on the average home, according to the RBC affordability index. He argued that this is the highest level since 1990, outside of the current Liberal government. Poilievre also highlighted that rent has increased by 86%, from $970 to $1,800, and questioned the effectiveness of the government's housing policies, noting that homebuilding is down 4% year over year. He called for real results instead of big promises and spending. \n\nFor more details, you can view his speeches on [October 7, 2026](https://openparliament.ca/debates/2026/10/7/pierre-poilievre-8/).",
+   "flags": []
+  },
+  {
+   "id": "aboultaif-maid-vote",
+   "set": "get_better",
+   "question": "How did Ziad Aboultaif vote on Bill C-218?",
+   "expected_source": "parliament",
+   "expected_category": null,
+   "secs": 5.3,
+   "dollars": 0.029,
+   "tool_calls": 2,
+   "route": {
+    "category": "in_scope",
+    "source": "parliament",
+    "source_confidence": 1.0
+   },
+   "sources": [
+    {
+     "source": "parliament",
+     "table": "Members of Parliament",
+     "rows": 1
+    },
+    {
+     "source": "parliament",
+     "table": "House of Commons recorded votes",
+     "rows": 1
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [],
+   "error": null,
+   "answer": "Ziad Aboultaif voted \"Yes\" on the 2nd reading of Bill C-218, An Act to amend the Criminal Code (medical assistance in dying). The vote took place on October 7, 2026, and the bill failed with 141 votes in favor and 187 against. You can view the details of the vote [here](https://openparliament.ca/votes/45-1/177/).",
+   "flags": []
+  },
+  {
+   "id": "politician-character-guard",
+   "set": "get_better",
+   "question": "Is Pierre Poilievre a good person?",
+   "expected_source": null,
+   "expected_category": "off_scope",
+   "secs": 2.1,
+   "dollars": 0.0064,
+   "tool_calls": 0,
+   "route": {
+    "category": "off_scope",
+    "source": "mixed",
+    "source_confidence": 0.5
+   },
+   "sources": [],
+   "read_data": false,
+   "tool_errors": [],
+   "error": null,
+   "answer": "MapleQuery answers questions about Canada from federal open data (open.canada.ca) and Statistics Canada's official tables. Opinion and ranking questions can't be answered from the data. You could ask instead: I can provide information on Pierre Poilievre's voting record or public statements.",
    "flags": []
   }
  ]
