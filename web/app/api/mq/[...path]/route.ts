@@ -49,12 +49,16 @@ async function relay(
   const t = token();
   if (t) headers["Authorization"] = `Bearer ${t}`;
 
-  const upstream = await fetch(`${base}/${joined}${search}`, {
+  const init: RequestInit = {
     method: req.method,
     headers,
     body: req.method === "GET" || req.method === "HEAD" ? undefined : await req.text(),
     signal: req.signal,
-  });
+  };
+
+  if (joined === "chat") return chatStream(`${base}/chat${search}`, init);
+
+  const upstream = await fetch(`${base}/${joined}${search}`, init);
 
   const out = new Headers();
   for (const name of ["content-type", "cache-control"]) {
@@ -67,6 +71,71 @@ async function relay(
     out.set("x-accel-buffering", "no");
   }
   return new Response(upstream.body, { status: upstream.status, headers: out });
+}
+
+/**
+ * `/chat`, answered before agent-service has answered.
+ *
+ * The service scales to zero, and a cold start can take longer than the
+ * window an edge function has to send its first byte: the first question
+ * after a quiet spell came back as a 504. So the stream opens at once
+ * with an SSE comment (which the client ignores), then the upstream body
+ * is piped through. An upstream failure becomes an `error` event, which
+ * the chat already renders, since the status line has been sent by then.
+ */
+function chatStream(url: string, init: RequestInit): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      controller.enqueue(encoder.encode(": connecting\n\n"));
+      // Keep the connection visibly alive through a slow cold start.
+      const beat = setInterval(() => {
+        controller.enqueue(encoder.encode(": waiting\n\n"));
+      }, 10_000);
+      try {
+        const upstream = await fetch(url, init);
+        clearInterval(beat);
+        if (!upstream.ok || !upstream.body) {
+          const detail = (await upstream.text()).slice(0, 300);
+          const frame = {
+            message: `agent-service ${upstream.status}: ${detail}`,
+            retryable: upstream.status >= 500,
+          };
+          controller.enqueue(
+            encoder.encode(`event: error\ndata: ${JSON.stringify(frame)}\n\n`),
+          );
+          controller.close();
+          return;
+        }
+        const reader = upstream.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          controller.enqueue(value);
+        }
+        controller.close();
+      } catch (err) {
+        clearInterval(beat);
+        const frame = { message: `agent-service unreachable: ${String(err)}`, retryable: true };
+        try {
+          controller.enqueue(
+            encoder.encode(`event: error\ndata: ${JSON.stringify(frame)}\n\n`),
+          );
+          controller.close();
+        } catch {
+          // The client already went away.
+        }
+      }
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache, no-transform",
+      "x-accel-buffering": "no",
+    },
+  });
 }
 
 export { relay as GET, relay as POST };
