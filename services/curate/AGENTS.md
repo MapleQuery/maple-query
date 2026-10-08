@@ -1,7 +1,7 @@
 # services/curate: read before working here
 
 Normalize (M3). Builds `curated.*` (people, name variants, Commons terms,
-linked election contributions). Design: `docs/design/people-spine.md`;
+linked election contributions, linked MP office expenses). Design: `docs/design/people-spine.md`;
 operator doc: `docs/services/curate.md`.
 
 Rules specific to this service:
@@ -19,7 +19,10 @@ Rules specific to this service:
 5. **Snapshot writes.** Each table is written whole (stage, then MERGE
    with delete), guarded against shrinking more than 50%. A re-run with
    the same inputs is a no-op.
-6. Schemas are `infra/terraform/schemas/curated_*.json`; the dataclasses in
+6. **Terms from detail records only.** openparliament's paged
+   `/politicians/memberships/` list skips and repeats rows; never read
+   terms from it.
+7. Schemas are `infra/terraform/schemas/curated_*.json`; the dataclasses in
    `src/curate/types.py` must match them (`tests/unit/test_schema_drift.py`).
 
 Checks: `uv run ruff check src tests && uv run mypy src && uv run pytest && uv run lint-imports`.

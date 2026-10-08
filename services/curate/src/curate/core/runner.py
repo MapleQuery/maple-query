@@ -18,12 +18,15 @@ from typing import IO, Any
 from curate.clients.bq import BqClient
 from curate.clients.gcs import GcsClient
 from curate.clients.openparliament import OpenParliamentClient
+from curate.clients.ourcommons import OurCommonsClient
 from curate.config.settings import Settings
 from curate.core import contributions as contrib
+from curate.core import expenses as exp
 from curate.core import people as people_mod
 from curate.core.merge import (
     PEOPLE,
     PERSON_CONTRIBUTIONS,
+    PERSON_EXPENSES,
     PERSON_NAMES,
     PERSON_TERMS,
     TableSpec,
@@ -43,6 +46,7 @@ class Deps:
     op: OpenParliamentClient | None = None
     bq: BqClient | None = None
     gcs: GcsClient | None = None
+    ourcommons: OurCommonsClient | None = None
 
 
 @dataclass
@@ -95,9 +99,9 @@ def write_table(deps: Deps, plan: Plan, spec: TableSpec, records: list[Any], *, 
 # ── people ──
 
 
-def _known_details(deps: Deps) -> dict[str, dict[str, Any]]:
-    """Detail already stored, so a run re-fetches only what is new or
-    may have changed (sitting MPs)."""
+def _stored_details(deps: Deps) -> dict[str, dict[str, Any]]:
+    """What a previous run stored, shaped like detail objects, so this
+    run re-fetches only people who are new or still sitting."""
     if deps.bq is None:
         return {}
     s = deps.settings
@@ -108,7 +112,12 @@ def _known_details(deps: Deps) -> dict[str, dict[str, Any]]:
         "WHERE given_name IS NOT NULL"
     ):
         url = str(r["openparliament_url"]).removeprefix(SITE)
-        details[url] = {"given_name": r["given_name"], "family_name": r["family_name"], "other_info": {}}
+        details[url] = {
+            "given_name": r["given_name"],
+            "family_name": r["family_name"],
+            "other_info": {},
+            "memberships": [],
+        }
     by_pid = {people_mod.person_id_for(u): u for u in details}
     for r in deps.bq.query_rows(
         f"SELECT person_id, name_raw FROM {ds}.person_names` WHERE origin = 'alternate_name'"
@@ -116,17 +125,33 @@ def _known_details(deps: Deps) -> dict[str, dict[str, Any]]:
         known_url = by_pid.get(str(r["person_id"]))
         if known_url:
             details[known_url]["other_info"].setdefault("alternate_name", []).append(r["name_raw"])
+    for r in deps.bq.query_rows(
+        f"SELECT term_id, person_id, start_date, end_date, party, riding_name, province, label "
+        f"FROM {ds}.person_terms`"
+    ):
+        known_url = by_pid.get(str(r["person_id"]))
+        if known_url:
+            details[known_url]["memberships"].append(
+                {
+                    "url": r["term_id"],
+                    "start_date": str(r["start_date"]),
+                    "end_date": str(r["end_date"]) if r.get("end_date") else None,
+                    "party": {"short_name": {"en": r.get("party")}},
+                    "riding": {"name": {"en": r.get("riding_name")}, "province": r.get("province")},
+                    "label": {"en": r.get("label")},
+                }
+            )
     return details
 
 
 def run_people(deps: Deps, plan: Plan, *, max_detail: int | None = None) -> dict[str, int]:
     assert deps.op is not None
     politicians = deps.op.list_all("/politicians/?include=all")
-    memberships = deps.op.list_all("/politicians/memberships/")
-    if not politicians or not memberships:
-        raise RuntimeError("openparliament.ca returned an empty politician or membership list")
-    current = {str(m.get("politician_url")) for m in memberships if not m.get("end_date")}
-    details = {} if plan.dry_run else _known_details(deps)
+    sitting = deps.op.list_all("/politicians/")
+    if not politicians or not sitting:
+        raise RuntimeError("openparliament.ca returned an empty politician list")
+    current = {str(p.get("url")) for p in sitting}
+    details = {} if plan.dry_run else _stored_details(deps)
     need = [
         str(p["url"]) for p in politicians if str(p.get("url")) not in details or str(p.get("url")) in current
     ]
@@ -135,12 +160,9 @@ def run_people(deps: Deps, plan: Plan, *, max_detail: int | None = None) -> dict
     for url in need:
         details[url] = deps.op.detail(url)
     deps.log.info(
-        "people_fetched",
-        politicians=len(politicians),
-        memberships=len(memberships),
-        details_fetched=len(need),
+        "people_fetched", politicians=len(politicians), sitting=len(sitting), details_fetched=len(need)
     )
-    tables = people_mod.build(politicians, memberships, details)
+    tables = people_mod.build(politicians, details)
     return {
         "people": write_table(deps, plan, PEOPLE, tables.people, stamped=True),
         "person_names": write_table(deps, plan, PERSON_NAMES, tables.names, stamped=False),
@@ -256,5 +278,42 @@ def run_contributions(
         "linked_rows": stats.linked_rows,
         "ambiguous_rows": stats.ambiguous_rows,
         "unmatched_rows": stats.unmatched_rows,
+        "skipped": dict(stats.skipped),
+    }
+
+
+# ── expenses ──
+
+
+def run_expenses(
+    deps: Deps, plan: Plan, *, people_dir: Path | None = None, max_quarters: int | None = None
+) -> dict[str, Any]:
+    assert deps.ourcommons is not None
+    index = _index(deps, people_dir)
+    refs = deps.ourcommons.quarters()
+    if max_quarters is not None:
+        refs = refs[-max_quarters:]
+    stats = exp.ExpenseStats()
+    records: list[Any] = []
+    for ref in refs:
+        records.extend(exp.link(deps.ourcommons.report(ref), index, stats))
+    deps.log.info(
+        "expenses_linked",
+        quarters=len(refs),
+        rows_read=stats.rows_read,
+        linked=stats.linked,
+        ambiguous=stats.ambiguous,
+        top_unmatched=stats.unmatched_names.most_common(25),
+        unmatched=stats.unmatched,
+        skipped=dict(stats.skipped),
+    )
+    written = write_table(deps, plan, PERSON_EXPENSES, records, stamped=False)
+    return {
+        "person_expenses": written,
+        "quarters": len(refs),
+        "rows_read": stats.rows_read,
+        "linked": stats.linked,
+        "ambiguous": stats.ambiguous,
+        "unmatched": stats.unmatched,
         "skipped": dict(stats.skipped),
     }

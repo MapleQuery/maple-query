@@ -434,7 +434,9 @@ function RailItem({ card, index }: { card: RailCard; index: number }) {
               ? `Table ${card.tableId} · ${window} · read live from StatCan`
               : card.source === "parliament"
                 ? `${describeLiveQuery(card.request)} · read live from openparliament.ca`
-                : `${window} · read live from open.canada.ca`}
+                : card.source === "curated"
+                  ? `${describeLiveQuery(card.request)} · Elections Canada and House of Commons records, linked to this person`
+                  : `${window} · read live from open.canada.ca`}
           </p>
           <div className="mt-2">
             <RowsTable
@@ -456,6 +458,7 @@ const SOURCE_LABELS: Record<string, string> = {
   statcan: "Statistics Canada data",
   "open.canada.ca": "open.canada.ca data",
   parliament: "Parliament record",
+  curated: "Linked public record",
 };
 
 /** One line for what a live query asked for. */

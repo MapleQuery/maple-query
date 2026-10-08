@@ -15,8 +15,9 @@ import typer
 from curate.clients.bq import RealBqClient
 from curate.clients.gcs import RealGcsClient
 from curate.clients.openparliament import RealOpenParliamentClient
+from curate.clients.ourcommons import RealOurCommonsClient
 from curate.config.settings import Settings
-from curate.core.runner import Deps, Plan, run_contributions, run_people
+from curate.core.runner import Deps, Plan, run_contributions, run_expenses, run_people
 from curate.providers.logging import configure_logging, get_logger
 
 app = typer.Typer(name="curate", help="MapleQuery Normalize (M3): build curated.* tables.")
@@ -80,5 +81,34 @@ def contributions(
         Plan(dry_run=dry_run, out_dir=out, allow_shrink=allow_shrink),
         source_file=source_file,
         people_dir=people_dir,
+    )
+    typer.echo(json.dumps({"run_id": settings.run_id, **summary}))
+
+
+@app.command()
+def expenses(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Write JSONL to --out instead of BigQuery."),
+    out: Path | None = typer.Option(None, "--out", help="Directory for --dry-run output."),
+    people_dir: Path | None = typer.Option(
+        None, "--people-from", help="Read people from a `curate people --dry-run` directory."
+    ),
+    max_quarters: int | None = typer.Option(None, "--max-quarters", help="Only the newest N quarters."),
+    allow_shrink: bool = typer.Option(False, "--allow-shrink", help="Override the >50% shrink guardrail."),
+) -> None:
+    """Link members' quarterly expenditures (ourcommons.ca) to people (person_expenses)."""
+    configure_logging()
+    settings = Settings()
+    deps = _deps(settings, dry_run=dry_run, need_op=False, need_gcs=False)
+    deps.ourcommons = RealOurCommonsClient(
+        base_url=settings.ourcommons_base,
+        user_agent=settings.ourcommons_user_agent,
+        timeout_s=settings.request_timeout_seconds,
+        rps=settings.ourcommons_requests_per_second,
+    )
+    summary = run_expenses(
+        deps,
+        Plan(dry_run=dry_run, out_dir=out, allow_shrink=allow_shrink),
+        people_dir=people_dir,
+        max_quarters=max_quarters,
     )
     typer.echo(json.dumps({"run_id": settings.run_id, **summary}))

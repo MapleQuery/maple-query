@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     contributions_prefix: str = "raw/country=ca/source=ckan-opencanada/organization=elections/"
     contributions_object_contains: str = "od_cntrbtn_de_e"
 
+    # House of Commons members' expenditure reports (one CSV a quarter).
+    ourcommons_base: str = "https://www.ourcommons.ca"
+    ourcommons_user_agent: str = (
+        "Mozilla/5.0 (compatible; maplequery-curate/0.1; +https://maple-query.vercel.app)"
+    )
+    ourcommons_requests_per_second: float = 1.0
+
     schemas_dir: Path = Field(default_factory=_find_schemas_dir)
     staging_ttl_hours: int = 6
     run_id: str = Field(default_factory=lambda: uuid.uuid4().hex)

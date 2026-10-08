@@ -9,8 +9,15 @@ from pathlib import Path
 
 import pytest
 
-from curate.core.merge import PEOPLE, PERSON_CONTRIBUTIONS, PERSON_NAMES, PERSON_TERMS, TableSpec
-from curate.types import Person, PersonContribution, PersonName, PersonTerm
+from curate.core.merge import (
+    PEOPLE,
+    PERSON_CONTRIBUTIONS,
+    PERSON_EXPENSES,
+    PERSON_NAMES,
+    PERSON_TERMS,
+    TableSpec,
+)
+from curate.types import Person, PersonContribution, PersonExpense, PersonName, PersonTerm
 
 SCHEMAS = Path(__file__).resolve().parents[4] / "infra" / "terraform" / "schemas"
 BOOKKEEPING = {"run_id", "updated_at"}
@@ -23,6 +30,7 @@ BOOKKEEPING = {"run_id", "updated_at"}
         (PERSON_NAMES, PersonName),
         (PERSON_TERMS, PersonTerm),
         (PERSON_CONTRIBUTIONS, PersonContribution),
+        (PERSON_EXPENSES, PersonExpense),
     ],
 )
 def test_dataclass_matches_schema(spec: TableSpec, cls: type) -> None:

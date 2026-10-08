@@ -717,7 +717,9 @@ _PERSON_RECORD: dict[str, Any] = {
         "warehouse: Commons terms (party, riding as context), and money "
         "received as a candidate or leadership/nomination contestant "
         "(Elections Canada), totalled PER RETURN with contributor types "
-        "and the largest organization contributors. Never add amounts "
+        "and the largest organization contributors; and House of Commons "
+        "office expenses per quarter (salaries, travel, hospitality, "
+        "contracts) beside the median MP that quarter. Never add amounts "
         "across a leadership campaign's weekly reports and its final "
         "return: they overlap. Individual donors are counted, never "
         "named. Takes the `politician` slug from find_politician."
@@ -2131,6 +2133,30 @@ ORDER BY monetary DESC
 LIMIT 10
 """.strip()
 
+_EXPENSES_SQL = """
+WITH mine AS (
+  SELECT fiscal_year, quarter,
+         SUM(salaries) AS salaries, SUM(travel) AS travel,
+         SUM(hospitality) AS hospitality, SUM(contracts) AS contracts
+  FROM `{ds}.person_expenses`
+  WHERE person_id = @pid AND status = 'linked'
+    AND (@since IS NULL OR period_start >= @since)
+  GROUP BY fiscal_year, quarter
+), peers AS (
+  SELECT fiscal_year, quarter,
+         APPROX_QUANTILES(travel, 2)[OFFSET(1)] AS median_travel,
+         APPROX_QUANTILES(hospitality, 2)[OFFSET(1)] AS median_hospitality,
+         APPROX_QUANTILES(contracts, 2)[OFFSET(1)] AS median_contracts,
+         APPROX_QUANTILES(salaries, 2)[OFFSET(1)] AS median_salaries
+  FROM `{ds}.person_expenses`
+  WHERE status = 'linked'
+  GROUP BY fiscal_year, quarter
+)
+SELECT * FROM mine JOIN peers USING (fiscal_year, quarter)
+ORDER BY fiscal_year, quarter
+LIMIT 40
+""".strip()
+
 _AMBIGUOUS_SQL = """
 SELECT COUNT(*) AS n FROM `{ds}.person_contributions`
 WHERE status = 'ambiguous' AND @pid IN UNNEST(candidates)
@@ -2178,6 +2204,11 @@ def run_person_record(
         ambiguous = list(
             ctx.bq.query_rows(_AMBIGUOUS_SQL.format(ds=ds), params=[pid_param])
         )
+        expenses = list(
+            ctx.bq.query_rows(
+                _EXPENSES_SQL.format(ds=ds), params=[pid_param, since_param]
+            )
+        )
     except Exception as exc:  # the curated tables may not be built yet
         return {
             "status": "source_error",
@@ -2210,11 +2241,12 @@ def run_person_record(
     )
     return {
         "status": "ok",
-        "row_count": len(rows) + len(terms),
+        "row_count": len(rows) + len(terms) + len(expenses),
         "person": _jsonable(person[0]),
         "terms": [_jsonable(t) for t in terms],
         "contributions_by_return": rows,
         "largest_organization_contributors": [_jsonable(o) for o in orgs],
+        "office_expenses_by_quarter": [_jsonable(e) for e in expenses],
         "ambiguous_records_naming_them": int(
             (ambiguous[0] if ambiguous else {}).get("n") or 0
         ),
@@ -2223,7 +2255,10 @@ def run_person_record(
             "leadership campaign's weekly reports overlap its final "
             "return: report them separately, never summed. Individual "
             "donors are aggregated (count and province only). Riding is "
-            "context."
+            "context. Office expenses are per fiscal quarter as published "
+            "by the House of Commons; compare with the same quarter's "
+            "median, not across quarters, and note that ridings differ "
+            "(distance from Ottawa drives travel)."
         ),
         "cite_as": (
             "[Elections Canada contributions]"

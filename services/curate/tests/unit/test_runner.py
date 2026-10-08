@@ -15,7 +15,7 @@ from curate.core.merge import GuardrailError
 from curate.core.runner import Deps, Plan, run_contributions, run_people
 from curate.providers.logging import get_logger
 from tests.unit.test_contributions import HEADER
-from tests.unit.test_people import DETAILS, MEMBERSHIPS, POLITICIANS
+from tests.unit.test_people import DETAILS, POLITICIANS
 
 
 class FakeOp:
@@ -23,7 +23,10 @@ class FakeOp:
         self.detail_calls: list[str] = []
 
     def list_all(self, path: str) -> list[dict[str, Any]]:
-        return POLITICIANS if path.startswith("/politicians/?") else MEMBERSHIPS
+        if path.startswith("/politicians/?include=all"):
+            return POLITICIANS
+        assert path == "/politicians/", path  # sitting MPs; never the memberships list
+        return [POLITICIANS[0]]
 
     def detail(self, path: str) -> dict[str, Any]:
         self.detail_calls.append(path)

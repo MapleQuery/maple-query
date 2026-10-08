@@ -42,7 +42,9 @@ DETAILS = {
         "given_name": "Pierre",
         "family_name": "Poilievre",
         "other_info": {"alternate_name": ["the honourable pierre poilievre", "Pierre Poilievre, M.P."]},
-    }
+        "memberships": MEMBERSHIPS[:2],
+    },
+    "/politicians/438/": {"memberships": MEMBERSHIPS[2:]},
 }
 
 
@@ -52,7 +54,7 @@ def test_person_ids_follow_the_url_slug_or_number() -> None:
 
 
 def test_people_terms_and_current_status() -> None:
-    t = build(POLITICIANS, MEMBERSHIPS, DETAILS)
+    t = build(POLITICIANS, DETAILS)
     by = {p.person_id: p for p in t.people}
     pp = by["op:pierre-poilievre"]
     assert pp.current_mp is True
@@ -66,8 +68,16 @@ def test_people_terms_and_current_status() -> None:
 
 
 def test_name_variants_collapse_to_one_normal_form() -> None:
-    t = build(POLITICIANS, MEMBERSHIPS, DETAILS)
+    t = build(POLITICIANS, DETAILS)
     pp_names = {(n.name_norm, n.origin) for n in t.names if n.person_id == "op:pierre-poilievre"}
     assert ("pierre poilievre", "openparliament_name") in pp_names
     assert ("pierre poilievre", "alternate_name") in pp_names
     assert all(norm == "pierre poilievre" for norm, _ in pp_names)
+
+
+def test_terms_come_from_each_persons_detail_only() -> None:
+    # The paged memberships list drops terms; a person with no detail has
+    # no terms rather than a partial set read from that list.
+    t = build(POLITICIANS, {})
+    assert t.terms == []
+    assert all(not p.current_mp for p in t.people)

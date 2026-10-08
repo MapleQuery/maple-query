@@ -6,7 +6,6 @@ clients/, orchestration in runner.py.
 
 from __future__ import annotations
 
-from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
@@ -39,21 +38,32 @@ class PeopleTables:
 
 def build(
     politicians: Iterable[dict[str, Any]],
-    memberships: Iterable[dict[str, Any]],
     details: dict[str, dict[str, Any]],
 ) -> PeopleTables:
-    """`details` maps a politician URL to its detail object (given and
-    family name, alternate names); people without one still get a row,
-    with names derived from the display name only."""
-    terms_by_person: dict[str, list[PersonTerm]] = defaultdict(list)
-    for m in memberships:
-        pid = person_id_for(str(m.get("politician_url")))
-        start = _date(m.get("start_date"))
-        if start is None:
-            continue
-        riding = m.get("riding") or {}
-        terms_by_person[pid].append(
-            PersonTerm(
+    """`details` maps a politician URL to its detail object: given and
+    family name, alternate names, and `memberships` (Commons terms).
+
+    Terms come from each person's detail, never from the paged
+    `/politicians/memberships/` list: that list's paging is unstable
+    (one full read returned 1,873 rows but only 1,239 distinct terms,
+    dropping e.g. Marc Garneau's 2015-2023 term). People without a
+    detail still get a row, with names from the display name only."""
+    people: list[Person] = []
+    names: dict[tuple[str, str, str], PersonName] = {}
+    all_terms: dict[str, PersonTerm] = {}
+    for p in politicians:
+        url = str(p.get("url"))
+        pid = person_id_for(url)
+        detail = details.get(url) or {}
+        given = detail.get("given_name") or None
+        family = detail.get("family_name") or None
+        terms: list[PersonTerm] = []
+        for m in detail.get("memberships") or []:
+            start = _date(m.get("start_date"))
+            if start is None:
+                continue
+            riding = m.get("riding") or {}
+            term = PersonTerm(
                 term_id=str(m.get("url")),
                 person_id=pid,
                 role="MP",
@@ -64,17 +74,9 @@ def build(
                 province=riding.get("province"),
                 label=(m.get("label") or {}).get("en"),
             )
-        )
-
-    people: list[Person] = []
-    names: dict[tuple[str, str, str], PersonName] = {}
-    for p in politicians:
-        url = str(p.get("url"))
-        pid = person_id_for(url)
-        detail = details.get(url) or {}
-        given = detail.get("given_name") or None
-        family = detail.get("family_name") or None
-        terms = sorted(terms_by_person.get(pid, []), key=lambda t: t.start_date)
+            terms.append(term)
+            all_terms[term.term_id] = term
+        terms.sort(key=lambda t: t.start_date)
         ends = [t.end_date for t in terms]
         people.append(
             Person(
@@ -107,5 +109,4 @@ def build(
         for alt in other.get("alternate_name") or []:
             add(str(alt), "alternate_name")
 
-    all_terms = [t for ts in terms_by_person.values() for t in ts]
-    return PeopleTables(people=people, names=list(names.values()), terms=all_terms)
+    return PeopleTables(people=people, names=list(names.values()), terms=list(all_terms.values()))

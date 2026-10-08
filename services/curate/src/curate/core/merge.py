@@ -35,6 +35,7 @@ class TableSpec:
 PEOPLE = TableSpec("people", "curated_people.json", ("person_id",))
 PERSON_NAMES = TableSpec("person_names", "curated_person_names.json", ("person_id", "name_norm", "origin"))
 PERSON_TERMS = TableSpec("person_terms", "curated_person_terms.json", ("term_id",))
+PERSON_EXPENSES = TableSpec("person_expenses", "curated_person_expenses.json", ("expense_key",))
 PERSON_CONTRIBUTIONS = TableSpec(
     "person_contributions", "curated_person_contributions.json", ("contribution_key",)
 )

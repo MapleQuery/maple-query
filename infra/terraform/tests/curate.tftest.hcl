@@ -16,6 +16,7 @@ run "curated_tables_live_in_curated" {
         google_bigquery_table.curated_person_names,
         google_bigquery_table.curated_person_terms,
         google_bigquery_table.curated_person_contributions,
+        google_bigquery_table.curated_person_expenses,
       ] : t.dataset_id == "curated"
     ])
     error_message = "Every curate-owned table lives in the curated dataset."

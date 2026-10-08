@@ -61,6 +61,9 @@ class FakeBq:
             )
         if "COUNT(*)" in sql:
             return iter([{"n": 0}])
+        if "person_expenses" in sql:
+            return iter([{"fiscal_year": "2024-25", "quarter": 1, "travel": Decimal("100"),
+                          "median_travel": Decimal("90")}])
         return iter([])
 
 
@@ -119,3 +122,10 @@ def test_refuses_when_disabled_or_given_a_name() -> None:
     ctx, _ = _ctx(FakeBq())
     with pytest.raises(agent_tools.InvalidToolArgsError):
         agent_tools.run_person_record(ctx=ctx, args={"politician": "Pierre Poilievre"})
+
+
+def test_expenses_come_with_the_peer_median() -> None:
+    ctx, _ = _ctx(FakeBq())
+    out = agent_tools.run_person_record(ctx=ctx, args={"politician": "x"})
+    [q] = out["office_expenses_by_quarter"]
+    assert q["travel"] == "100" and q["median_travel"] == "90"

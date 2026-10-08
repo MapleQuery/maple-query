@@ -220,5 +220,6 @@ export function turnsFromConversation(
 export function sourceCitation(s: StoredSource): string {
   if (s.source === "open.canada.ca") return `open.canada.ca, ${s.title}`;
   if (s.source === "parliament") return `openparliament.ca, ${s.title}`;
+  if (s.source === "curated") return s.title;
   return `Statistics Canada, ${s.title} (table ${s.tableId})`;
 }

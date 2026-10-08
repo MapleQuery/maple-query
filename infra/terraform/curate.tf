@@ -44,6 +44,16 @@ resource "google_bigquery_table" "curated_person_contributions" {
   schema              = file("${path.module}/schemas/curated_person_contributions.json")
 }
 
+resource "google_bigquery_table" "curated_person_expenses" {
+  project             = var.gcp_project_id
+  dataset_id          = google_bigquery_dataset.curated.dataset_id
+  table_id            = "person_expenses"
+  description         = "House of Commons members' quarterly expenditures (ourcommons.ca), linked to people. Key: expense_key."
+  deletion_protection = true
+  clustering          = ["person_id", "fiscal_year"]
+  schema              = file("${path.module}/schemas/curated_person_expenses.json")
+}
+
 # ── sa-curate ───────────────────────────────────────────────────────
 
 resource "google_service_account" "curate" {

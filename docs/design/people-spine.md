@@ -1,7 +1,9 @@
 # People spine: one table of politicians to join the record on
 
-Status: **people + contributions built** (2026-10-08) in
-[`services/curate`](../services/curate.md); MP expenses not started.
+Status: **built** (2026-10-08) in [`services/curate`](../services/curate.md):
+people, terms, linked election contributions and MP office expenses.
+Not yet applied or run against the warehouse; the agent's
+`person_record` tool is off until it is.
 Phase 2 of "hold politicians accountable". Phase 1, live Parliament
 tools (votes, bills, Hansard), shipped without new infrastructure.
 
@@ -75,7 +77,9 @@ All live in `curated`. Ids are deterministic so re-runs converge.
   for non-individual contributors), with `person_id`, `status`
   (`linked` | `ambiguous`), `candidates`, `match_method`, count and
   totals. Individual donors are never named. Key `contribution_key`.
-  Next would be `person_expenses` (MP office expenditures).
+  **`person_expenses`**, House of Commons members' quarterly office
+  expenditures (salaries, travel, hospitality, contracts), one row per
+  member per quarter, linked the same way (caucus settles namesakes).
 
 ### Riding is context, never the join
 
@@ -169,7 +173,7 @@ keeps the guard's surface unchanged. `sa-agent-service` gets read-only
 |---|---|---|---|
 | MPs, terms, name variants | openparliament.ca API (live, JSON) | `curate people` (`include=all`, memberships, per-person detail) | Built |
 | Election contributions | Elections Canada, `od_cntrbtn_de_e.zip` (212 MB ZIP of one 3.8 GB CSV, 10.85M rows), listed on open.canada.ca (org `elections`, subject `government_and_politics`) | `ingest --accept-archives` lands the ZIP unchanged; `curate contributions` streams the CSV out of it | Built |
-| MP office expenditures | ourcommons.ca proactive-disclosure pages (HTML, quarterly) | New ingest source kind (`api_kind` is `Literal["ckan"]` today) | Needs a scraper source kind |
+| MP office expenditures | ourcommons.ca proactive disclosure: a plain CSV per quarter, linked from each quarter's page | `curate expenses` reads them directly (a few 30 KB files; a new ingest source kind was not worth it). Each row keeps its source URL | Built |
 
 Ingest constraints that apply (from `services/ingest`): it queries
 by `subject` + format + optional `--limit-orgs`, with no
@@ -233,8 +237,10 @@ namesake rows settled by party.
    ZIP as published (raw stays immutable source bytes) and
    `curate contributions` streams the member straight from GCS. The
    rows never enter `raw.rows`.
-4. **Order**: people + terms (built), then contributions (built), then
-   MP expenses (needs a scraper source kind; not started).
+4. **Order**: people + terms, contributions, expenses: all built.
+5. **Terms come from per-person detail records**, not the paged
+   memberships list, which is unstable (it dropped a third of all terms
+   in one read).
    Riding context comes free from `person_terms`; no ridings table
    unless it earns one.
 

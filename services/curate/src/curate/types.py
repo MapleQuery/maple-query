@@ -66,3 +66,24 @@ class PersonContribution:
     first_received: date | None = None
     last_received: date | None = None
     source_object: str = ""
+
+
+@dataclass(frozen=True)
+class PersonExpense:
+    expense_key: str
+    person_id: str | None
+    status: str  # linked | ambiguous
+    candidates: list[str]
+    match_method: str
+    member_name: str
+    constituency: str | None
+    caucus: str | None
+    fiscal_year: str
+    quarter: int
+    period_start: date
+    period_end: date
+    salaries: str  # NUMERIC as exact decimal strings
+    travel: str
+    hospitality: str
+    contracts: str
+    source_url: str

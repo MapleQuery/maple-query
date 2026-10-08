@@ -7,6 +7,7 @@ Design and rationale: [people spine](../design/people-spine.md).
 |---|---|---|
 | `curate people` | openparliament.ca API (politicians incl. former, memberships, per-person detail) | `curated.people`, `curated.person_names`, `curated.person_terms` |
 | `curate contributions` | The Elections Canada contributions archive in `gs://maplequery-raw/raw/…organization=elections/…od_cntrbtn_de_e…zip`, plus `person_names`/`person_terms` | `curated.person_contributions` |
+| `curate expenses` | ourcommons.ca members' expenditure reports (one CSV per quarter, read directly, 1 req/s), plus `person_names`/`person_terms` | `curated.person_expenses` |
 
 ## Running
 
@@ -22,6 +23,7 @@ cd ../ingest && INGEST_GCP_PROJECT_ID=<project> \
 cd ../curate
 CURATE_GCP_PROJECT_ID=<project> uv run curate people
 CURATE_GCP_PROJECT_ID=<project> uv run curate contributions
+CURATE_GCP_PROJECT_ID=<project> uv run curate expenses
 
 # Dry runs write JSONL and never touch BigQuery or GCS
 uv run curate people --dry-run --out /tmp/curate/people --max-detail 0
@@ -30,27 +32,38 @@ uv run curate contributions --dry-run --out /tmp/curate/contrib \
 ```
 
 The first `curate people` fetches every politician's detail record
-(≈1,300 requests at 2/s, ~11 minutes). Later runs fetch only people not
-yet stored plus sitting MPs.
+(≈1,300 requests at 2/s, ~11 minutes). Later runs reuse stored terms and
+names for former MPs and fetch only new people plus sitting MPs (from
+the stable `/politicians/` list).
 
-## Measured on real data (2026-10-08, dry run)
+## Measured on real data (2026-10-08, full dry run)
 
-- people: 1,326 politicians, 1,873 Commons terms (since 1994), 6 s.
-- contributions: 10.85M rows read in 32 s with 94 MB of memory. 817K rows
-  were to candidates or contestants; 410K linked to 791 of the 952 people
-  with terms (Elections Canada's itemized data starts in 2004); 407K
-  unmatched (mostly candidates who never sat). 10,445 aggregate rows.
-  Zero surname mismatches between filed recipient and linked person.
-  All 101 namesake rows (two MPs named David Anderson) settled by the
-  party on the return.
+- **people**: 1,326 politicians, 2,797 name variants, 1,873 Commons
+  terms (since 1994). Terms come from each person's detail record:
+  openparliament's paged `/politicians/memberships/` list is unstable
+  (one read returned 1,873 rows but only 1,239 distinct terms, dropping
+  e.g. Marc Garneau's 2015-2023 term), so it is never used.
+- **contributions**: 10.85M rows in 32 s, 94 MB of memory; 817K rows to
+  candidates or contestants; **464K linked** (16,358 aggregate rows),
+  353K unmatched (mostly candidates who never sat), 0 ambiguous.
+- **expenses**: 24 quarters (2020-21 Q2 to 2026-27 Q1), 8,891 rows;
+  **8,752 linked (99.4%)**, 89 vacant seats, 50 unmatched (former
+  members reporting more than a year after leaving), 0 ambiguous.
+- Every linked name was checked against its person: the only surname
+  differences are real name changes (Rachael Harder / Thomas, Candice
+  Hoeppner / Bergen, Michelle Rempel / Rempel Garner, Jessica Fancy /
+  Fancy-Landry), carried by openparliament's alternate names.
 
 ## Linking rules
 
 1. Names normalised identically on both sides (`core/names.py`).
-2. Exact name AND the return's date within one year of one of the
-   person's terms -> `linked` (`exact_name_term`).
+2. Exact name AND the record's date within one year of one of the
+   person's terms -> `linked` (`exact_name_term`). For expenses, a
+   quarter links to a term that covers it or ended within a year before
+   it (the House reports a former member's wind-down costs).
 3. Several namesakes fit: if exactly one sat for the party named on the
-   return in the matching term -> `linked` (`exact_name_term_party`);
+   return (or the caucus on the expense report) in the matching term ->
+   `linked` (`exact_name_term_party`);
    otherwise `ambiguous` with the candidates, never resolved by hand.
 4. No fitting person -> not stored, only counted.
 
