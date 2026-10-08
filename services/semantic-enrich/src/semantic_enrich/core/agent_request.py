@@ -36,3 +36,7 @@ class ChatRequest:
     question: str
     turn_records: list[dict[str, Any]] = field(default_factory=list)
     scope_package_ids: tuple[str, ...] = ()
+    # Skip the replay-cache lookup (the result is still cached). For
+    # evals: a repeated question would otherwise measure the cache, not
+    # the agent. Costs the caller a real turn, nothing more.
+    bypass_cache: bool = False

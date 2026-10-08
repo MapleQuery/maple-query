@@ -487,7 +487,7 @@ class SessionMemory:
             prompt_hash=deps.prompt_hash,
             snapshot_hash=ctx.snapshot_hash,
         )
-        cached = self._cache.get(key)
+        cached = None if ctx.request.bypass_cache else self._cache.get(key)
         if cached is not None:
             return RecallOutcome(
                 replay=replay(

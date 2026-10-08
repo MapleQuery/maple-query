@@ -1,0 +1,479 @@
+{
+ "run_at": "2026-10-08",
+ "endpoint": "https://agent-service-f2ihvaiw6q-uc.a.run.app (direct)",
+ "fixture": "eval/questions-live-sources.yaml",
+ "baseline": null,
+ "note": "Assembled from the 2026-10-08 routing before/after runs: the latest fresh post-routing run per question (homes-needed and top-departments-grants predate routing).",
+ "total_dollars": 1.3213,
+ "skipped_for_budget": [],
+ "results": [
+  {
+   "id": "exports-us-share",
+   "set": "stay_great",
+   "question": "What percentage of Canadian exports go to the United States?",
+   "expected_source": "statcan",
+   "secs": 7.5,
+   "dollars": 0.0617,
+   "tool_calls": 4,
+   "route": {
+    "category": "in_scope",
+    "source": "statcan",
+    "source_confidence": 0.9
+   },
+   "sources": [
+    {
+     "source": "statcan",
+     "table": "International merchandise trade for all countries and by Principal Trading Partners, monthly",
+     "rows": 2
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [],
+   "error": null,
+   "answer": "As of August 2026, approximately 69.8% of Canadian exports go to the United States. This is based on a total export value of $77.9 billion, with $54.3 billion going to the United States. You can find more details in the [StatCan table](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1210001101).",
+   "flags": []
+  },
+  {
+   "id": "tariff-revenue",
+   "set": "stay_great",
+   "question": "How much revenue does Canada collect from tariffs?",
+   "expected_source": "statcan",
+   "secs": 7.0,
+   "dollars": 0.0385,
+   "tool_calls": 2,
+   "route": {
+    "category": "in_scope",
+    "source": "statcan",
+    "source_confidence": 0.9
+   },
+   "sources": [
+    {
+     "source": "statcan",
+     "table": "Canadian government finance statistics for the federal government",
+     "rows": 5
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [],
+   "error": null,
+   "answer": "In 2024, Canada collected approximately $6.16 billion from customs and other import duties. Here is a summary of the revenue from tariffs over the past five years:\n\n| Year | Revenue from Tariffs (CAD) |\n|------|----------------------------|\n| 2020 | $4.31 billion              |\n| 2021 | $5.30 billion              |\n| 2022 | $6.11 billion              |\n| 2023 | $5.71 billion (revised)    |\n| 2024 | $6.16 billion (preliminary)|\n\nThese figures are sourced from the [Canadian government finance statistics for the federal government (10-10-0016-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1010001601).",
+   "flags": []
+  },
+  {
+   "id": "gdp-per-capita-decade",
+   "set": "stay_great",
+   "question": "Has Canada's GDP per capita actually grown over the last decade?",
+   "expected_source": "statcan",
+   "secs": 8.4,
+   "dollars": 0.0585,
+   "tool_calls": 4,
+   "route": {
+    "category": "in_scope",
+    "source": "statcan",
+    "source_confidence": 0.9
+   },
+   "sources": [
+    {
+     "source": "statcan",
+     "table": "Gross domestic product per capita and other per capita macroeconomic indicators",
+     "rows": 42
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [],
+   "error": null,
+   "answer": "Canada's GDP per capita has grown by 5.5% over the last decade, from $57,754 in Q1 2016 to $60,944 in Q2 2026, measured in chained (2017) dollars. This indicates a modest increase in economic output per person over this period.\n\nFor more details, you can refer to the [Gross domestic product per capita and other per capita macroeconomic indicators (36-10-0706-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3610070601).",
+   "flags": []
+  },
+  {
+   "id": "federal-health-spending",
+   "set": "stay_great",
+   "question": "How much money does the federal government spend on healthcare?",
+   "expected_source": "statcan",
+   "secs": 5.7,
+   "dollars": 0.04,
+   "tool_calls": 2,
+   "route": {
+    "category": "in_scope",
+    "source": "statcan",
+    "source_confidence": 0.9
+   },
+   "sources": [
+    {
+     "source": "statcan",
+     "table": "Canadian classification of functions of government, by general government component",
+     "rows": 5
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [],
+   "error": null,
+   "answer": "The federal government of Canada spent approximately $65.2 billion on healthcare in 2024. Here is a summary of the healthcare spending over the past few years:\n\n| Year | Federal Healthcare Spending (in billions) |\n|------|------------------------------------------|\n| 2020 | $58.6                                    |\n| 2021 | $62.8                                    |\n| 2022 | $59.1                                    |\n| 2023 | $65.9 (revised)                          |\n| 2024 | $65.2 (preliminary)                      |\n\nThese figures are in Canadian dollars and represent the federal government's expenditure on health. For more details, you can refer to the [Canadian classification of functions of government, by general government component (10-10-0024-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1010002401).",
+   "flags": []
+  },
+  {
+   "id": "housing-per-capita-province",
+   "set": "stay_great",
+   "question": "Which provinces are building the most housing per capita?",
+   "expected_source": "statcan",
+   "secs": 10.5,
+   "dollars": 0.108,
+   "tool_calls": 7,
+   "route": {
+    "category": "in_scope",
+    "source": "statcan",
+    "source_confidence": 0.9
+   },
+   "sources": [
+    {
+     "source": "statcan",
+     "table": "Canada Mortgage and Housing Corporation, housing starts, all areas, Canada and provinces, 6-month moving average",
+     "rows": 120
+    },
+    {
+     "source": "statcan",
+     "table": "Population estimates, quarterly",
+     "rows": 10
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [],
+   "error": null,
+   "answer": "Prince Edward Island is building the most housing per capita, with approximately 0.0103 units per person. Here is a comparison of housing starts per capita for each province as of the latest data:\n\n| Province             | Housing Starts per Capita |\n|----------------------|---------------------------|\n| Newfoundland and Labrador | 0.00313                  |\n| Prince Edward Island | 0.01033                  |\n| Nova Scotia          | 0.00666                  |\n| New Brunswick        | 0.00733                  |\n| Quebec               | 0.00690                  |\n| Ontario              | 0.00370                  |\n| Manitoba             | 0.00604                  |\n| Saskatchewan         | 0.00585                  |\n| Alberta              | 0.00948                  |\n| British Columbia     | 0.00681                  |\n\nThese figures are based on the latest available data for housing starts and population estimates as of August 2026 and July 2026, respectively. [Source: Housing Starts](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3410015901), [Source: Population Estimates](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1710000901).",
+   "flags": []
+  },
+  {
+   "id": "ukraine-aid",
+   "set": "stay_great",
+   "question": "how much has canadian federal government donated to ukraine in the last year",
+   "expected_source": "payments",
+   "secs": 7.8,
+   "dollars": 0.0241,
+   "tool_calls": 1,
+   "route": {
+    "category": "in_scope",
+    "source": "payments",
+    "source_confidence": 0.9
+   },
+   "sources": [
+    {
+     "source": "open.canada.ca",
+     "table": "Proactive Disclosure - Grants and Contributions",
+     "rows": 10
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [],
+   "error": null,
+   "answer": "In the last fiscal year (2025-26), the Canadian federal government donated approximately $8.29 million to Ukraine. Note that the data for the fiscal year 2025-26 may still be incomplete. Here is a summary of donations over recent years:\n\n| Fiscal Year | Donation Amount (CAD) |\n|-------------|-----------------------|\n| 2023-24     | $486.54 million       |\n| 2024-25     | $236.26 million       |\n| 2025-26     | $8.29 million         |\n\nFor more details, you can refer to the [Proactive Disclosure - Grants and Contributions (open.canada.ca)](https://open.canada.ca/data/en/dataset/432527ab-7aac-45b5-81d6-7597107a7013/resource/1d15a62f-5656-49ad-8c88-f40ce689d831).",
+   "flags": []
+  },
+  {
+   "id": "purchasing-power-2015",
+   "set": "stay_great",
+   "question": "How much has the average Canadian household's purchasing power changed since 2015?",
+   "expected_source": "statcan",
+   "secs": 11.9,
+   "dollars": 0.1127,
+   "tool_calls": 8,
+   "route": {
+    "category": "in_scope",
+    "source": "statcan",
+    "source_confidence": 0.9
+   },
+   "sources": [
+    {
+     "source": "statcan",
+     "table": "Gross domestic product per capita and other per capita macroeconomic indicators",
+     "rows": 0
+    },
+    {
+     "source": "statcan",
+     "table": "Consumer Price Index, annual average, not seasonally adjusted",
+     "rows": 11
+    },
+    {
+     "source": "statcan",
+     "table": "Gross domestic product per capita and other per capita macroeconomic indicators",
+     "rows": 41
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [],
+   "error": null,
+   "answer": "The average Canadian household's purchasing power, as measured by real household disposable income per capita, has increased by approximately 4.9% from 2015 to 2025. This calculation accounts for inflation using the Consumer Price Index (CPI) over the same period. \n\nHere are the relevant data points:\n\n- Household disposable income per capita increased from $31,423 in Q1 2015 to $42,737 in Q1 2025.\n- The Consumer Price Index (CPI) rose from 126.6 in 2015 to 164.2 in 2025.\n\nFor more details, you can refer to the [Gross domestic product per capita and other per capita macroeconomic indicators (36-10-0706-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3610070601) and the [Consumer Price Index, annual average, not seasonally adjusted (18-10-0005-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810000501).",
+   "flags": []
+  },
+  {
+   "id": "immigration-decade",
+   "set": "stay_great",
+   "question": "How has immigration changed Canada's population growth over the last 10 years?",
+   "expected_source": "statcan",
+   "secs": 8.6,
+   "dollars": 0.0615,
+   "tool_calls": 4,
+   "route": {
+    "category": "in_scope",
+    "source": "statcan",
+    "source_confidence": 0.9
+   },
+   "sources": [
+    {
+     "source": "statcan",
+     "table": "Estimates of the components of demographic growth, annual",
+     "rows": 33
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [],
+   "error": null,
+   "answer": "Over the last decade, immigration to Canada increased by 45,036 people, from 323,188 in 2015 to 368,224 in 2025. During the same period, the number of births decreased by 9,592, from 384,300 to 374,708, while the number of deaths increased by 74,786, from 262,278 to 337,064. This indicates that immigration has played a significant role in offsetting the natural decrease in population growth due to declining births and increasing deaths.\n\nFor more details, you can refer to the [Estimates of the components of demographic growth, annual (17-10-0008-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1710000801).",
+   "flags": []
+  },
+  {
+   "id": "travel-spend-2024",
+   "set": "get_better",
+   "question": "How much did federal departments spend on travel in 2024?",
+   "expected_source": "payments",
+   "secs": 11.2,
+   "dollars": 0.0866,
+   "tool_calls": 4,
+   "route": {
+    "category": "in_scope",
+    "source": "payments",
+    "source_confidence": 0.9
+   },
+   "sources": [
+    {
+     "source": "open.canada.ca",
+     "table": "Annual Expenditures on Travel, Hospitality and Conferences",
+     "rows": 50
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [
+    "query_open_canada: filter column 'fiscal_year' is not in this table. To group or filter by fiscal_year, derive it from a date column: 'fiscal_year:mandate_description_en', 'fiscal"
+   ],
+   "error": null,
+   "answer": "In 2024, federal departments in Canada spent approximately $406.96 million on travel. This figure includes expenditures across various categories such as operational activities, key stakeholders, training, and other related expenses. \n\nFor more details, you can refer to the [Annual Expenditures on Travel, Hospitality and Conferences (open.canada.ca)](https://open.canada.ca/data/en/dataset/4ae27978-0931-49ab-9c17-0b119c0ba92f/resource/a811cac0-2a2a-4440-8a81-2994fc753171).",
+   "flags": []
+  },
+  {
+   "id": "alberta-unemployment",
+   "set": "get_better",
+   "question": "What is the unemployment rate in Alberta right now?",
+   "expected_source": "statcan",
+   "secs": 6.8,
+   "dollars": 0.0476,
+   "tool_calls": 3,
+   "route": {
+    "category": "in_scope",
+    "source": "statcan",
+    "source_confidence": 0.9
+   },
+   "sources": [
+    {
+     "source": "statcan",
+     "table": "Labour force characteristics, monthly, seasonally adjusted and trend-cycle",
+     "rows": 1
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [],
+   "error": null,
+   "answer": "The unemployment rate in Alberta as of August 2026 is 6.8%. This data is seasonally adjusted and reflects the total population aged 15 years and over. You can find more details in the [Labour force characteristics, monthly, seasonally adjusted and trend-cycle (14-10-0287-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1410028701) table.",
+   "flags": []
+  },
+  {
+   "id": "rent-since-2020",
+   "set": "get_better",
+   "question": "How much has rent increased in Canada since 2020?",
+   "expected_source": "statcan",
+   "secs": 7.3,
+   "dollars": 0.0662,
+   "tool_calls": 4,
+   "route": {
+    "category": "in_scope",
+    "source": "statcan",
+    "source_confidence": 0.9
+   },
+   "sources": [
+    {
+     "source": "statcan",
+     "table": "Asking rent and paid rent prices, by rental unit type and number of bedrooms, experimental estimates",
+     "rows": 26
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [],
+   "error": null,
+   "answer": "The average asking rent for a no-bedroom apartment in all census metropolitan areas in Canada increased by approximately 31.8% from $1,070 in the first quarter of 2020 to $1,410 in the second quarter of 2026. This data is based on experimental estimates from Statistics Canada. \n\nFor more details, you can refer to the [Asking rent and paid rent prices, by rental unit type and number of bedrooms, experimental estimates (46-10-0092-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=4610009201).",
+   "flags": []
+  },
+  {
+   "id": "un-grants-2024-25",
+   "set": "get_better",
+   "question": "How much did Canada give to the United Nations in grants and contributions in 2024-25?",
+   "expected_source": "payments",
+   "secs": 39.5,
+   "dollars": 0.033,
+   "tool_calls": 2,
+   "route": {
+    "category": "in_scope",
+    "source": "payments",
+    "source_confidence": 0.9
+   },
+   "sources": [
+    {
+     "source": "open.canada.ca",
+     "table": "Proactive Disclosure - Grants and Contributions",
+     "rows": 22
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [
+    "query_open_canada: text column 'recipient' is not in this table. Columns are: additional_information_en, additional_information_fr, agreement_end_date, agreement_number, agreement"
+   ],
+   "error": null,
+   "answer": "In the fiscal year 2024-25, Canada gave approximately $972.4 million in grants and contributions to the United Nations. This data is sourced from the [Proactive Disclosure - Grants and Contributions (open.canada.ca)](https://open.canada.ca/data/en/dataset/432527ab-7aac-45b5-81d6-7597107a7013/resource/1d15a62f-5656-49ad-8c88-f40ce689d831).",
+   "flags": []
+  },
+  {
+   "id": "debt-holders",
+   "set": "get_better",
+   "question": "Who owns Canada's government debt?",
+   "expected_source": "statcan",
+   "secs": 7.0,
+   "dollars": 0.0386,
+   "tool_calls": 2,
+   "route": {
+    "category": "in_scope",
+    "source": "statcan",
+    "source_confidence": 0.9
+   },
+   "sources": [
+    {
+     "source": "statcan",
+     "table": "Debt Securities Issues and Holdings in a From-Whom-To-Whom Framework",
+     "rows": 3
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [],
+   "error": null,
+   "answer": "As of the second quarter of 2026, Canada's government debt is primarily held by non-residents, with a total of $1,152.1 billion. Non-financial corporations hold $149.1 billion. Households and non-profit institutions serving households do not hold any of the debt. This data provides a snapshot of the distribution of Canadian government debt among different sectors.\n\nFor more details, you can refer to the [Debt Securities Issues and Holdings in a From-Whom-To-Whom Framework (36-10-0673-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3610067301).",
+   "flags": []
+  },
+  {
+   "id": "grocery-contribution",
+   "set": "get_better",
+   "question": "How much has grocery inflation contributed to the increase in household expenses?",
+   "expected_source": "statcan",
+   "secs": 9.0,
+   "dollars": 0.0666,
+   "tool_calls": 4,
+   "route": {
+    "category": "in_scope",
+    "source": "statcan",
+    "source_confidence": 0.9
+   },
+   "sources": [
+    {
+     "source": "statcan",
+     "table": "Basket weights of the Consumer Price Index, Canada, provinces, Whitehorse, Yellowknife and Iqaluit",
+     "rows": 0
+    },
+    {
+     "source": "statcan",
+     "table": "Basket weights of the Consumer Price Index, Canada, provinces, Whitehorse, Yellowknife and Iqaluit",
+     "rows": 5
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [],
+   "error": null,
+   "answer": "The contribution of grocery inflation to household expenses, as measured by the basket weight of food in the Consumer Price Index (CPI), has increased from 15.94% in 2021 to 16.93% in 2025. This indicates that food has become a slightly larger component of household expenses over this period.\n\nHere is the data for the last five years:\n\n| Year | Food Basket Weight (%) |\n|------|------------------------|\n| 2021 | 15.94                  |\n| 2022 | 16.65                  |\n| 2023 | 16.69                  |\n| 2024 | 16.91                  |\n| 2025 | 16.93                  |\n\nThis data shows a gradual increase in the weight of food expenses in the overall CPI basket, reflecting the impact of grocery inflation on household expenses. For more details, you can refer to the [Basket weights of the Consumer Price Index, Canada, provinces, Whitehorse, Yellowknife and Iqaluit (18-10-0007-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810000701).",
+   "flags": []
+  },
+  {
+   "id": "homes-needed",
+   "set": "get_better",
+   "question": "How many homes does Canada need to build each year to restore affordability?",
+   "expected_source": "statcan",
+   "secs": 8.8,
+   "dollars": 0.0734,
+   "tool_calls": 6,
+   "route": {
+    "category": "in_scope",
+    "source": null,
+    "source_confidence": null
+   },
+   "sources": [
+    {
+     "source": "statcan",
+     "table": "Estimates of the components of demographic growth, annual",
+     "rows": 11
+    },
+    {
+     "source": "statcan",
+     "table": "Canada Mortgage and Housing Corporation, housing starts, under construction and completions, all areas, annual",
+     "rows": 8
+    }
+   ],
+   "read_data": true,
+   "tool_errors": [],
+   "error": null,
+   "answer": "To understand the housing demand and supply in Canada, we can look at the recent trends in immigration and housing completions:\n\n1. **Immigration**: From 2015 to 2025, the number of immigrants to Canada has varied, with a significant increase in 2021 and 2022. For example, in 2021, there were 493,236 immigrants, and in 2022, there were 468,913 immigrants. The number is projected to be 368,224 in 2025. This indicates a strong demand for housing due to population growth driven by immigration.\n\n2. **Housing Completions**: The number of housing completions in Canada has been relatively stable, with some fluctuations. In 2022, there were 219,942 housing completions, up from 194,461 in 2015. This shows that while housing supply has increased, it may not be keeping pace with the demand driven by immigration.\n\nHere is a summary of the data:\n\n| Year | Immigrants | Housing Completions |\n|------|------------|---------------------|\n| 2015 | 323,188    | 194,461             |\n| 2021 | 493,236    | 222,670             |\n| 2022 | 468,913    | 219,942             |\n| 2025 | 368,224    | -                   |\n\nTo restore affordability, the housing supply needs to match or exceed the demand created by population growth, particularly from immigration. The gap between these figures suggests that Canada may need to increase its housing completions significantly to meet the demand.\n\nFor more detailed data, you can refer to the sources: [Estimates of the components of demographic growth, annual (17-10-0008-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1710000801) and [Canada Mortgage and Housing Corporation, housing starts, under construction and completions, all areas, annual (34-10-0126-01)](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3410012601).",
+   "flags": []
+  },
+  {
+   "id": "largest-contracts-2025",
+   "set": "known_gap",
+   "question": "Which companies received the largest federal contracts in 2025?",
+   "expected_source": "payments",
+   "secs": 39.5,
+   "dollars": 0.1835,
+   "tool_calls": 9,
+   "route": {
+    "category": "in_scope",
+    "source": "payments",
+    "source_confidence": 0.9
+   },
+   "sources": [
+    {
+     "source": "open.canada.ca",
+     "table": "Contracts over $10,000",
+     "rows": 0
+    }
+   ],
+   "read_data": false,
+   "tool_errors": [
+    "query_open_canada: where column 'fiscal_year' is not in this table. To group or filter by fiscal_year, derive it from a date column: 'fiscal_year:contract_date', 'fiscal_year:deli",
+    "query_open_canada: filter column 'fiscal_year' is not in this table. To group or filter by fiscal_year, derive it from a date column: 'fiscal_year:contract_date', 'fiscal_year:del"
+   ],
+   "error": null,
+   "answer": "I attempted to retrieve the largest federal contracts in 2025 from the \"Contracts over $10,000\" dataset, but the query did not return any results. The dataset is available on [open.canada.ca](https://open.canada.ca/data/en/dataset/d8f85d91-7dec-4fd1-8055-483b77225d8b/resource/fac950c0-00d5-4ec1-a4d3-9cbebf98a305), but it seems that the specific data for 2025 is not accessible through the current filters.",
+   "flags": []
+  },
+  {
+   "id": "top-departments-grants",
+   "set": "known_gap",
+   "question": "Which federal departments gave the most in grants and contributions last fiscal year?",
+   "expected_source": "payments",
+   "secs": 28.3,
+   "dollars": 0.2208,
+   "tool_calls": 11,
+   "route": {
+    "category": "in_scope",
+    "source": null,
+    "source_confidence": null
+   },
+   "sources": [],
+   "read_data": false,
+   "tool_errors": [],
+   "error": null,
+   "answer": "**Partial answer:** this does not cover total grants and contributions by department.\n\nI was unable to find a dataset specifically detailing the total grants and contributions by federal departments for the fiscal year 2025-2026. The closest dataset I found was titled \"Proactive Disclosure - Grants and Contributions,\" which provides quarterly data for various Canadian government organizations but does not include financial values in the metadata.\n\nI attempted to search for datasets with financial values by department for the fiscal year 2025-2026, but the search did not yield relevant results. If you have any specific departments or programs in mind, please let me know, and I can refine the search further.\n\n**What I searched:** *Proactive Disclosure - Grants and Contributions* (4 columns) \u00b7 *2022-23 Grants and Contributions* \u00b7 *Grants - City and Agglomeration Council* \u00b7 *2022 - Supplier and Grant Payments by Department* \u00b7 +4 more\n\n**Search terms tried:** \"federal grants and contributions by department\", \"federal grants and contributions by department fiscal year\"",
+   "flags": []
+  }
+ ]
+}

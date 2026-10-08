@@ -550,6 +550,33 @@ a call that already runs, not a new model call.
 - `log` records the route on `triage_result` without narrowing; `off`
   ignores it.
 
+## Live end-to-end eval (`scripts/live_eval.py`)
+
+Real questions against the deployed agent, compared with a baseline.
+Fixture: `eval/questions-live-sources.yaml` (sets `stay_great`,
+`get_better`, `known_gap`, each with its expected route). Committed
+baseline: `eval/reports/live-sources-baseline-2026-10-08.json`.
+
+```
+cd services/semantic-enrich
+uv run python scripts/live_eval.py --baseline eval/reports/live-sources-baseline-2026-10-08.json
+uv run python scripts/live_eval.py --set stay_great --max-dollars 1
+```
+
+- Goes through the web app's `/api/mq` relay (no token needed);
+  `--base` + `MAPLEQUERY_API_TOKEN` calls Cloud Run directly.
+- Costs real OpenAI money (~$0.08/question); `--max-dollars` (default 2)
+  stops starting questions before the cap.
+- Wakes the service first (a free 422) so a cold start is not scored,
+  and sends `bypass_cache` so a repeat within the replay TTL runs a real
+  turn.
+- Flags per question: error, wrong route, read no data (or data before,
+  none now), >2x slower, >1.5x costlier. Exits 1 when a `stay_great`
+  question is flagged. Figures are compared by a human: publishers
+  revise data, so the runner does not match numbers.
+- Reports land in `eval/reports/` (gitignored); commit a new baseline
+  deliberately with `git add -f`.
+
 ## Self-enforcing tool contract
 
 Every deterministic rule the system prompt used to spell out is enforced inside the tools (`core/agent_tools.py` + `core/retrieval.py`); the prompt keeps one-liners. Tool names and existing schema fields are frozen — everything below is additive or server-side. Normalization lives in `core/sql_normalize.py` and is shared by every LLM-SQL door: the agent's `run_sql` and the offline eval runner both call `normalize_sql` before the guard, so eval scores grade the SQL production actually runs.

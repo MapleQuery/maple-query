@@ -113,3 +113,20 @@ def test_classifier_output_without_a_source_still_validates() -> None:
     assert c is not None and c.source == "payments"
     c = triage_mod._validate({**parsed, "source": "bogus", "source_confidence": 7})
     assert c is not None and c.source == "mixed" and c.source_confidence == 0.0
+
+
+def test_bypass_cache_never_consults_the_replay_cache() -> None:
+    from semantic_enrich.core.agent.memory import ReplayCacheV2, SessionMemory
+
+    class NoLookups(ReplayCacheV2):
+        def get(self, key: str) -> Any:
+            raise AssertionError("replay cache consulted despite bypass_cache")
+
+    openai = FakeOpenAIClient(chat_script=[{"content": "answer."}, {"content": "answer."}])
+    deps = _deps(openai, FixedTriage("mixed", 0.0))
+    deps.memory = SessionMemory(cache=NoLookups(max_entries=10, ttl_seconds=60))
+    outcome = run_turn_collected(
+        request=ChatRequest(conversation_id="c", history=[], question="q?", bypass_cache=True),
+        deps=deps,
+    )
+    assert outcome.final_message.startswith("answer.")

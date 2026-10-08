@@ -177,3 +177,4 @@ def test_replay_emits_fresh_ids_and_record() -> None:
         if isinstance(e, agent_events.MessageDelta):
             final["message"] = final.get("message", "") + e.delta
     assert final["message"] == "the answer."
+

@@ -46,6 +46,9 @@ class ChatBody(BaseModel):
     # job here is a crude length bound — a malformed scope must degrade
     # to an unscoped turn, never to a 422.
     scope_package_ids: list[str] = Field(default_factory=list, max_length=16)
+    # Skip the replay-cache lookup; the eval runner sets it so a repeated
+    # question measures the agent, not the cache.
+    bypass_cache: bool = False
 
 
 @router.post("/chat", dependencies=[BearerAuth])
@@ -60,6 +63,7 @@ async def chat(
         question=body.question,
         turn_records=body.turn_records,
         scope_package_ids=tuple(body.scope_package_ids),
+        bypass_cache=body.bypass_cache,
     )
 
     # Session-span parent lookup is a no-op (None) when tracing is off;

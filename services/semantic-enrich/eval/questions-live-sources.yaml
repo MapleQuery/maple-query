@@ -1,0 +1,91 @@
+# Live end-to-end eval: real questions against the DEPLOYED agent
+# (scripts/live_eval.py). Each run costs real OpenAI money, about $0.08
+# a question, so the runner has a spend cap.
+#
+# Sets:
+#   stay_great  answered well before source routing (2026-10-08); must
+#               keep answering from the same source with the same figures.
+#   get_better  answered badly before routing; the bar is "not worse".
+#   known_gap   no source can answer them yet; they are kept here so
+#               a fix shows up as one.
+#
+# expected_source is the route triage should pick (statcan | payments |
+# warehouse | mixed). Figures drift as publishers revise data, so answers
+# are compared against the baseline report by a human, not by matching
+# numbers.
+
+- id: exports-us-share
+  set: stay_great
+  expected_source: statcan
+  question: "What percentage of Canadian exports go to the United States?"
+- id: tariff-revenue
+  set: stay_great
+  expected_source: statcan
+  question: "How much revenue does Canada collect from tariffs?"
+- id: gdp-per-capita-decade
+  set: stay_great
+  expected_source: statcan
+  question: "Has Canada's GDP per capita actually grown over the last decade?"
+- id: federal-health-spending
+  set: stay_great
+  expected_source: statcan
+  question: "How much money does the federal government spend on healthcare?"
+  note: The first cut of routing sent this to payments (itemized health grants).
+- id: housing-per-capita-province
+  set: stay_great
+  expected_source: statcan
+  question: "Which provinces are building the most housing per capita?"
+- id: ukraine-aid
+  set: stay_great
+  expected_source: payments
+  question: "how much has canadian federal government donated to ukraine in the last year"
+  note: Must show recent fiscal years; the newest is usually still being reported.
+- id: purchasing-power-2015
+  set: stay_great
+  expected_source: statcan
+  question: "How much has the average Canadian household's purchasing power changed since 2015?"
+- id: immigration-decade
+  set: stay_great
+  expected_source: statcan
+  question: "How has immigration changed Canada's population growth over the last 10 years?"
+
+- id: travel-spend-2024
+  set: get_better
+  expected_source: payments
+  question: "How much did federal departments spend on travel in 2024?"
+- id: alberta-unemployment
+  set: get_better
+  expected_source: statcan
+  question: "What is the unemployment rate in Alberta right now?"
+- id: rent-since-2020
+  set: get_better
+  expected_source: statcan
+  question: "How much has rent increased in Canada since 2020?"
+- id: un-grants-2024-25
+  set: get_better
+  expected_source: payments
+  question: "How much did Canada give to the United Nations in grants and contributions in 2024-25?"
+- id: debt-holders
+  set: get_better
+  expected_source: statcan
+  question: "Who owns Canada's government debt?"
+- id: grocery-contribution
+  set: get_better
+  expected_source: statcan
+  question: "How much has grocery inflation contributed to the increase in household expenses?"
+- id: homes-needed
+  set: get_better
+  expected_source: statcan
+  question: "How many homes does Canada need to build each year to restore affordability?"
+  note: No published target exists; a good answer reports the measured inputs and says so.
+
+- id: largest-contracts-2025
+  set: known_gap
+  expected_source: payments
+  question: "Which companies received the largest federal contracts in 2025?"
+  note: The contracts table is too slow on open.canada.ca for a whole-year scan.
+- id: top-departments-grants
+  set: known_gap
+  expected_source: payments
+  question: "Which federal departments gave the most in grants and contributions last fiscal year?"
+  note: A full fiscal year of grants is >160K rows; needs a Public Accounts table.
