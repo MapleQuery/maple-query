@@ -260,7 +260,11 @@ TABLE_ALIASES: dict[int, str] = {
     34100126: "housing starts completions homes built supply province annual",
     12100171: "exports imports trade partner united states china share",
     10100016: "federal revenue customs import duties tariffs taxes expense deficit surplus debt",
-    10100005: "government spending function health healthcare defence education social protection",
+    10100024: (
+        "federal government spending function health healthcare defence education "
+        "social protection by level of government"
+    ),
+    10100005: "all governments combined consolidated spending function health defence education",
     10100002: "federal debt national debt owe liabilities",
     36100673: "who holds owns government debt bonds holders securities",
     14100287: "jobs unemployment rate employment labour force",
@@ -443,6 +447,41 @@ def build_coordinates(meta: dict[str, Any], series: list[list[int]]) -> tuple[li
             parts.append(str(member.get("memberNameEn")))
         coords.append(".".join(str(x) for x in [*s, *([0] * (10 - len(s)))]))
         labels.append("; ".join(parts))
+    return coords, labels
+
+
+MAX_PROBES = 40
+
+
+def neighbour_series(meta: dict[str, Any], series: list[int]) -> list[list[int]]:
+    """Every series that differs from `series` in exactly one dimension,
+    nearest dimensions last-first (measure/unit dimensions tend to sit
+    late, and that is where an unpublished combination usually goes
+    wrong), capped so one probe stays one request."""
+    dims = meta.get("dimension") or []
+    out: list[list[int]] = []
+    for i in reversed(range(len(dims))):
+        for m in dims[i].get("member") or []:
+            mid = m.get("memberId")
+            if isinstance(mid, int) and mid != series[i]:
+                out.append([*series[:i], mid, *series[i + 1 :]])
+            if len(out) >= MAX_PROBES:
+                return out
+    return out
+
+
+def build_coordinates_unchecked(
+    meta: dict[str, Any], series: list[list[int]]
+) -> tuple[list[str], list[str]]:
+    """`build_coordinates` without the per-call series cap, for probes
+    whose members come from the table's own metadata."""
+    dims = meta.get("dimension") or []
+    names = [
+        {m.get("memberId"): str(m.get("memberNameEn")) for m in d.get("member") or []}
+        for d in dims
+    ]
+    coords = [".".join(str(x) for x in [*s, *([0] * (10 - len(s)))]) for s in series]
+    labels = ["; ".join(names[i].get(mid, "?") for i, mid in enumerate(s)) for s in series]
     return coords, labels
 
 

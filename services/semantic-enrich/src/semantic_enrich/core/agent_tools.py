@@ -339,8 +339,10 @@ _SEARCH_STATCAN_TABLES: dict[str, Any] = {
         "  12-10-0171-01 merchandise trade by country, annual\n"
         "  10-10-0016-01 federal government finance: revenue (incl. "
         "customs import duties), expense, debt\n"
-        "  10-10-0005-01 government spending by function (health, "
-        "defence, education) by level of government\n"
+        "  10-10-0024-01 government spending by function (health, "
+        "defence, education) for the FEDERAL government and each other "
+        "level\n"
+        "  10-10-0005-01 spending by function, all governments combined\n"
         "  10-10-0002-01 central government debt, monthly\n"
         "  36-10-0673-01 who holds government debt securities\n"
         "  14-10-0287-01 labour force, monthly"
@@ -1552,6 +1554,38 @@ def run_search_statcan_tables(
     return payload
 
 
+def _attach_alternatives(
+    client: StatCanClient,
+    pid: int,
+    meta: dict[str, Any],
+    series_out: list[dict[str, Any]],
+) -> None:
+    """For a series StatCan does not publish, find the one-member-away
+    combinations it does, so the model's retry is a pick, not a guess."""
+    for entry in series_out:
+        if not entry.get("missing"):
+            continue
+        coord = str(entry.get("coordinate") or "")
+        try:
+            wanted = [int(x) for x in coord.split(".")]
+        except ValueError:
+            continue
+        width = len(meta.get("dimension") or [])
+        candidates = statcan_tools.neighbour_series(meta, wanted[:width])
+        if not candidates:
+            continue
+        try:
+            coords, labels = statcan_tools.build_coordinates_unchecked(meta, candidates)
+            found = client.series_latest_n(pid, coords, 1)
+        except StatCanError:
+            continue
+        entry["published_alternatives"] = [
+            {"series": [int(x) for x in c.split(".")[:width]], "label": label}
+            for c, label, obj in zip(coords, labels, found, strict=True)
+            if not obj.get("missing") and obj.get("vectorDataPoint")
+        ][:10]
+
+
 def run_describe_statcan_table(
     *, ctx: ToolContext, args: dict[str, Any]
 ) -> dict[str, Any]:
@@ -1622,6 +1656,7 @@ def run_get_statcan_data(
         end_period=end,
         keep_last=keep_last,
     )
+    _attach_alternatives(client, pid, meta, series_out)
     tid = statcan_tools.table_id(pid)
     title = str(meta.get("cubeTitleEn") or "")
     url = statcan_tools.table_url(pid)

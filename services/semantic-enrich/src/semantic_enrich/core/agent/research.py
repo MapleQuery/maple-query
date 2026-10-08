@@ -19,6 +19,7 @@ import contextvars
 import json
 from collections.abc import Generator, Iterable
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from functools import partial
 from typing import Any, Literal
 
@@ -57,6 +58,18 @@ def run(
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": deps.system_prompt},
+        # The model's own sense of "now" is its training cutoff. Without
+        # this, "the last decade" meant 2013-2023 against data running to
+        # 2026. Per turn, not in the system prompt: the prompt's bytes key
+        # the replay cache and must not change daily.
+        {
+            "role": "system",
+            "content": (
+                f"Today is {date.today().isoformat()}. Interpret 'now', 'last "
+                "year' and 'the last decade' from this date and the latest "
+                "period the data has."
+            ),
+        },
     ]
     if hints:
         messages.append(
