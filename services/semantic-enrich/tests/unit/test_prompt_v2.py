@@ -14,7 +14,9 @@ from semantic_enrich.core.agent_loop import load_system_prompt
 from semantic_enrich.core.agent_tools import TOOL_NAMES
 from semantic_enrich.core.agent_tracing import count_prompt_tokens
 
-PROMPT_V2_TOKEN_BUDGET = 1_300
+# Raised from 1,300 when the live StatCan source landed: choosing
+# between two sources is routing prose no tool can own.
+PROMPT_V2_TOKEN_BUDGET = 1_700
 
 
 def _rendered() -> str:

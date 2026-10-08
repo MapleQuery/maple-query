@@ -179,10 +179,15 @@ def _datasets_used(
     ctx: TurnContext, result: ResearchResult
 ) -> list[dict[str, str | None]]:
     titles = titles_by_package(ctx)
-    return [
+    used: list[dict[str, str | None]] = [
         {"package_id": pid, "title": titles.get(pid)}
         for pid in result.packages_cited
     ]
+    used.extend(
+        {"package_id": f"statcan:{tid}", "title": title}
+        for tid, title in ctx.state.statcan_tables.items()
+    )
+    return used
 
 
 def assemble_explore_inputs(

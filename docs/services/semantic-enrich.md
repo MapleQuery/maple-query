@@ -485,6 +485,32 @@ session:<conversation_id>            one root per conversation (created once,
 - **Prompt gauge**: `system_prompt_gauge` is logged at startup with the tiktoken count of the rendered system prompt; a unit test bounds it under 3.0K tokens so silent prompt growth fails CI.
 - **Kill switch**: `WHENRICH_AGENT_TRACE_SESSIONS=false` (or simply no Braintrust key) turns every wrapper into a passthrough; the loop's event stream is identical either way.
 
+## Live StatCan tools (`clients/statcan.py`, `core/statcan_tools.py`)
+
+Three agent tools read Statistics Canada's Web Data Service at question
+time; nothing is ingested and the warehouse is never touched:
+
+| Tool | WDS call | Returns |
+| -- | -- | -- |
+| `search_statcan_tables(query, k)` | `getAllCubesListLite` (cached 6 h) | ranked tables: id, title, frequency, date range, current/archived |
+| `describe_statcan_table(product_id, member_filter)` | `getCubeMetadata` (LRU) | dimensions with member ids; large dimensions truncated toward `member_filter` |
+| `get_statcan_data(product_id, series, start_period, end_period, latest_n)` | `getDataFromCubePidCoordAndLatestNPeriods` | per-series points with unit and scalar, plus a `cite_as` markdown link |
+
+- Search is lexical: IDF-weighted title overlap, a synonym/phrase map
+  (`inflation` → consumer price index, `purchasing power` → real income
+  + CPI), a boost for current tables. No embedding cost.
+- Unknown member ids, a wrong series width or an unparseable period are
+  `InvalidToolArgsError`s that name the fix. An unreachable WDS returns
+  `status: source_error, reason: statcan_unavailable`: the model is told
+  not to guess.
+- Each data fetch lands in `TurnTrace.sql_runs` tagged `source: statcan`,
+  so verify, the evidence footer and the turn record treat it as answer
+  evidence. StatCan tables are tracked in `LoopState.statcan_tables`,
+  never in the warehouse package sets, so suggestion chips never scope
+  a turn to them.
+- Events: `source_search` and `source_data` (additive; the web rail
+  renders both).
+
 ## Self-enforcing tool contract
 
 Every deterministic rule the system prompt used to spell out is enforced inside the tools (`core/agent_tools.py` + `core/retrieval.py`); the prompt keeps one-liners. Tool names and existing schema fields are frozen — everything below is additive or server-side. Normalization lives in `core/sql_normalize.py` and is shared by every LLM-SQL door: the agent's `run_sql` and the offline eval runner both call `normalize_sql` before the guard, so eval scores grade the SQL production actually runs.

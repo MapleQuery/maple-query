@@ -265,6 +265,40 @@ function reducer(state: StreamState, action: Action): StreamState {
             ],
           };
 
+        case "source_search":
+          return {
+            ...state,
+            cards: [
+              ...state.cards,
+              {
+                id: uuid(),
+                kind: "source_search",
+                source: payload.source,
+                query: payload.query,
+                candidates: payload.candidates,
+              },
+            ],
+          };
+
+        case "source_data":
+          return {
+            ...state,
+            cards: [
+              ...state.cards,
+              {
+                id: uuid(),
+                kind: "source_data",
+                source: payload.source,
+                tableId: payload.table_id,
+                title: payload.title,
+                url: payload.url,
+                request: payload.request,
+                rowCount: payload.row_count,
+                rows: payload.rows,
+              },
+            ],
+          };
+
         case "suggestions":
           return { ...state, suggestions: payload.items };
 

@@ -46,6 +46,26 @@ export function Message({ role, content, streaming, meta }: MessageProps) {
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
+                a({ href, children }) {
+                  const url = href ?? "";
+                  if (url.startsWith("/")) {
+                    return (
+                      <Link href={url} className="text-navy underline decoration-coral/40 underline-offset-2 hover:decoration-coral">
+                        {children}
+                      </Link>
+                    );
+                  }
+                  return (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-navy underline decoration-coral/40 underline-offset-2 hover:decoration-coral"
+                    >
+                      {children}
+                    </a>
+                  );
+                },
                 code({ className, children, ...props }) {
                   const text = String(children ?? "");
                   const isBlock = className?.startsWith("language-");

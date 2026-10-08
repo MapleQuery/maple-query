@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import contextvars
 import json
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
@@ -90,8 +91,8 @@ CLASSIFIER_SCHEMA: dict[str, Any] = {
 }
 
 _DEFLECTION_BASE = (
-    "MapleQuery answers questions from Canadian **federal** open data "
-    "(open.canada.ca)."
+    "MapleQuery answers questions about Canada from federal open data "
+    "(open.canada.ca) and Statistics Canada's official tables."
 )
 
 # Fixed clauses keyed on the classifier's sub-reason — never free text,
@@ -107,7 +108,11 @@ _REASON_CLAUSES: dict[str, str] = {
     "opinion": (
         "Opinion and ranking questions can't be answered from the data."
     ),
-    "non_canada": "Data about other countries isn't in the corpus.",
+    "non_canada": (
+        "Another country's own statistics aren't covered — only Canada's "
+        "data, including Canada's trade, aid and migration with other "
+        "countries."
+    ),
     "personal": "It holds no personal or private records.",
     "jailbreak": "That request falls outside what it can help with.",
     "other": "That question falls outside what the data can answer.",
@@ -117,7 +122,8 @@ _HINT_MAX_CHARS = 160
 
 IDENTITY_LINE = (
     "MapleQuery is a research agent that answers questions from "
-    "Canadian federal open data (open.canada.ca). It doesn't disclose "
+    "Canadian federal open data (open.canada.ca) and Statistics "
+    "Canada's official tables. It doesn't disclose "
     "or discuss its underlying model configuration."
 )
 
@@ -421,6 +427,14 @@ def off_scope_message(
     parts = [_DEFLECTION_BASE, _REASON_CLAUSES[reason]]
     hint = (deflection_hint or "").strip()
     if reason != "jailbreak" and _valid_hint(hint):
+        # The classifier often phrases the hint as a suggestion already
+        # ("You could ask about …"); don't stack a second lead-in on it.
+        hint = re.sub(
+            r"^(you (could|can|might) (ask|try)( about| instead)?:?|try asking( about)?:?)\s*",
+            "",
+            hint,
+            flags=re.IGNORECASE,
+        )
         parts.append(f"You could ask instead: {hint}")
     return " ".join(parts)
 

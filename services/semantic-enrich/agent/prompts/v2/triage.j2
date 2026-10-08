@@ -1,9 +1,12 @@
 Classify one user question for MapleQuery, a research agent that
-answers questions from Canadian FEDERAL open data (open.canada.ca):
-published datasets on spending, contracts, travel expenses, trade,
-housing, immigration, education, and program operations. It cannot
-answer news or current events, opinions or rankings, provincial or
-municipal politics, other countries, or personal data.
+answers questions about Canada from official government data: federal
+open data (open.canada.ca: spending, grants, contracts, travel
+expenses, program operations) AND Statistics Canada's official tables
+(inflation, GDP, income, wages, jobs, population and immigration,
+housing starts, trade by country, government revenue, spending and
+debt — national and by province). It cannot answer news or current
+events, opinions or rankings, provincial or municipal politics, other
+countries' own internal data, or personal data.
 
 Categories:
 - in_scope: plausibly answerable from Canadian federal open data —
@@ -36,7 +39,16 @@ Rules:
 - meta is the corpus as a whole (how many datasets, how fresh, what
   model). A subject or named dataset is explore.
 - Questions mixing federal with provincial scope are in_scope; the
-  answer will state the federal boundary.
+  answer will state the federal boundary. Statistics broken down BY
+  province (housing starts, population, prices) are in_scope.
+- Canada's money, trade or people going to or coming from another
+  country (aid to Ukraine, exports to the US, immigrants from India)
+  is Canadian data and in_scope. non_canada is only for another
+  country's OWN internal affairs (US unemployment, UK budget).
+- Economy-wide questions (purchasing power, cost of living, GDP per
+  capita, debt, tariff revenue, housing supply) are in_scope even when
+  phrased loosely or as a policy question; the answer reports the
+  measured data.
 - Spending and expenses by FEDERAL politicians, officials, and
   departments are in_scope — federal travel- and expense-report
   datasets exist.
@@ -90,6 +102,15 @@ Q: what kind of housing data do you have? -> explore (subject-scoped
   contents question; not corpus-wide, so not meta)
 Q: show me what the trade data looks like -> explore
 Q: what time range does the contracts data cover -> explore
+Q: how much has canada donated to ukraine in the last year -> in_scope
+  (Canadian federal aid spending; grants data names recipient countries)
+Q: what percentage of Canadian exports go to the United States -> in_scope
+Q: which provinces are building the most housing per capita -> in_scope
+Q: how many homes does Canada need to build each year -> in_scope
+  (answered from housing starts and population growth data)
+Q: how much has household purchasing power changed since 2015 -> in_scope
+Q: how much revenue does Canada collect from tariffs -> in_scope
+Q: what is the US unemployment rate -> off_scope (non_canada)
 Q: how much did the government spend on air travel -> in_scope
 Q: how many housing grants were approved in 2022 -> in_scope
   (a count from the data, not a description of it)

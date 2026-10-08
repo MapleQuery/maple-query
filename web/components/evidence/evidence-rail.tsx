@@ -13,6 +13,8 @@ import {
   AlertTriangle,
   Clock,
   CheckCircle2,
+  BarChart3,
+  ExternalLink,
 } from "lucide-react";
 import { DatasetCard } from "./dataset-card";
 import { ColumnList } from "./column-list";
@@ -25,6 +27,7 @@ import type {
   ColumnCandidateT,
   DatasetCandidateT,
   DerivationT,
+  SourceCandidateT,
 } from "@/lib/types";
 
 export type RailCard =
@@ -91,6 +94,24 @@ export type RailCard =
       id: string;
       kind: "derivation";
       derivation: DerivationT;
+    }
+  | {
+      id: string;
+      kind: "source_search";
+      source: string;
+      query: string;
+      candidates: SourceCandidateT[];
+    }
+  | {
+      id: string;
+      kind: "source_data";
+      source: string;
+      tableId: string;
+      title: string;
+      url: string;
+      request: Record<string, unknown>;
+      rowCount: number;
+      rows: Record<string, unknown>[];
     };
 
 export interface EvidenceRailProps {
@@ -111,7 +132,7 @@ export function EvidenceRail({
       <div className="border-b border-hairline bg-canvas/70 px-5 py-4">
         <h2 className="font-display text-lg font-medium text-ink">Evidence</h2>
         <p className="text-xs text-muted">
-          Live trace of retrieval, guardrails, and SQL behind the answer.
+          Every source, query and row behind the answer.
         </p>
       </div>
       <div className="flex-1 overflow-y-auto px-5 py-5">
@@ -313,6 +334,73 @@ function RailItem({ card, index }: { card: RailCard; index: number }) {
 
     case "derivation":
       return <DerivationCard index={index} derivation={card.derivation} />;
+
+    case "source_search":
+      return (
+        <RailShell
+          index={index}
+          icon={<BarChart3 className="h-4 w-4" />}
+          title="Statistics Canada tables"
+          meta={`${card.candidates.length} found`}
+        >
+          <p className="text-xs text-body">
+            Query: <span className="font-mono text-ink">{card.query}</span>
+          </p>
+          <ol className="mt-2 space-y-1.5">
+            {card.candidates.slice(0, 5).map((c) => (
+              <li key={c.product_id} className="text-xs leading-snug">
+                <a
+                  href={c.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-ink hover:text-navy hover:underline"
+                >
+                  {c.title}
+                </a>
+                <span className="ml-1 font-mono text-[10px] text-muted">
+                  {c.table_id} · {c.frequency}
+                  {c.end ? ` · to ${c.end}` : ""}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </RailShell>
+      );
+
+    case "source_data": {
+      const req = card.request as {
+        start_period?: string | null;
+        end_period?: string | null;
+      };
+      const window =
+        req.start_period || req.end_period
+          ? `${req.start_period ?? "…"} → ${req.end_period ?? "latest"}`
+          : "latest periods";
+      return (
+        <RailShell
+          index={index}
+          icon={<BarChart3 className="h-4 w-4 text-teal" />}
+          title="Statistics Canada data"
+          meta={`${card.rowCount.toLocaleString()} values`}
+        >
+          <a
+            href={card.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group inline-flex items-start gap-1 text-xs font-medium leading-snug text-ink hover:text-navy"
+          >
+            <span className="group-hover:underline">{card.title}</span>
+            <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-muted" />
+          </a>
+          <p className="mt-0.5 font-mono text-[10px] text-muted">
+            Table {card.tableId} · {window} · read live from StatCan
+          </p>
+          <div className="mt-2">
+            <RowsTable rows={card.rows} maxRows={500} />
+          </div>
+        </RailShell>
+      );
+    }
 
     default:
       // exhaustiveness for TS

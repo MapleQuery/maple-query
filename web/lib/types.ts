@@ -164,6 +164,33 @@ const Suggestions = z.object({
   items: z.array(Suggestion).default([]),
 });
 
+const SourceCandidate = z.object({
+  product_id: z.number(),
+  table_id: z.string(),
+  title: z.string().nullable().optional(),
+  frequency: z.string().nullable().optional(),
+  start: z.string().nullable().optional(),
+  end: z.string().nullable().optional(),
+  current: z.boolean().optional(),
+  url: z.string(),
+});
+
+const SourceSearch = z.object({
+  source: z.string(),
+  query: z.string(),
+  candidates: z.array(SourceCandidate).default([]),
+});
+
+const SourceData = z.object({
+  source: z.string(),
+  table_id: z.string(),
+  title: z.string(),
+  url: z.string(),
+  request: z.record(z.unknown()).default({}),
+  row_count: z.number(),
+  rows: RowsShape.default([]),
+});
+
 const Done = z.object({
   turn_id: z.string(),
   total_tool_calls: z.number(),
@@ -195,6 +222,8 @@ export const AgentEventSchemas = {
   turn_record: TurnRecord,
   derivation: Derivation,
   suggestions: Suggestions,
+  source_search: SourceSearch,
+  source_data: SourceData,
   done: Done,
   error: ErrorEvt,
 } as const;
@@ -211,6 +240,7 @@ export type DatasetCandidateT = z.infer<typeof DatasetCandidate>;
 export type ColumnCandidateT = z.infer<typeof ColumnCandidate>;
 export type DerivationT = z.infer<typeof Derivation>;
 export type SuggestionT = z.infer<typeof Suggestion>;
+export type SourceCandidateT = z.infer<typeof SourceCandidate>;
 
 // ---------------------------------------------------------------------------
 // REST endpoints

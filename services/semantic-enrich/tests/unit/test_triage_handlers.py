@@ -35,7 +35,7 @@ def _fresh_corpus_cache() -> None:
         ("provincial", "Provincial and municipal"),
         ("news", "News and current events"),
         ("opinion", "Opinion and ranking"),
-        ("non_canada", "other countries"),
+        ("non_canada", "Another country"),
         ("personal", "personal or private records"),
         ("jailbreak", "outside what it can help with"),
         ("other", "outside what the data can answer"),
@@ -48,7 +48,7 @@ def test_off_scope_renders_the_fixed_clause_per_sub_reason(
         sub_reason=sub_reason, deflection_hint=None
     )
     assert message.startswith(
-        "MapleQuery answers questions from Canadian **federal** open data"
+        "MapleQuery answers questions about Canada from federal open data"
     )
     assert fragment in message
 

@@ -21,9 +21,10 @@ import { truncate, uuid } from "@/lib/utils";
 import { track } from "@/lib/analytics";
 
 const SUGGESTIONS = [
-  "Which federal departments spent the most on IT consulting in 2023?",
-  "Compare housing grant approvals across provinces since 2020.",
-  "How has immigration PR processing time changed since 2019?",
+  "How much has grocery inflation outpaced overall inflation since 2020?",
+  "Which provinces are building the most housing per capita?",
+  "What percentage of Canadian exports go to the United States?",
+  "Which departments gave the most in grants and contributions last year?",
 ];
 
 export interface ChatContainerProps {
@@ -402,12 +403,13 @@ function EmptyState() {
         Chat + evidence rail
       </p>
       <h1 className="font-display text-3xl font-medium tracking-tight text-ink md:text-4xl">
-        What do you want to know about the corpus?
+        What do you want to know about Canada?
       </h1>
       <p className="mt-3 text-body">
-        Ask in plain language. MapleQuery will search datasets, generate SQL,
-        pass it through the guard, and stream the answer with a live trace on
-        the right.
+        Ask in plain language. MapleQuery reads Statistics Canada&apos;s official
+        tables live and queries thousands of federal open datasets, then
+        cites every number. The trace on the right shows each source and
+        query.
       </p>
     </div>
   );

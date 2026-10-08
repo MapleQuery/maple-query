@@ -30,8 +30,13 @@ from google.cloud import bigquery
 
 from semantic_enrich.clients.bq import BqClient
 from semantic_enrich.clients.openai import OpenAIClient
+from semantic_enrich.clients.statcan import (
+    RealStatCanClient,
+    StatCanClient,
+    StatCanError,
+)
 from semantic_enrich.config.settings import Settings
-from semantic_enrich.core import agent_events
+from semantic_enrich.core import agent_events, statcan_tools
 
 # What counts as a synthesised positional name is owned by
 # `header_recovery`, which also has to reason about it; this module keeps
@@ -85,6 +90,9 @@ TOOL_NAMES = (
     "sample_rows",
     "run_sql",
     "describe_corpus",
+    "search_statcan_tables",
+    "describe_statcan_table",
+    "get_statcan_data",
 )
 
 _LOG = get_logger("semantic_enrich.agent_tools")
@@ -106,6 +114,9 @@ def tool_schemas() -> list[dict[str, Any]]:
         {"type": "function", "function": _SAMPLE_ROWS},
         {"type": "function", "function": _RUN_SQL},
         {"type": "function", "function": _DESCRIBE_CORPUS},
+        {"type": "function", "function": _SEARCH_STATCAN_TABLES},
+        {"type": "function", "function": _DESCRIBE_STATCAN_TABLE},
+        {"type": "function", "function": _GET_STATCAN_DATA},
     ]
 
 
@@ -288,6 +299,105 @@ _DESCRIBE_CORPUS: dict[str, Any] = {
 }
 
 
+_SEARCH_STATCAN_TABLES: dict[str, Any] = {
+    "name": "search_statcan_tables",
+    "description": (
+        "Search Statistics Canada's ~8,000 official statistical tables, "
+        "read live from StatCan. Use for economy-wide statistics: "
+        "inflation/CPI (incl. food, shelter, gasoline components), GDP and "
+        "GDP per capita, income, wages, employment, population and its "
+        "components (immigration, births, deaths), housing starts, trade "
+        "by country and product, government revenue, spending by function "
+        "(health, defence ...), debt and deficits. Query with StatCan "
+        "vocabulary (e.g. 'consumer price index', 'components of "
+        "demographic growth', 'housing starts', 'merchandise trade by "
+        "country', 'government finance statistics')."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["query"],
+        "properties": {
+            "query": {"type": "string", "description": "Search phrase."},
+            "k": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 15,
+                "description": "Number of candidates (default 8).",
+            },
+        },
+    },
+}
+
+
+_DESCRIBE_STATCAN_TABLE: dict[str, Any] = {
+    "name": "describe_statcan_table",
+    "description": (
+        "Dimensions and member ids of one StatCan table, needed before "
+        "get_statcan_data. Large dimensions are truncated to the members "
+        "matching member_filter plus top-level members; pass "
+        "member_filter (e.g. 'Ontario food United States') to surface "
+        "the members you need."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["product_id"],
+        "properties": {
+            "product_id": {
+                "type": "string",
+                "description": "8-digit product id (18100004) or table id (18-10-0004-01).",
+            },
+            "member_filter": {
+                "type": "string",
+                "description": "Words to match against member names in large dimensions.",
+            },
+        },
+    },
+}
+
+
+_GET_STATCAN_DATA: dict[str, Any] = {
+    "name": "get_statcan_data",
+    "description": (
+        "Fetch values for up to 12 series from one StatCan table. Each "
+        "series is a list of member ids, exactly one per dimension, in "
+        "dimension order (from describe_statcan_table). Give "
+        "start_period (and optionally end_period) for a time range, or "
+        "latest_n for the most recent periods. Values carry a unit and "
+        "a scalar (e.g. 'millions') that you must apply."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["product_id", "series"],
+        "properties": {
+            "product_id": {"type": "string"},
+            "series": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 12,
+                "items": {"type": "array", "items": {"type": "integer"}},
+            },
+            "start_period": {
+                "type": "string",
+                "description": "Earliest period, e.g. 2015 or 2015-01.",
+            },
+            "end_period": {
+                "type": "string",
+                "description": "Latest period, e.g. 2024 or 2024-12.",
+            },
+            "latest_n": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000,
+                "description": "Most recent N periods when no start_period is given (default 12).",
+            },
+        },
+    },
+}
+
+
 # ── Runtime types ──
 
 
@@ -379,6 +489,10 @@ class LoopState:
     # Set when the cap-reached guidance was served; the turn record
     # uses it to tag a question-shaped final message as a clarify.
     clarify_steer_issued: bool = False
+    # StatCan tables read this turn: table_id → title. Citations and the
+    # evidence footer read it; the warehouse-side package sets above
+    # never hold StatCan ids, so suggestion chips never scope to them.
+    statcan_tables: dict[str, str] = field(default_factory=dict)
 
 
 EmitFn = Callable[[agent_events.AgentEvent], None]
@@ -396,6 +510,9 @@ class ToolContext:
     # Exported turn-span string for explicit tool-span parenting. None
     # when tracing is off or the caller drives `run_turn` untraced.
     trace_parent: str | None = None
+    # Live StatCan client. None = the process-wide default, so the many
+    # places that build a ToolContext don't each have to thread one.
+    statcan: StatCanClient | None = None
 
 
 class InvalidToolArgsError(ValueError):
@@ -1243,7 +1360,174 @@ SELECT
 """.strip()
 
 
+# ── StatCan live tools ──
+
+_STATCAN_LOCK = threading.Lock()
+_STATCAN_DEFAULT: StatCanClient | None = None
+
+
+def _statcan(ctx: ToolContext) -> StatCanClient:
+    global _STATCAN_DEFAULT
+    if ctx.statcan is not None:
+        return ctx.statcan
+    with _STATCAN_LOCK:
+        if _STATCAN_DEFAULT is None:
+            _STATCAN_DEFAULT = RealStatCanClient()
+        return _STATCAN_DEFAULT
+
+
+def _statcan_error(exc: Exception) -> dict[str, Any]:
+    return {
+        "status": "source_error",
+        "reason": "statcan_unavailable",
+        "message": (
+            f"Statistics Canada did not answer ({exc}). Say the live "
+            "StatCan source was unreachable; do not guess values."
+        ),
+    }
+
+
+def _codes_or_none(client: StatCanClient) -> dict[str, Any] | None:
+    try:
+        return client.code_sets()
+    except StatCanError as exc:
+        # Units degrade to raw codes; the values themselves are intact.
+        _LOG.warning("statcan_code_sets_failed", error=str(exc))
+        return None
+
+
+def run_search_statcan_tables(
+    *, ctx: ToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
+    query = _require_str(args, "query")
+    k = _optional_int(args, "k", default=8, min_=1, max_=15)
+    try:
+        cubes = _statcan(ctx).list_cubes()
+    except StatCanError as exc:
+        return _statcan_error(exc)
+    candidates = statcan_tools.search_tables(cubes, query, k=k)
+    ctx.emit(
+        agent_events.SourceSearch(
+            source="statcan", query=query, candidates=candidates
+        )
+    )
+    payload: dict[str, Any] = {"status": "ok", "candidates": candidates}
+    if not candidates:
+        payload["guidance"] = (
+            "No StatCan table titles matched. Retry once with StatCan "
+            "vocabulary (e.g. 'consumer price index', 'gross domestic "
+            "product', 'components of demographic growth')."
+        )
+    return payload
+
+
+def run_describe_statcan_table(
+    *, ctx: ToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
+    try:
+        pid = statcan_tools.parse_product_id(args.get("product_id"))
+    except ValueError as exc:
+        raise InvalidToolArgsError(str(exc)) from exc
+    member_filter = args.get("member_filter")
+    if member_filter is not None and not isinstance(member_filter, str):
+        raise InvalidToolArgsError("member_filter must be a string")
+    client = _statcan(ctx)
+    try:
+        meta = client.cube_metadata(pid)
+    except StatCanError as exc:
+        return _statcan_error(exc)
+    out = statcan_tools.describe_table(
+        meta, _codes_or_none(client), member_filter=member_filter
+    )
+    ctx.state.statcan_tables[out["table_id"]] = str(out.get("title") or "")
+    return {"status": "ok", **out}
+
+
+def run_get_statcan_data(
+    *, ctx: ToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
+    try:
+        pid = statcan_tools.parse_product_id(args.get("product_id"))
+    except ValueError as exc:
+        raise InvalidToolArgsError(str(exc)) from exc
+    series = args.get("series")
+    if not isinstance(series, list) or not all(
+        isinstance(s, list) and all(isinstance(m, int) for m in s)
+        for s in series
+    ):
+        raise InvalidToolArgsError("series must be a list of integer lists")
+    start = args.get("start_period")
+    end = args.get("end_period")
+    for key, val in (("start_period", start), ("end_period", end)):
+        if val is not None and not isinstance(val, str):
+            raise InvalidToolArgsError(f"{key} must be a string")
+    latest_n = _optional_int(args, "latest_n", default=0, min_=0, max_=1000)
+    client = _statcan(ctx)
+    try:
+        meta = client.cube_metadata(pid)
+    except StatCanError as exc:
+        return _statcan_error(exc)
+    try:
+        coords, labels = statcan_tools.build_coordinates(meta, series)
+        freq = int(meta.get("frequencyCode") or 0)
+        n = statcan_tools.latest_n_for(freq, start, latest_n or None)
+    except ValueError as exc:
+        raise InvalidToolArgsError(str(exc)) from exc
+    try:
+        objects = client.series_latest_n(pid, coords, n)
+    except StatCanError as exc:
+        return _statcan_error(exc)
+    series_out, rows = statcan_tools.shape_series(
+        objects,
+        labels,
+        frequency_code=freq,
+        codes=_codes_or_none(client),
+        start_period=start,
+        end_period=end,
+    )
+    tid = statcan_tools.table_id(pid)
+    title = str(meta.get("cubeTitleEn") or "")
+    url = statcan_tools.table_url(pid)
+    ctx.state.statcan_tables[tid] = title
+    request = {
+        "product_id": pid,
+        "coordinates": coords,
+        "start_period": start,
+        "end_period": end,
+        "latest_n": n,
+    }
+    ctx.emit(
+        agent_events.SourceData(
+            source="statcan",
+            table_id=tid,
+            title=title,
+            url=url,
+            request=request,
+            row_count=len(rows),
+            rows=rows[:500],
+        )
+    )
+    payload: dict[str, Any] = {
+        "status": "ok",
+        "table_id": tid,
+        "title": title,
+        "url": url,
+        "series": series_out,
+        "row_count": len(rows),
+        "cite_as": f"[{title} ({tid})]({url})",
+    }
+    if not rows:
+        payload["guidance"] = (
+            "No values in that window. Check the table's date range "
+            "(describe_statcan_table) or widen start_period."
+        )
+    return payload
+
+
 _IMPLS: dict[str, Callable[..., dict[str, Any]]] = {
+    "search_statcan_tables": run_search_statcan_tables,
+    "describe_statcan_table": run_describe_statcan_table,
+    "get_statcan_data": run_get_statcan_data,
     "search_datasets": run_search_datasets,
     "search_columns": run_search_columns,
     "list_documents": run_list_documents,

@@ -43,6 +43,8 @@ EventType = Literal[
     "turn_record",
     "derivation",
     "suggestions",
+    "source_search",
+    "source_data",
 ]
 
 PhaseName = Literal["triage", "memory", "research", "verify", "answer"]
@@ -394,6 +396,43 @@ class Suggestions(_EventBase):
         return "suggestions"
 
 
+@dataclass(frozen=True)
+class SourceSearch(_EventBase):
+    """A search over a live statistical source (StatCan WDS today).
+
+    Each candidate is `{table_id, product_id, title, frequency, start,
+    end, current, url}`. Additive and emit-only, like `Suggestions`."""
+
+    source: str
+    query: str
+    candidates: list[dict[str, Any]]
+
+    @property
+    def event_type(self) -> EventType:
+        return "source_search"
+
+
+@dataclass(frozen=True)
+class SourceData(_EventBase):
+    """Series values read live from a statistical source.
+
+    `request` is the exact call made (table, coordinates, period window)
+    so the user can reproduce it; `rows` are flat `{series, period,
+    value, unit, scalar}` records the evidence table renders as-is."""
+
+    source: str
+    table_id: str
+    title: str
+    url: str
+    request: dict[str, Any]
+    row_count: int
+    rows: list[dict[str, Any]]
+
+    @property
+    def event_type(self) -> EventType:
+        return "source_data"
+
+
 AgentEvent = (
     TurnStart
     | CacheHit
@@ -421,6 +460,8 @@ AgentEvent = (
     | TurnRecordEvent
     | DerivationEvent
     | Suggestions
+    | SourceSearch
+    | SourceData
 )
 
 
@@ -451,6 +492,8 @@ _EVENT_CLASSES: dict[str, type[_EventBase]] = {
     "turn_record": TurnRecordEvent,
     "derivation": DerivationEvent,
     "suggestions": Suggestions,
+    "source_search": SourceSearch,
+    "source_data": SourceData,
 }
 
 

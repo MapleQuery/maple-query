@@ -300,6 +300,26 @@ def _record_trace(
                 and pid not in ctx.trace.packages_researched
             ):
                 ctx.trace.packages_researched.append(pid)
+    elif tc.name == "get_statcan_data":
+        # A live StatCan read is this turn's answer evidence the same way
+        # a successful run_sql is: verify, the evidence footer and the
+        # turn record all key on `sql_runs`, so it lands there, tagged.
+        ctx.trace.sql_runs.append(
+            {
+                "sql": (
+                    f"StatCan table {result.get('table_id')} "
+                    f"series={tc.arguments.get('series')} "
+                    f"start={tc.arguments.get('start_period')} "
+                    f"end={tc.arguments.get('end_period')}"
+                ),
+                "status": status,
+                "row_count": result.get("row_count"),
+                "null_ratio_warning": None,
+                "source": "statcan",
+                "table_id": result.get("table_id"),
+                "title": result.get("title"),
+            }
+        )
     elif tc.name == "run_sql":
         sql = str(tc.arguments.get("sql", ""))
         entry: dict[str, Any] = {

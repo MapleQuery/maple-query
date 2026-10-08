@@ -217,9 +217,9 @@ class Settings(BaseSettings):
     # pipeline, whose policy phases (reformulate → list → sample → sql
     # with a verify retry possible) legitimately need more headroom —
     # the parity run showed budget-forced surrenders at 6.
-    agent_max_tool_calls: int = 8
+    agent_max_tool_calls: int = 12
     agent_max_sql_executions: int = 2
-    agent_turn_timeout_seconds: int = 60
+    agent_turn_timeout_seconds: int = 90
     # Parallel tool-call fan-out ceiling per assistant response.
     agent_parallel_tool_calls: int = 3
 
