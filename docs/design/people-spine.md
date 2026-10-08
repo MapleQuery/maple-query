@@ -50,6 +50,7 @@ All live in `curated`. Ids are deterministic so re-runs converge.
   `origin` (openparliament alternate names, Hansard attribution, a
   confirmed match from a source). `name_norm` = casefolded,
   accent-stripped, honorifics removed. This is what linking matches on.
+- **`ridings`**: see "Riding joins" below.
 - **`person_terms`**: `(person_id, role, start_date)` with `end_date`,
   party, riding name and number, province. From openparliament
   memberships. Answers "who held riding R on date D".
@@ -60,27 +61,90 @@ All live in `curated`. Ids are deterministic so re-runs converge.
   `document_id:row_index` for warehouse rows. Cluster
   `source_system, person_id`.
 
-Riding-level joins (grants by `federal_riding_name`) need **no**
-row-level links: `person_terms` already answers "who held this riding
-then", so the agent joins on riding and date range at question time.
-Row-level links are only for sources that name a person (contributions,
-lobbying communications, expense reports).
+### Riding joins: possible, partial, and easy to get wrong
 
-### What the agent needs to read it
+Checked against live data on 2026-10-08, not assumed:
 
-Three blockers in today's agent, all small:
+- **Coverage is about a fifth.** In the 2,000 newest grants and
+  contributions rows, 22% carry `federal_riding_name_en` /
+  `federal_riding_number`. Grants to individuals (`recipient_type = P`,
+  the largest group) never do; organizations mostly do. So "grants to
+  X's riding" can only ever mean grants to *organizations* located there,
+  and every answer has to say so. The postal code is present on 92% of
+  rows, but mapping postal codes to ridings needs StatCan's Postal Code
+  Conversion File, which is licensed, not open.
+- **Riding numbers are not stable ids.** Ridings were redrawn for the
+  2025 election (2023 Representation Order), and numbers were reused. In
+  the grants data, `48018` is *Edmonton Riverbend* (2013 order); in
+  openparliament.ca, `48018` is *Edmonton Manning* (2023 order), while
+  the grants data has Edmonton Manning as `48016`. Joining on the number
+  attaches money to the wrong MP, silently.
+- **Names differ in punctuation:** `Kanata--Carleton` vs `Kanata—Carleton`.
 
-1. **SQL allow-list.** `settings.eval_allowed_datasets = ("raw",
-   "semantic")` and `sql_guard._dataset_violation` reject any other
-   dataset. Add `curated`.
-2. **The `raw.rows` rule.** The guard requires a literal `document_id
-   IN (...)` on `raw.rows` and refuses joins through it, so
-   "`person_links` → `raw.rows`" cannot run. Links therefore carry the
-   values a question needs (date, amount, counterpart name) copied
-   from the row at link time, rather than pointing back into
-   `raw.rows`. Copying costs little; the guard keeps the 200 GB table
-   safe.
-3. **IAM.** `sa-agent-service` has no grant on `curated`.
+So the join is **(normalised riding name, representation order inferred
+from the agreement date) → riding → term**, never the bare number. That
+needs one more small table, **`ridings`**: `(riding_key, order, number,
+name_variants, valid_from, valid_to)`, built from Elections Canada's
+published electoral-district lists for both the 2013 and 2023 orders
+(openparliament's riding ids follow the 2023 order, and it relabels
+older memberships onto them, so it cannot supply the 2013 numbering). Grant rows without a riding
+stay unlinked, and answers say what share of the money that leaves out.
+
+Row-level person links are only for sources that name a person
+(contributions, lobbying communications, expense reports).
+
+### What the agent needs to read it: the SQL guard
+
+Every SQL statement the model writes goes through
+`services/semantic-enrich/src/semantic_enrich/core/sql_guard.py` before
+BigQuery sees it. The checks, in order, first failure wins:
+
+1. Length 20 B–20 KB; a single statement; no forbidden keyword
+   (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, `CREATE`, `DROP`, `ALTER`,
+   `GRANT`, `REVOKE`, `TRUNCATE`, `CALL`); the root is a `SELECT`.
+2. **Dataset allow-list** (`_dataset_violation`): every table must live
+   in a dataset listed in `settings.eval_allowed_datasets`, today
+   `("raw", "semantic")`. A query naming `curated.people` is rejected
+   with `sql_dataset_not_allowed: curated`. This is the "allow-list".
+3. Project: an explicit project id must be ours.
+4. **The `raw.rows` rule** (`_document_id_filter_violation`): any query
+   that touches `raw.rows` must contain a literal
+   `document_id IN ('…','…')`. A subquery IN or a JOIN to find the ids
+   is rejected (`sql_no_document_id_filter`).
+5. Dry run: BigQuery estimates bytes; over the cap (50 GB) is rejected.
+6. A `LIMIT 100` wrapper is added if missing.
+
+**Why `raw.rows` matters at all.** It is where the warehouse's data
+actually is: every row of every ingested CSV, ~200 GB, one JSON object
+per row. `raw.documents` and `semantic.*` are catalogs *about* that data;
+any number the agent reports from the warehouse comes out of `raw.rows`.
+Contributions, once ingested, would land there too.
+
+**Why the rule exists.** `raw.rows` is clustered by `document_id`, and
+BigQuery can only skip the clusters it doesn't need when the ids are
+literals it can read at planning time. A JOIN or subquery that *finds*
+the ids makes it scan the whole table: about 200 GB, ~$1.25 a query at
+on-demand prices, every time. The rule forces the agent to pick
+specific documents first (`list_documents`), then query only those.
+
+**What that means for people links.** The agent will never be able to
+write "join `person_links` to `raw.rows`": the ids would come from a
+join, which the rule forbids. So the link builder (offline, not the
+agent) copies the values a question needs from the row into
+`person_links` (date, amount, counterpart name, document title) when it
+creates the link. The agent then reads only `curated`, which is small.
+`raw.rows` stays protected and is read only by the offline stage, scoped
+by `document_id` like everything else.
+
+Changes needed, all small:
+
+1. Add `"curated"` to `eval_allowed_datasets` (one setting) and to the
+   table-name normaliser (`core/sql_normalize.py` only rewrites
+   `raw.rows` today).
+2. `roles/bigquery.dataViewer` on `curated` for `sa-agent-service`
+   (Terraform, `agent_service.tf`).
+3. Better still, a `person_record` tool so the model rarely writes SQL
+   over these tables at all.
 
 Better than raw SQL for the model: one tool, `person_record(person,
 since, sources)`, that returns a politician's terms, votes (live),
@@ -130,26 +194,49 @@ each run's `run_id` records when a link last changed.
 - Agent: queries against `curated` are small and stay under the guard's
   existing byte cap.
 
-## Decisions needed
+## Decisions
 
-1. **Bring M3 into scope.** `ARCHITECTURE.md` says everything right of
-   Extract is "out of scope for now" and `curated` is "TBD". This
-   design is the first M3 work; the doc needs updating when it's approved.
-2. **New service (`services/curate`) or a subcommand of
-   `warehouse-load`.** Recommendation: a new service. It reads an
-   external API, which warehouse-load never does, and it owns a
-   different dataset and service account.
-3. **Lobbying data**: manual monthly upload, or ask the Commissioner.
-4. **Which first**: contributions are ready once ingest reads ZIPs.
-   Recommendation: people + terms + contributions first, then expenses
-   (needs a scraper), then lobbying.
+1. **M3 is not built, so this starts it.** The old `ARCHITECTURE.md`
+   said "only Ingest is in scope", which was stale: Extract, Enrich and
+   the Agent are all built. Normalize (M3) is the one stage that is
+   genuinely missing: `bq.curated` exists in Terraform but has no tables
+   and nothing writes to it. "In scope" means building it, starting with
+   this. `ARCHITECTURE.md` now shows the stages as they are.
+2. **New service: `services/curate`** (decided 2026-10-08). It calls an
+   external API, owns a different dataset and gets its own service
+   account; warehouse-load does none of those.
+3. **Lobbying data**: still open. This is the federal Registry of
+   Lobbyists, run by the Office of the Commissioner of Lobbying:
+   *registrations* (who is paid to lobby which institutions, on what
+   subjects) and *monthly communication reports* (every arranged
+   communication between a lobbyist and a designated public office
+   holder (an MP, minister or senior official), with the date and
+   subject). It is what makes "who lobbied MP X before the vote"
+   answerable. The files are published, but lobbycanada.gc.ca serves
+   them behind a Cloudflare bot challenge (every scripted request gets a
+   403), and we do not work around that. Options: a person downloads
+   them monthly into `gs://…/raw/` with provenance, or we ask the
+   Commissioner's office for an unchallenged download.
+4. **ZIP reading has to be built.** Nothing in ingest or warehouse-load
+   opens an archive today: a "CSV" that is really a ZIP is sniffed as
+   `zip` and never lands as CSV, and warehouse-load only parses CSV/TSV.
+   Both contribution and lobbying files are ZIPs. Proposed: ingest
+   extracts CSV members at landing (one GCS object per member, with the
+   archive's `document_id` and member name recorded), so everything
+   downstream stays CSV-only.
+5. **Order**: people + terms + ridings first (no ingest needed, the
+   openparliament API is enough), then ZIP extraction + contributions,
+   then expenses (needs a scraper), then lobbying once access is sorted.
 
 ## Drift found while mapping (fix alongside)
 
-- `ARCHITECTURE.md` lists `bq.raw.ingest_watermark`; no such table
-  exists. Ingest's only cursor is `--since`.
+- ~~`ARCHITECTURE.md` lists `bq.raw.ingest_watermark`~~ (removed; no
+  such table existed. Ingest's only cursor is `--since`.)
+- ~~`ARCHITECTURE.md` says only Ingest is in scope~~ (updated to the
+  stages as built).
+- ~~`docs/services/ingest.md` says "No BigQuery"~~ (updated: loading is
+  warehouse-load's job; known limits listed).
 - No service-local `AGENTS.md` exists, though the root one requires
   them.
 - `ingest` and `warehouse-load` have no CI; only agent-service deploys
   are gated.
-- `docs/services/ingest.md` still says "No BigQuery".

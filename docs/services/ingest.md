@@ -46,6 +46,19 @@ INGEST_GCP_PROJECT_ID=<your-project> \
 
 ## Scope of this service
 
-Today: GCS writes + JSONL run log. **No BigQuery.**
+GCS writes + JSONL run log. BigQuery loading is not done here: the run
+log is read by [`services/warehouse-load`](warehouse-load.md), which
+writes `raw.documents` and `raw.rows`.
 
-Follow-up: a loader reads JSONL files and inserts rows into `raw.documents`; the metadata- and content-hash-based dedup ladder lands at the same time. The JSONL shape matches the eventual table schema so the follow-up is load-only — no re-ingest from CKAN.
+Known limits:
+
+- **No archive extraction.** A resource declared as CSV that is really a
+  ZIP (Elections Canada contributions, the lobbying registry) is sniffed
+  as `zip`, fails the requested-format check, and is not landed as CSV.
+  warehouse-load only parses `csv`/`tsv` bodies anyway.
+- **No per-package selection.** A run takes everything matching
+  `subject` + format (+ `--limit-orgs`).
+- **Size cap.** Downloads over 512 MiB fail and are quarantined as
+  `download_failed`.
+- **CKAN only.** `api_kind` is `Literal["ckan"]`; scraped HTML sources
+  (e.g. ourcommons.ca expenditure reports) need a new source kind.

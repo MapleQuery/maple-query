@@ -11,17 +11,31 @@ never through direct calls.
 ## Stages
 
 ```
-       ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
-sources│  Ingest  │ →  │ Extract  │ →  │Normalize │ →  │  Agent   │
-       │  (M1)    │    │  (M2)    │    │  (M3)    │    │  (M4)    │
-       └──────────┘    └──────────┘    └──────────┘    └──────────┘
-            │               │                │                │
-            ▼               ▼                ▼                ▼
-        gs://maplequery-raw     bq.raw.*  →   bq.curated.*   answers
+            ┌─────────┐   ┌────────────────┐   ┌────────────────┐   ┌───────────┐
+ CKAN ────▶ │ Ingest  │──▶│ Extract        │──▶│ Enrich         │──▶│  Agent    │──▶ answers
+(open.      │ (M1)    │   │ warehouse-load │   │ semantic-enrich│   │ (M4)      │
+ canada.ca) └────┬────┘   │ (M2)           │   │                │   │ semantic- │
+                 ▼        └───────┬────────┘   └───────┬────────┘   │ enrich +  │
+       gs://maplequery-raw        ▼                    ▼            │ agent-    │
+                           bq.raw.documents     bq.semantic.datasets│ service   │
+                           bq.raw.rows          bq.semantic.columns └─────┬─────┘
+                           bq.raw.column_index  (summaries+embeddings)    │ live APIs
+                                                                          ▼
+                                         StatCan WDS · open.canada.ca DataStore · openparliament.ca
+
+                   ┌──────────────┐
+  (not built yet)  │ Normalize    │ ──▶ bq.curated.*   (dataset exists, no tables)
+                   │ (M3)         │
+                   └──────────────┘
 ```
 
-Only the Ingest stage is in scope today. Everything to the right of
-Extract is out of scope for now.
+| Stage | Service | Status |
+| -- | -- | -- |
+| Ingest (M1) | `services/ingest` | Built. CKAN `package_search` by subject/format/org → GCS + run log. CSV only in practice: there is no archive (ZIP) extraction. |
+| Extract (M2) | `services/warehouse-load` | Built. Run log → `raw.documents` (MERGE on `document_id`); CSV bodies → `raw.rows` (one JSON row per CSV row). |
+| Enrich | `services/semantic-enrich` | Built. Per-dataset and per-column descriptions + embeddings → `semantic.*`, used for dataset search. |
+| Agent (M4) | `services/semantic-enrich` (loop, tools, prompts) served by `services/agent-service` | Built and deployed (Cloud Run, on push to `main`). Reads the warehouse with guarded SQL and three live APIs. |
+| Normalize (M3) | — | **Not built.** `bq.curated` exists in Terraform with no tables and no writer. First proposed work: the [people spine](docs/design/people-spine.md). |
 
 ### Live sources (no ingest)
 
@@ -67,5 +81,8 @@ they constrain how earlier stages must shape their output.
 | `gs://maplequery-raw/raw/...` | Ingest | Immutable raw source bytes. Path scheme is the public contract. |
 | `gs://maplequery-raw/quarantine/...` | Ingest | Files that failed safety checks; 30-day TTL. |
 | `gs://maplequery-raw/sandbox/...` | (any) | Ad-hoc experiments; 7-day TTL. Never read by production code. |
-| `bq.raw.documents` | Ingest | One row per ingested file. |
+| `bq.raw.documents` | Extract (warehouse-load) | One row per ingested file, keyed on `document_id` = sha256(source_url ‖ checksum). |
+| `bq.raw.rows` | Extract (warehouse-load) | One row per CSV body row: `(document_id, row_index, row JSON)`, clustered by `document_id`, ~200 GB. Header names become JSON keys; every value is a string. |
+| `bq.raw.column_index` | Extract (warehouse-load) | `(col_name, file_count, document_ids)` over `raw.rows`. |
+| `bq.semantic.datasets` / `bq.semantic.columns` | Enrich (semantic-enrich) | Descriptions + 1536-dim embeddings per package / column; vector search for the agent. |
 | `bq.curated.*` | Normalize (M3) | TBD. First proposed tables: [people spine](docs/design/people-spine.md). |
