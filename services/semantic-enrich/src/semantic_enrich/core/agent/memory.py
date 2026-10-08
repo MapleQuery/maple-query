@@ -157,6 +157,11 @@ class ReplayCacheV2:
             return len(self._entries)
 
 
+# Live-source rows are the answer's evidence, not a preview, so a replay
+# keeps more of them than of a SQL sample.
+_DIGEST_SOURCE_ROWS = 200
+
+
 def build_digest(
     events: list[agent_events.AgentEvent],
 ) -> list[dict[str, Any]]:
@@ -192,7 +197,19 @@ def build_digest(
                     ],
                 }
             )
-        elif kind in ("sql_generated", "verification", "turn_record", "done"):
+        elif kind == "source_data":
+            digest.append(
+                {**payload, "rows": payload.get("rows", [])[:_DIGEST_SOURCE_ROWS]}
+            )
+        elif kind in (
+            "sql_generated",
+            "sql_guarded",
+            "source_search",
+            "derivation",
+            "verification",
+            "turn_record",
+            "done",
+        ):
             digest.append(payload)
     if message:
         # One collapsed delta, placed before the terminal events.

@@ -485,6 +485,7 @@ export function ChatContainer({
             streaming={state.status === "streaming"}
             suggestions={turns.length === 0 ? SUGGESTIONS : []}
             initialText={turns.length === 0 ? initialQuestion : undefined}
+            autoFocus={turns.length === 0}
           />
         </div>
       </div>

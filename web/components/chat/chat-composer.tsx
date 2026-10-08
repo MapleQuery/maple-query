@@ -13,6 +13,8 @@ export interface ChatComposerProps {
   placeholder?: string;
   /** Pre-fill the composer, e.g. from a `?q=` link on the landing page. */
   initialText?: string;
+  /** Focus the input on mount — an empty chat has nothing else to do. */
+  autoFocus?: boolean;
 }
 
 export function ChatComposer({
@@ -23,6 +25,7 @@ export function ChatComposer({
   suggestions = [],
   placeholder = "Ask in plain language. MapleQuery will show its work.",
   initialText,
+  autoFocus,
 }: ChatComposerProps) {
   const [text, setText] = React.useState(initialText ?? "");
   const taRef = React.useRef<HTMLTextAreaElement>(null);
@@ -37,6 +40,10 @@ export function ChatComposer({
   React.useEffect(() => {
     autosize();
   }, [text, autosize]);
+
+  React.useEffect(() => {
+    if (autoFocus) taRef.current?.focus();
+  }, [autoFocus]);
 
   const submit = (value: string) => {
     const trimmed = value.trim();
@@ -65,6 +72,14 @@ export function ChatComposer({
         onSubmit={(e) => {
           e.preventDefault();
           submit(text);
+        }}
+        // The whole box reads as the input; a click on its padding
+        // should not land nowhere.
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) {
+            e.preventDefault();
+            taRef.current?.focus();
+          }
         }}
         className={cn(
           "flex items-end gap-2 rounded-xl border border-hairline bg-white p-2 shadow-sm transition-colors focus-within:ring-2 focus-within:ring-navy",
