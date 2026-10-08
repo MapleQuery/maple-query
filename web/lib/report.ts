@@ -16,6 +16,7 @@
  * building the document.
  */
 
+import { sourceCitation } from "./turn-to-block";
 import {
   chartData,
   renderChartSvg,
@@ -226,9 +227,7 @@ export function buildReport(
     }
     const cited = [
       ...(b.result?.packageIds ?? []).map(name),
-      ...(b.result?.sources ?? []).map(
-        (s) => `Statistics Canada, ${s.title} (table ${s.tableId}), ${s.url}`,
-      ),
+      ...(b.result?.sources ?? []).map((s) => `${sourceCitation(s)}, ${s.url}`),
     ];
     if (cited.length > 0) {
       push({ kind: "note", text: `Sources: ${cited.join("; ")}` });

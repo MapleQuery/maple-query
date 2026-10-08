@@ -37,6 +37,11 @@ in `services/semantic-enrich`) instead of copying them into BigQuery:
 - **Live** (StatCan WDS): economy- and population-wide statistics: CPI,
   GDP, income, jobs, population components, housing starts, trade by
   country, government finance. Fetched per series, cited to the table.
+- **Live** (open.canada.ca CKAN DataStore): the full proactive-disclosure
+  tables (grants and contributions, contracts over $10K, travel,
+  hospitality), including the multi-GB files the warehouse never held.
+  CKAN filters server-side; grouping, sums and amendment de-duplication
+  run in `core/opencanada_tools.py` over at most 30,000 matching rows.
 
 Rule of thumb for a new source: mirror it only when the publisher has no
 query API, or when answering needs joins across its raw rows. Otherwise

@@ -165,8 +165,8 @@ const Suggestions = z.object({
 });
 
 const SourceCandidate = z.object({
-  product_id: z.number(),
-  table_id: z.string(),
+  product_id: z.number().optional(),
+  table_id: z.string().default(""),
   title: z.string().nullable().optional(),
   frequency: z.string().nullable().optional(),
   start: z.string().nullable().optional(),

@@ -187,6 +187,10 @@ def _datasets_used(
         {"package_id": f"statcan:{tid}", "title": title}
         for tid, title in ctx.state.statcan_tables.items()
     )
+    used.extend(
+        {"package_id": f"open.canada.ca:{rid}", "title": title}
+        for rid, title in ctx.state.opencanada_tables.items()
+    )
     return used
 
 

@@ -1,3 +1,4 @@
+import { sourceCitation } from "@/lib/turn-to-block";
 import {
   chartData,
   renderChartSvg,
@@ -87,9 +88,7 @@ export function exportNotebookAsMarkdown(
       }
       const cited = [
         ...(b.result?.packageIds ?? []).map(name),
-        ...(b.result?.sources ?? []).map(
-          (s) => `[Statistics Canada, ${s.title} (${s.tableId})](${s.url})`,
-        ),
+        ...(b.result?.sources ?? []).map((s) => `[${sourceCitation(s)}](${s.url})`),
       ];
       if (cited.length > 0) {
         parts.push(`_Sources: ${cited.join("; ")}_`);

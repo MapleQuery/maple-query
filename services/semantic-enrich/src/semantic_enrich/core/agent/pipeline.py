@@ -419,7 +419,8 @@ def _skip_grounding(ctx: TurnContext, result: ResearchResult) -> bool:
         # not about verification at all.
         return True
     if not result.derivations and any(
-        run.get("source") == "statcan" and run.get("status") == "ok"
+        run.get("source") in ("statcan", "open.canada.ca")
+        and run.get("status") == "ok"
         for run in result.sql_runs
     ):
         # Grounding ties a headline to a SQL derivation. A StatCan answer

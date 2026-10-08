@@ -30,13 +30,18 @@ from google.cloud import bigquery
 
 from semantic_enrich.clients.bq import BqClient
 from semantic_enrich.clients.openai import OpenAIClient
+from semantic_enrich.clients.opencanada import (
+    OpenCanadaClient,
+    OpenCanadaError,
+    RealOpenCanadaClient,
+)
 from semantic_enrich.clients.statcan import (
     RealStatCanClient,
     StatCanClient,
     StatCanError,
 )
 from semantic_enrich.config.settings import Settings
-from semantic_enrich.core import agent_events, statcan_tools
+from semantic_enrich.core import agent_events, opencanada_tools, statcan_tools
 
 # What counts as a synthesised positional name is owned by
 # `header_recovery`, which also has to reason about it; this module keeps
@@ -93,6 +98,9 @@ TOOL_NAMES = (
     "search_statcan_tables",
     "describe_statcan_table",
     "get_statcan_data",
+    "search_open_canada",
+    "describe_open_canada_table",
+    "query_open_canada",
 )
 
 _LOG = get_logger("semantic_enrich.agent_tools")
@@ -117,6 +125,9 @@ def tool_schemas() -> list[dict[str, Any]]:
         {"type": "function", "function": _SEARCH_STATCAN_TABLES},
         {"type": "function", "function": _DESCRIBE_STATCAN_TABLE},
         {"type": "function", "function": _GET_STATCAN_DATA},
+        {"type": "function", "function": _SEARCH_OPEN_CANADA},
+        {"type": "function", "function": _DESCRIBE_OPEN_CANADA_TABLE},
+        {"type": "function", "function": _QUERY_OPEN_CANADA},
     ]
 
 
@@ -399,6 +410,100 @@ _GET_STATCAN_DATA: dict[str, Any] = {
 }
 
 
+_SEARCH_OPEN_CANADA: dict[str, Any] = {
+    "name": "search_open_canada",
+    "description": (
+        "Search the full open.canada.ca catalogue live (tens of thousands "
+        "of datasets, including tables too large for the warehouse). "
+        "Returns packages with their queryable DataStore resources. "
+        "Use when search_datasets finds nothing usable."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["query"],
+        "properties": {
+            "query": {"type": "string"},
+            "k": {"type": "integer", "minimum": 1, "maximum": 10},
+        },
+    },
+}
+
+
+_DESCRIBE_OPEN_CANADA_TABLE: dict[str, Any] = {
+    "name": "describe_open_canada_table",
+    "description": (
+        "Columns, row count and 3 sample rows of one open.canada.ca "
+        "DataStore resource. Call before query_open_canada."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["resource_id"],
+        "properties": {"resource_id": {"type": "string"}},
+    },
+}
+
+
+_QUERY_OPEN_CANADA: dict[str, Any] = {
+    "name": "query_open_canada",
+    "description": (
+        "Filter and aggregate one open.canada.ca DataStore resource live. "
+        "Server-side: `filters` (exact match, value or list of values) and "
+        "`text` (word search within a column, e.g. "
+        "{\"agreement_title_en\": \"Ukraine\"}). Then on our side: `where` "
+        "(=, !=, >, >=, <, <=, contains, starts_with), `dedupe` (keep the "
+        "latest amendment per agreement: {\"key\": \"ref_number\", "
+        "\"order\": \"amendment_number\"} for grants and contracts — always "
+        "use it before summing their values), `group_by` (columns, or "
+        "derived `year:<date col>`, `fiscal_year:<date col>`, "
+        "`month:<date col>`) and `sum_columns`. Aggregation reads at most "
+        "30,000 matching rows; narrow with filters first.\n"
+        "Well-known resources:\n"
+        "  1d15a62f-5656-49ad-8c88-f40ce689d831: Grants and Contributions (recipient, country, value)\n"
+        "  fac950c0-00d5-4ec1-a4d3-9cbebf98a305: Contracts over $10,000 (vendor, buyer, value)\n"
+        "  8282db2a-878f-475c-af10-ad56aa8fa72c: Travel Expenses (official, purpose, cost)\n"
+        "  7b301f1a-2a7a-48bd-9ea9-e0ac4a5313ed: Hospitality Expenses\n"
+        "  a811cac0-2a2a-4440-8a81-2994fc753171: Annual Expenditures on Travel, Hospitality and Conferences\n"
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["resource_id"],
+        "properties": {
+            "resource_id": {"type": "string"},
+            "filters": {"type": "object"},
+            "text": {"type": "object"},
+            "where": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "column": {"type": "string"},
+                        "op": {"type": "string"},
+                        "value": {},
+                    },
+                    "required": ["column", "op", "value"],
+                },
+            },
+            "fields": {"type": "array", "items": {"type": "string"}},
+            "group_by": {"type": "array", "items": {"type": "string"}},
+            "sum_columns": {"type": "array", "items": {"type": "string"}},
+            "dedupe": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string"},
+                    "order": {"type": "string"},
+                },
+                "required": ["key", "order"],
+            },
+            "sort": {"type": "string", "description": "e.g. 'agreement_value desc'"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+        },
+    },
+}
+
+
 # ── Runtime types ──
 
 
@@ -494,6 +599,8 @@ class LoopState:
     # evidence footer read it; the warehouse-side package sets above
     # never hold StatCan ids, so suggestion chips never scope to them.
     statcan_tables: dict[str, str] = field(default_factory=dict)
+    # open.canada.ca DataStore resources read live: resource_id → title.
+    opencanada_tables: dict[str, str] = field(default_factory=dict)
 
 
 EmitFn = Callable[[agent_events.AgentEvent], None]
@@ -514,6 +621,8 @@ class ToolContext:
     # Live StatCan client. None = the process-wide default, so the many
     # places that build a ToolContext don't each have to thread one.
     statcan: StatCanClient | None = None
+    # Live open.canada.ca client; None = the process-wide default.
+    opencanada: OpenCanadaClient | None = None
 
 
 class InvalidToolArgsError(ValueError):
@@ -1525,7 +1634,147 @@ def run_get_statcan_data(
     return payload
 
 
+# ── open.canada.ca live tools ──
+
+_OPENCANADA_DEFAULT: OpenCanadaClient | None = None
+
+
+def _opencanada(ctx: ToolContext) -> OpenCanadaClient:
+    global _OPENCANADA_DEFAULT
+    if ctx.opencanada is not None:
+        return ctx.opencanada
+    with _STATCAN_LOCK:
+        if _OPENCANADA_DEFAULT is None:
+            _OPENCANADA_DEFAULT = RealOpenCanadaClient()
+        return _OPENCANADA_DEFAULT
+
+
+def _opencanada_error(exc: Exception) -> dict[str, Any]:
+    return {
+        "status": "source_error",
+        "reason": "opencanada_error",
+        "message": (
+            f"open.canada.ca refused or failed the request: {exc}. Fix the "
+            "argument it names, or say the source was unavailable; do not "
+            "guess values."
+        ),
+    }
+
+
+def run_search_open_canada(
+    *, ctx: ToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
+    query = _require_str(args, "query")
+    k = _optional_int(args, "k", default=6, min_=1, max_=10)
+    try:
+        packages = opencanada_tools.search_packages(_opencanada(ctx), query, k=k)
+    except OpenCanadaError as exc:
+        return _opencanada_error(exc)
+    ctx.emit(
+        agent_events.SourceSearch(
+            source="open.canada.ca",
+            query=query,
+            candidates=[
+                {
+                    "title": p["title"],
+                    "url": p["url"],
+                    "table_id": p.get("organization") or "",
+                    "frequency": "queryable" if p["queryable"] else "files only",
+                }
+                for p in packages
+            ],
+        )
+    )
+    return {"status": "ok", "packages": packages}
+
+
+def run_describe_open_canada_table(
+    *, ctx: ToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
+    resource_id = _require_str(args, "resource_id")
+    try:
+        out = opencanada_tools.describe_resource(_opencanada(ctx), resource_id)
+    except OpenCanadaError as exc:
+        return _opencanada_error(exc)
+    ctx.state.opencanada_tables[resource_id] = str(out.get("title") or "")
+    return {"status": "ok", **out}
+
+
+def run_query_open_canada(
+    *, ctx: ToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
+    resource_id = _require_str(args, "resource_id")
+    client = _opencanada(ctx)
+
+    def _obj(key: str) -> dict[str, Any] | None:
+        val = args.get(key)
+        if val is not None and not isinstance(val, dict):
+            raise InvalidToolArgsError(f"{key} must be an object")
+        return val
+
+    def _strs(key: str) -> list[str] | None:
+        val = args.get(key)
+        if val is not None and (
+            not isinstance(val, list) or not all(isinstance(v, str) for v in val)
+        ):
+            raise InvalidToolArgsError(f"{key} must be a list of strings")
+        return val
+
+    where = args.get("where")
+    if where is not None and not isinstance(where, list):
+        raise InvalidToolArgsError("where must be a list")
+    limit = _optional_int(args, "limit", default=20, min_=1, max_=50)
+    sort = args.get("sort")
+    try:
+        out = opencanada_tools.run_query(
+            client,
+            resource_id=resource_id,
+            filters=_obj("filters"),
+            text=_obj("text"),
+            where=where,
+            fields=_strs("fields"),
+            group_by=_strs("group_by"),
+            sum_columns=_strs("sum_columns"),
+            dedupe=_obj("dedupe"),
+            sort=sort if isinstance(sort, str) else None,
+            limit=limit,
+        )
+        meta = opencanada_tools._resource_meta(client, resource_id)
+    except opencanada_tools.QueryArgsError as exc:
+        raise InvalidToolArgsError(str(exc)) from exc
+    except OpenCanadaError as exc:
+        return _opencanada_error(exc)
+    if out.get("status") != "ok":
+        return out
+    title, url = meta["title"], meta["url"]
+    ctx.state.opencanada_tables[resource_id] = title
+    rows = out.get("groups") if "groups" in out else out.get("rows")
+    request = {
+        k: args.get(k)
+        for k in ("filters", "text", "where", "group_by", "sum_columns", "dedupe", "sort")
+        if args.get(k)
+    }
+    ctx.emit(
+        agent_events.SourceData(
+            source="open.canada.ca",
+            table_id=resource_id,
+            title=title,
+            url=url,
+            request=request,
+            row_count=len(rows or []),
+            rows=list(rows or [])[:500],
+        )
+    )
+    out["title"] = title
+    out["url"] = url
+    out["cite_as"] = f"[{title} (open.canada.ca)]({url})"
+    return out
+
+
 _IMPLS: dict[str, Callable[..., dict[str, Any]]] = {
+    "search_open_canada": run_search_open_canada,
+    "describe_open_canada_table": run_describe_open_canada_table,
+    "query_open_canada": run_query_open_canada,
     "search_statcan_tables": run_search_statcan_tables,
     "describe_statcan_table": run_describe_statcan_table,
     "get_statcan_data": run_get_statcan_data,

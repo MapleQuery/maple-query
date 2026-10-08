@@ -1012,11 +1012,15 @@ function QueryBlock({
                     tableId: event.payload.table_id,
                     title: event.payload.title,
                     url: event.payload.url,
+                    source: event.payload.source,
                   });
                 }
                 result = {
-                  rows: pivotSourceRows(event.payload.rows),
-                  ownerCallId: `statcan:${event.payload.table_id}`,
+                  rows:
+                    event.payload.source === "statcan"
+                      ? pivotSourceRows(event.payload.rows)
+                      : event.payload.rows,
+                  ownerCallId: `${event.payload.source}:${event.payload.table_id}`,
                 };
                 break;
               case "rows":
@@ -1177,7 +1181,7 @@ function QueryBlock({
             {(block.result.sources?.length ?? 0) > 0 && (
               <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
                 <Check className="h-3 w-3 text-success" />
-                Statistics Canada:{" "}
+                Live sources:{" "}
                 {block.result.sources?.map((src) => (
                   <a
                     key={src.tableId}
@@ -1187,7 +1191,7 @@ function QueryBlock({
                     title={src.title}
                     className="rounded-full border border-hairline bg-white px-2 py-0.5 text-[11px] text-ink hover:border-navy hover:text-navy"
                   >
-                    {src.tableId}
+                    {src.source === "open.canada.ca" ? src.title : src.tableId}
                   </a>
                 ))}
               </p>

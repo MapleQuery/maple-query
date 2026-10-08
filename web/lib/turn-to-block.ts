@@ -84,6 +84,7 @@ interface CardPayload {
   sql?: string;
   executed?: { rows?: Record<string, unknown>[] };
   tableId?: string;
+  source?: string;
   title?: string;
   url?: string;
   rows?: Record<string, unknown>[];
@@ -110,11 +111,18 @@ export function resultFromCards(
       if (p.executed?.rows?.length) rows = p.executed.rows;
     } else if (p.kind === "source_data" && p.tableId && p.url) {
       if (!sources.some((s) => s.tableId === p.tableId)) {
-        sources.push({ tableId: p.tableId, title: p.title ?? p.tableId, url: p.url });
+        sources.push({
+          tableId: p.tableId,
+          title: p.title ?? p.tableId,
+          url: p.url,
+          source: p.source,
+        });
       }
       // Whichever result arrived last is the block's table: the model
       // fetches what it answers from after it has looked around.
-      if (p.rows?.length) rows = pivotSourceRows(p.rows);
+      if (p.rows?.length) {
+        rows = p.source === "statcan" ? pivotSourceRows(p.rows) : p.rows;
+      }
     }
   }
   const packageIds = citedPackageIds(assistantText);
@@ -206,4 +214,11 @@ export function turnsFromConversation(
     i = nextAssistant >= 0 ? nextAssistant + 1 : i + 1;
   }
   return out;
+}
+
+/** "Statistics Canada, <title> (table 18-10-0004-01)" or "open.canada.ca, <title>". */
+export function sourceCitation(s: StoredSource): string {
+  return s.source === "open.canada.ca"
+    ? `open.canada.ca, ${s.title}`
+    : `Statistics Canada, ${s.title} (table ${s.tableId})`;
 }

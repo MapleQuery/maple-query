@@ -341,7 +341,11 @@ function RailItem({ card, index }: { card: RailCard; index: number }) {
         <RailShell
           index={index}
           icon={<BarChart3 className="h-4 w-4" />}
-          title="Statistics Canada tables"
+          title={
+            card.source === "statcan"
+              ? "Statistics Canada tables"
+              : "open.canada.ca catalogue"
+          }
           meta={`${card.candidates.length} found`}
         >
           <p className="text-xs text-body">
@@ -349,7 +353,7 @@ function RailItem({ card, index }: { card: RailCard; index: number }) {
           </p>
           <ol className="mt-2 space-y-1.5">
             {card.candidates.slice(0, 5).map((c) => (
-              <li key={c.product_id} className="text-xs leading-snug">
+              <li key={c.url} className="text-xs leading-snug">
                 <a
                   href={c.url}
                   target="_blank"
@@ -359,8 +363,9 @@ function RailItem({ card, index }: { card: RailCard; index: number }) {
                   {c.title}
                 </a>
                 <span className="ml-1 font-mono text-[10px] text-muted">
-                  {c.table_id} · {c.frequency}
-                  {c.end ? ` · to ${c.end}` : ""}
+                  {[c.table_id, c.frequency, c.end ? `to ${c.end}` : null]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </span>
               </li>
             ))}
@@ -369,20 +374,22 @@ function RailItem({ card, index }: { card: RailCard; index: number }) {
       );
 
     case "source_data": {
+      const statcan = card.source === "statcan";
       const req = card.request as {
         start_period?: string | null;
         end_period?: string | null;
       };
-      const window =
-        req.start_period || req.end_period
+      const window = statcan
+        ? req.start_period || req.end_period
           ? `${req.start_period ?? "…"} → ${req.end_period ?? "latest"}`
-          : "latest periods";
+          : "latest periods"
+        : describeLiveQuery(card.request);
       return (
         <RailShell
           index={index}
           icon={<BarChart3 className="h-4 w-4 text-teal" />}
-          title="Statistics Canada data"
-          meta={`${card.rowCount.toLocaleString()} values`}
+          title={statcan ? "Statistics Canada data" : "open.canada.ca data"}
+          meta={`${card.rowCount.toLocaleString()} ${statcan ? "values" : "rows"}`}
         >
           <a
             href={card.url}
@@ -394,10 +401,15 @@ function RailItem({ card, index }: { card: RailCard; index: number }) {
             <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-muted" />
           </a>
           <p className="mt-0.5 font-mono text-[10px] text-muted">
-            Table {card.tableId} · {window} · read live from StatCan
+            {statcan
+              ? `Table ${card.tableId} · ${window} · read live from StatCan`
+              : `${window} · read live from open.canada.ca`}
           </p>
           <div className="mt-2">
-            <RowsTable rows={pivotSourceRows(card.rows)} maxRows={500} />
+            <RowsTable
+              rows={statcan ? pivotSourceRows(card.rows) : card.rows}
+              maxRows={500}
+            />
           </div>
         </RailShell>
       );
@@ -407,6 +419,21 @@ function RailItem({ card, index }: { card: RailCard; index: number }) {
       // exhaustiveness for TS
       return null;
   }
+}
+
+/** One line for what a live DataStore query asked for. */
+function describeLiveQuery(request: Record<string, unknown>): string {
+  const parts: string[] = [];
+  const fmt = (v: unknown) =>
+    Object.entries((v ?? {}) as Record<string, unknown>)
+      .map(([k, x]) => `${k}=${Array.isArray(x) ? x.join("|") : String(x)}`)
+      .join(", ");
+  if (request.filters) parts.push(`filters ${fmt(request.filters)}`);
+  if (request.text) parts.push(`matching ${fmt(request.text)}`);
+  if (Array.isArray(request.group_by) && request.group_by.length)
+    parts.push(`by ${request.group_by.join(", ")}`);
+  if (request.dedupe) parts.push("latest amendments only");
+  return parts.join(" · ") || "rows";
 }
 
 const FLAG_LABELS: Record<string, string> = {

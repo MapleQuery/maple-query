@@ -178,11 +178,15 @@ export interface StoredNotebookBlockProse extends StoredNotebookBlockBase {
   type: "prose";
   markdown: string;
 }
-/** A live statistical table an answer read (StatCan today). */
+/** A live table an answer read: a StatCan table or an open.canada.ca
+ * DataStore resource. */
 export interface StoredSource {
   tableId: string;
   title: string;
   url: string;
+  /** "statcan" | "open.canada.ca". Optional: absent means StatCan, the
+   * only live source when the field was added. */
+  source?: string;
 }
 
 export interface StoredNotebookBlockQuery extends StoredNotebookBlockBase {

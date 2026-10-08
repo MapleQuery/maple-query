@@ -320,6 +320,23 @@ def _record_trace(
                 "title": result.get("title"),
             }
         )
+    elif tc.name == "query_open_canada" and status == "ok":
+        ctx.trace.sql_runs.append(
+            {
+                "sql": (
+                    f"open.canada.ca resource {tc.arguments.get('resource_id')} "
+                    f"filters={tc.arguments.get('filters')} "
+                    f"text={tc.arguments.get('text')} "
+                    f"group_by={tc.arguments.get('group_by')}"
+                ),
+                "status": status,
+                "row_count": result.get("group_count", len(result.get("rows") or [])),
+                "null_ratio_warning": None,
+                "source": "open.canada.ca",
+                "table_id": tc.arguments.get("resource_id"),
+                "title": result.get("title"),
+            }
+        )
     elif tc.name == "run_sql":
         sql = str(tc.arguments.get("sql", ""))
         entry: dict[str, Any] = {

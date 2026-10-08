@@ -511,6 +511,28 @@ time; nothing is ingested and the warehouse is never touched:
 - Events: `source_search` and `source_data` (additive; the web rail
   renders both).
 
+## Live open.canada.ca tools (`clients/opencanada.py`, `core/opencanada_tools.py`)
+
+| Tool | CKAN call | Returns |
+| -- | -- | -- |
+| `search_open_canada(query, k)` | `package_search` | packages, queryable (DataStore) ones first, "Nothing to Report" resources hidden |
+| `describe_open_canada_table(resource_id)` | `datastore_search limit=0/3` | columns, row count, 3 sample rows |
+| `query_open_canada(resource_id, filters, text, where, group_by, sum_columns, dedupe, …)` | paged `datastore_search` | rows, or groups + totals, plus `cite_as` |
+
+- open.canada.ca has no `datastore_search_sql`, and plain full-text `q`
+  is refused on tables over 100K rows; a field-scoped `q`
+  (`{"agreement_title_en": "Ukraine"}`) works on all of them.
+- `dedupe {key, order}` keeps one row per agreement (highest
+  amendment): grants and contracts republish the full value on every
+  amendment, so summing without it double-counts.
+- `group_by` accepts `year:`, `fiscal_year:` (April start) and `month:`
+  derivations of a date column.
+- Aggregation refuses (`status: too_broad`) past 30,000 matching rows
+  rather than summing a truncated read.
+- Fetches land in `TurnTrace.sql_runs` tagged `source: open.canada.ca`,
+  resources in `LoopState.opencanada_tables`; events reuse
+  `source_search` / `source_data`.
+
 ## Self-enforcing tool contract
 
 Every deterministic rule the system prompt used to spell out is enforced inside the tools (`core/agent_tools.py` + `core/retrieval.py`); the prompt keeps one-liners. Tool names and existing schema fields are frozen — everything below is additive or server-side. Normalization lives in `core/sql_normalize.py` and is shared by every LLM-SQL door: the agent's `run_sql` and the offline eval runner both call `normalize_sql` before the guard, so eval scores grade the SQL production actually runs.
