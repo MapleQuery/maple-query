@@ -247,11 +247,35 @@ class _Index:
 _INDEX: _Index | None = None
 
 
+# Words people use for a table that its title never says. Folded into
+# the table's searchable tokens, so "tariff revenue" finds federal
+# government finance and "who holds the debt" finds the holdings table.
+TABLE_ALIASES: dict[int, str] = {
+    18100004: "inflation cost living groceries grocery food prices shelter rent gasoline",
+    18100005: "inflation cost living annual",
+    36100706: "gdp per capita real household disposable income per person living standards productivity",
+    36100663: "household income consumption saving quintile average household wealth",
+    17100008: "immigration immigrants population growth non-permanent residents births deaths emigration",
+    17100009: "population provinces quarterly per capita",
+    34100126: "housing starts completions homes built supply province annual",
+    12100171: "exports imports trade partner united states china share",
+    10100016: "federal revenue customs import duties tariffs taxes expense deficit surplus debt",
+    10100005: "government spending function health healthcare defence education social protection",
+    10100002: "federal debt national debt owe liabilities",
+    36100673: "who holds owns government debt bonds holders securities",
+    14100287: "jobs unemployment rate employment labour force",
+}
+
+
 def _index(cubes: list[dict[str, Any]]) -> _Index:
     global _INDEX
     if _INDEX is not None and _INDEX.source_id == id(cubes):
         return _INDEX
-    tokens = [set(_tokens(str(c.get("cubeTitleEn") or ""))) for c in cubes]
+    tokens = [
+        set(_tokens(str(c.get("cubeTitleEn") or "")))
+        | set(_tokens(TABLE_ALIASES.get(int(c.get("productId") or 0), "")))
+        for c in cubes
+    ]
     df: dict[str, int] = {}
     for ts in tokens:
         for t in ts:
@@ -394,7 +418,11 @@ def build_coordinates(meta: dict[str, Any], series: list[list[int]]) -> tuple[li
         raise ValueError(f"at most {MAX_SERIES_PER_CALL} series per call")
     coords: list[str] = []
     labels: list[str] = []
+    unique: list[list[int]] = []
     for s in series:
+        if s not in unique:
+            unique.append(s)
+    for s in unique:
         if len(s) != len(dims):
             names = ", ".join(str(d.get("dimensionNameEn")) for d in dims)
             raise ValueError(
@@ -454,7 +482,19 @@ def shape_series(
     rows: list[dict[str, Any]] = []
     for obj, label in zip(objects, labels, strict=True):
         if obj.get("missing"):
-            series_out.append({"series": label, "coordinate": obj.get("coordinate"), "missing": True})
+            series_out.append(
+                {
+                    "series": label,
+                    "coordinate": obj.get("coordinate"),
+                    "missing": True,
+                    "note": (
+                        "StatCan does not publish this member combination. Tables "
+                        "only carry some combinations (e.g. a per-capita measure "
+                        "may exist in current prices but not chained dollars): "
+                        "change one member at a time and retry."
+                    ),
+                }
+            )
             continue
         points = []
         unit = None
@@ -499,6 +539,17 @@ def shape_series(
             "published_in": scalar,
             "points": [[pt["period"], pt["value"], *([pt["flag"]] if "flag" in pt else [])] for pt in points],
         }
+        if points:
+            # Endpoints up front: a model reading a 50-point array picks
+            # the wrong ends more often than you would think.
+            entry["first"] = [points[0]["period"], points[0]["value"]]
+            entry["latest"] = [points[-1]["period"], points[-1]["value"]]
+        else:
+            entry["note"] = (
+                "no values for this member combination in the window; the "
+                "combination may not exist in this table. Try other members "
+                "(describe_statcan_table with member_filter) or a wider window."
+            )
         if empty:
             entry["unpublished_periods_skipped"] = empty
         if thinned:

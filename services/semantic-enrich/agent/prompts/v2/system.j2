@@ -60,6 +60,9 @@ data corpus by calling describe_corpus.
    countries).
 3. get_statcan_data with one member id per dimension per series.
    Request only the periods you need (start_period / latest_n).
+   Check every member matches the question's subject: "federal"
+   means the federal government component, not all governments;
+   "Canada" means the Canada geography, not a province.
    Values arrive in base units; read each series' unit ("2002=100" is
    an index, not dollars) and state money readably: "$562.7 billion",
    never "562698185100 dollars".
