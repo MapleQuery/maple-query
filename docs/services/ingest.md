@@ -52,10 +52,12 @@ writes `raw.documents` and `raw.rows`.
 
 Known limits:
 
-- **No archive extraction.** A resource declared as CSV that is really a
-  ZIP (e.g. Elections Canada contributions) is sniffed
-  as `zip`, fails the requested-format check, and is not landed as CSV.
-  warehouse-load only parses `csv`/`tsv` bodies anyway.
+- **Archives land unchanged, on request.** A resource declared in a
+  requested format whose bytes are a ZIP (Elections Canada's
+  contributions "CSV") is skipped by default. With `--accept-archives`
+  it lands as-is with `fmt=zip`: raw stays the source's bytes, and the
+  consumer extracts (see [`services/curate`](curate.md)). warehouse-load
+  only loads `csv`/`tsv`, so zips never reach `raw.rows`.
 - **No per-package selection.** A run takes everything matching
   `subject` + format (+ `--limit-orgs`).
 - **Size cap.** Downloads over 512 MiB fail and are quarantined as

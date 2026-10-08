@@ -583,3 +583,40 @@ def test_sniff_skips_when_bytes_dont_match_format_filter(
     entries = _read_runlog(runlog_path)
     assert len(entries) == 1
     assert entries[0]["source_url"] == real_csv_url
+
+
+def test_accept_archives_lands_a_zip_declared_as_csv_unchanged(
+    settings: Settings, sources: SourcesConfig, runlog_path: Path
+) -> None:
+    """With --accept-archives, a declared-CSV resource whose bytes are a ZIP
+    lands as-is with fmt=zip (raw stays the source's bytes); HTML and
+    unknown bytes are still skipped."""
+    html_url = "https://x.example/data/landing.csv"
+    zip_url = "https://x.example/data/od_cntrbtn_de_e.zip"
+    zip_body = b"PK\x03\x04" + b"\x00" * 32
+    ds = _make_dataset(
+        id_="d1", org="elections", subjects=["x"],
+        resources=[
+            {"id": "html", "url": html_url, "format": "CSV", "language": ["en"]},
+            {"id": "zip", "url": zip_url, "format": "CSV", "language": ["en"]},
+        ],
+    )
+    http = FakeHttp(bodies={html_url: b"<!DOCTYPE html><html></html>", zip_url: zip_body})
+    gcs = FakeGcs()
+
+    with RunLogWriter(path=runlog_path) as runlog:
+        summary = run(
+            settings=settings, sources=sources,
+            request=RunRequest(subject="x", formats=("csv",), accept_archives=True),
+            ckans={"ckan-opencanada": FakeCkan(datasets=[ds])},
+            http=http, gcs=gcs, runlog=runlog,
+        )
+
+    assert summary.success == 1
+    assert summary.skipped_by_format == 1
+    [(key, body)] = gcs.uploads.items()
+    assert "fmt=zip__" in key
+    assert body == zip_body
+    [entry] = _read_runlog(runlog_path)
+    assert entry["file_format"] == "zip"
+    assert entry["declared_format"] == "CSV"

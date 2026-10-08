@@ -51,6 +51,13 @@ def main(
         None, "--since",
         help="ISO 8601 cursor for CKAN metadata_modified filter.",
     ),
+    accept_archives: bool = typer.Option(
+        False, "--accept-archives",
+        help=(
+            "Land a resource declared in a requested format whose bytes are a ZIP, "
+            "unchanged, as fmt=zip (e.g. Elections Canada contributions)."
+        ),
+    ),
     dry_run: bool = typer.Option(
         False, "--dry-run/--no-dry-run",
         help=(
@@ -73,6 +80,7 @@ def main(
         limit_orgs=tuple(limit_orgs or []),
         dry_run=dry_run,
         since=parsed_since,
+        accept_archives=accept_archives,
     )
 
     runlog_path = default_runlog_path(

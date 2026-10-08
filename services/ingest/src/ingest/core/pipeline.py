@@ -47,6 +47,17 @@ class RunRequest:
     limit_orgs: tuple[str, ...] = ()
     dry_run: bool = False
     since: datetime | None = None
+    # Land a resource whose declared format was requested but whose bytes
+    # are an archive (Elections Canada publishes its 3.8 GB contributions
+    # CSV as a "CSV" that is a ZIP). The archive lands unchanged, as
+    # `fmt=zip`: raw is immutable source bytes, and extraction is the
+    # consumer's job. Off by default, so existing runs are unchanged.
+    accept_archives: bool = False
+
+
+# Archive formats `accept_archives` lets through. ZIP only: the one
+# shape a source actually needs, and the one `zipfile` reads natively.
+ARCHIVE_FORMATS: frozenset[str] = frozenset({"zip"})
 
 
 @dataclass
@@ -368,7 +379,20 @@ def _process_resource(
             sniffed=sniff.fmt,
         )
 
-    if request.formats and (
+    archive_accepted = (
+        request.accept_archives
+        and sniff.verified
+        and sniff.fmt in ARCHIVE_FORMATS
+        and (resource.format_declared or "").lower() in request.formats
+    )
+    if archive_accepted:
+        log.info(
+            "archive_accepted",
+            url=resource.url,
+            declared=resource.format_declared,
+            sniffed=sniff.fmt,
+        )
+    if request.formats and not archive_accepted and (
         not sniff.verified or sniff.fmt not in request.formats
     ):
         log.info(
