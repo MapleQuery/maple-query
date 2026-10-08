@@ -347,13 +347,24 @@ frame carries no call id of its own to key on.
 
 ## Configuration
 
+The browser never calls agent-service directly. `lib/config.ts` points
+every request at `/api/mq/*`, and `app/api/mq/[...path]/route.ts` (edge
+runtime) relays the paths the app uses (`chat`, `sql/run`,
+`corpus/stats`, `datasets/...`) to Cloud Run, adding the bearer token
+server-side and streaming SSE straight through. Anything else is a 404.
+The token must never be a `NEXT_PUBLIC_` variable: those are inlined
+into the client bundle. (The relay still reads the old
+`NEXT_PUBLIC_MAPLEQUERY_API_*` names as a fallback, server-side only,
+until the Vercel env is renamed.)
+
+
 Every env var is `NEXT_PUBLIC_*` because it needs to reach the browser. See
 `.env.example` for the shape.
 
 | Var                                  | Purpose                                  |
 | ------------------------------------ | ---------------------------------------- |
-| `NEXT_PUBLIC_MAPLEQUERY_API_BASE_URL`| Cloud Run agent-service URL, no trailing `/`. |
-| `NEXT_PUBLIC_MAPLEQUERY_API_TOKEN`   | Bearer token from Secret Manager (see below). |
+| `MAPLEQUERY_API_BASE_URL`            | Cloud Run agent-service URL, no trailing `/`. Server-only. |
+| `MAPLEQUERY_API_TOKEN`               | Bearer token from Secret Manager (see below). Server-only. |
 | `NEXT_PUBLIC_MAPLEQUERY_ENV`         | `prod` / `preview` / `dev` label.        |
 | `NEXT_PUBLIC_POSTHOG_KEY`            | PostHog project key. Absent → capture no-ops, provider passes through. |
 | `NEXT_PUBLIC_POSTHOG_HOST`           | PostHog host (default `https://us.i.posthog.com`). |

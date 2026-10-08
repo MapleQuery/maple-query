@@ -42,7 +42,7 @@ services/agent-service/
 
 ## Auth
 
-Shared bearer token, single value, `hmac.compare_digest` in `auth.py`. `MQAGENT_API_TOKEN` on the server (from Secret Manager). `NEXT_PUBLIC_MAPLEQUERY_API_TOKEN` in the FE bundle — public by construction. Rotation is a redeploy on both sides.
+Shared bearer token, single value, `hmac.compare_digest` in `auth.py`. `MQAGENT_API_TOKEN` on the server (from Secret Manager). The web app holds it server-side only (`MAPLEQUERY_API_TOKEN`, read by its `/api/mq` relay); it is no longer in the browser bundle. Rotation: add a Secret Manager version, roll a new Cloud Run revision, update the Vercel env, redeploy the web app.
 
 ## CORS
 
