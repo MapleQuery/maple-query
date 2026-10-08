@@ -59,6 +59,11 @@ _OFF_SCOPE_REASONS = (
     "other",
 )
 
+# Where the answer lives, read off the same classifier call so routing
+# costs a few output tokens, not a model call. `mixed` = needs more than
+# one source, or unsure: research then sees every tool.
+SOURCES = ("statcan", "payments", "warehouse", "mixed")
+
 # Strict Structured Outputs schema: every property required, nullables
 # via anyOf, so the vendor guarantees the shape and any deviation is
 # caught by the fail-open validation below.
@@ -72,8 +77,12 @@ CLASSIFIER_SCHEMA: dict[str, Any] = {
         "off_scope_reason",
         "deflection_hint",
         "clarify_question",
+        "source",
+        "source_confidence",
     ],
     "properties": {
+        "source": {"type": "string", "enum": list(SOURCES)},
+        "source_confidence": {"type": "number"},
         "category": {"type": "string", "enum": sorted(_CATEGORIES)},
         "confidence": {"type": "number"},
         "reason": {"type": "string"},
@@ -171,6 +180,8 @@ class _Classification:
     off_scope_reason: str | None
     deflection_hint: str | None
     clarify_question: str | None
+    source: str = "mixed"
+    source_confidence: float = 0.0
 
 
 def load_triage_template(settings: Settings) -> jinja2.Template:
@@ -212,10 +223,13 @@ class QueryTriage:
         confidence = 0.0
         enforced = False
         short_circuit: str | None = None
+        source, source_confidence = "mixed", 0.0
 
         if classification is not None:
             category = classification.category
             confidence = classification.confidence
+            source = classification.source
+            source_confidence = classification.source_confidence
             if mode == "act":
                 if category in _CONTINUE_CATEGORIES:
                     enforced = True
@@ -240,10 +254,14 @@ class QueryTriage:
                 confidence=round(confidence, 3),
                 elapsed_ms=elapsed_ms,
                 enforced=enforced,
+                source=source,
+                source_confidence=round(source_confidence, 3),
             )
         )
         _LOG.info(
             "triage_result",
+            source=source,
+            source_confidence=round(source_confidence, 3),
             category=category,
             confidence=round(confidence, 3),
             mode=mode,
@@ -256,6 +274,8 @@ class QueryTriage:
             events=events,
             short_circuit=short_circuit,
             fail_open_reason=fail_open_reason,
+            source=source,
+            source_confidence=source_confidence,
         )
 
     # ── classifier call ──
@@ -282,7 +302,7 @@ class QueryTriage:
                 schema_name="triage",
                 model=settings.agent_triage_model,
                 temperature=0.0,
-                max_tokens=150,
+                max_tokens=200,
                 timeout_s=timeout_s,
             )
 
@@ -495,6 +515,18 @@ def _validate(parsed: dict[str, Any]) -> _Classification | None:
         value = parsed.get(key)
         return value if isinstance(value, str) else None
 
+    # Routing fails soft: a missing or malformed source never rejects the
+    # classification, it just routes nowhere (every tool stays visible).
+    source = parsed.get("source")
+    source_confidence = parsed.get("source_confidence")
+    if source not in SOURCES:
+        source = "mixed"
+    if (
+        not isinstance(source_confidence, int | float)
+        or isinstance(source_confidence, bool)
+        or not 0.0 <= float(source_confidence) <= 1.0
+    ):
+        source_confidence = 0.0
     return _Classification(
         category=category,
         confidence=confidence,
@@ -502,4 +534,6 @@ def _validate(parsed: dict[str, Any]) -> _Classification | None:
         off_scope_reason=_opt_str("off_scope_reason"),
         deflection_hint=_opt_str("deflection_hint"),
         clarify_question=_opt_str("clarify_question"),
+        source=str(source),
+        source_confidence=float(source_confidence),
     )

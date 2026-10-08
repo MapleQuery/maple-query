@@ -9,6 +9,7 @@ word search scoped to a column); everything else — ranges, amendment
 de-duplication, group-and-sum — happens here over the filtered rows, so
 a question like "grants to Ukraine by year" is one call.
 """
+
 from __future__ import annotations
 
 import re
@@ -52,9 +53,7 @@ def dataset_url(package_id: str, resource_id: str | None = None) -> str:
 # ── search ──
 
 
-def search_packages(
-    client: OpenCanadaClient, query: str, *, k: int = 8
-) -> list[dict[str, Any]]:
+def search_packages(client: OpenCanadaClient, query: str, *, k: int = 8) -> list[dict[str, Any]]:
     packages = client.package_search(query, rows=25)
     out: list[dict[str, Any]] = []
     for pkg in packages:
@@ -97,8 +96,7 @@ def describe_resource(client: OpenCanadaClient, resource_id: str) -> dict[str, A
         "total_rows": total,
         "columns": [{"name": f.get("id"), "type": f.get("type")} for f in fields],
         "sample_rows": [
-            {k: _clip(v) for k, v in row.items() if k != "_id"}
-            for row in sample.get("records") or []
+            {k: _clip(v) for k, v in row.items() if k != "_id"} for row in sample.get("records") or []
         ],
     }
 
@@ -168,8 +166,7 @@ def run_query(
                     + "."
                 )
             raise QueryArgsError(
-                f"{role} column {col!r} is not in this table.{hint} Columns are: "
-                f"{', '.join(sorted(known))}"
+                f"{role} column {col!r} is not in this table.{hint} Columns are: {', '.join(sorted(known))}"
             )
         if col not in needed:
             needed.append(col)
@@ -206,6 +203,18 @@ def run_query(
     # grants is >160K rows and took 54 s, so reads stop at 100K rows /
     # 20 s and say so rather than holding the turn hostage.
     window = _date_window(where)
+    # CKAN stores most money columns as text, so a server-side
+    # "contract_value desc" is a string sort: every top contract came back
+    # as $99,999.99. Numeric orderings happen here, over the rows read
+    # (the window's rows, newest-first, when there is a window).
+    local_sort: tuple[str, bool] | None = None
+    if sort:
+        col, _, direction = sort.partition(" ")
+        types = {str(c.get("id")): str(c.get("type") or "") for c in columns}
+        if col in types and types[col] == "text" and not (window and col == window[0]):
+            need(col, "sort")
+            local_sort = (col, direction.strip().lower() == "desc")
+            sort = None
     if window and not sort:
         sort = f"{window[0]} desc"
     windowed = bool(window and sort and sort.split()[0] == window[0] and sort.lower().endswith("desc"))
@@ -225,7 +234,7 @@ def run_query(
     offset = 0
     page_size = WINDOW_PAGE_SIZE if windowed else PAGE_SIZE
     read_cap = WINDOW_MAX_ROWS if windowed else MAX_ROWS
-    page_target = read_cap if (aggregate or where or dedupe) else max(limit, 1)
+    page_target = read_cap if (aggregate or where or dedupe or local_sort) else max(limit, 1)
     started = time.monotonic()
     window_closed = False
     while True:
@@ -284,6 +293,15 @@ def run_query(
             f"read the first {fetched:,} of {total:,} matching rows; narrow with filters or text "
             "for a complete result"
         )
+    if local_sort:
+        col, desc = local_sort
+        rows.sort(
+            key=lambda r: (
+                _num(r.get(col)) is None,
+                -(_num(r.get(col)) or 0.0) if desc else (_num(r.get(col)) or 0.0),
+            )
+        )
+        out["sorted_by"] = f"{col} ({'largest' if desc else 'smallest'} first, numeric)"
     if aggregate:
         groups = _aggregate(rows, group_keys, sum_columns)
         out["groups"] = groups[:MAX_GROUPS]

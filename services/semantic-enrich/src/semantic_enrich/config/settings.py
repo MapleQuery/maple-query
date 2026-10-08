@@ -330,6 +330,12 @@ class Settings(BaseSettings):
     # Enforcing post-cutover (precision gate met in the parity run);
     # demote to "log" without leaving v2 if triage misbehaves alone.
     agent_triage_mode: Literal["off", "log", "act"] = "act"
+    # Source routing, read off the triage call. `act` shows research
+    # only the routed source's tools (widening to all on a miss); `log`
+    # records the route without narrowing; `off` ignores it.
+    agent_source_routing: Literal["off", "log", "act"] = "act"
+    # Below this source confidence the turn is not narrowed.
+    agent_route_min_confidence: float = 0.7
     agent_triage_model: str = "gpt-4o-mini"
     # Hard deadline for the classifier call. Triage may slow a turn by
     # at most this much; on timeout the turn fails open to research.

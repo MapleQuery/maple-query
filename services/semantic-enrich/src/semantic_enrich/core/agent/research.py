@@ -78,10 +78,20 @@ def run(
                 "content": "\n".join(h.text for h in hints),
             }
         )
+    if ctx.route is not None:
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    f"This question was routed to the {_ROUTE_LABELS[ctx.route]} "
+                    "tools. Answer from them; if they cannot, say so briefly "
+                    "and the other sources will be opened."
+                ),
+            }
+        )
     messages.extend(ctx.history_messages)
     messages.append({"role": "user", "content": ctx.request.question})
 
-    tools = agent_tools.tool_schemas()
     budget_forced = False
 
     while True:
@@ -93,6 +103,9 @@ def run(
             )
             return _result(ctx, answer="", reason="timeout")
 
+        tools = agent_tools.routed_tool_schemas(
+            None if ctx.route_widened else ctx.route
+        )
         try:
             completion = deps.openai_client.chat_with_tools(
                 messages=messages,
@@ -116,6 +129,32 @@ def run(
             tokens_in=completion.tokens_in,
             tokens_out=completion.tokens_out,
         )
+
+        # A routed turn that is about to answer without having read any
+        # data gets one more pass with every source open, instead of a
+        # surrender the full toolset might have avoided. This is what
+        # keeps routing from ever doing worse than not routing.
+        if (
+            not completion.tool_calls
+            and ctx.route is not None
+            and not ctx.route_widened
+            and not budget_forced
+            and not _read_any_data(ctx)
+        ):
+            ctx.route_widened = True
+            ctx.trace.route_widened = True
+            _LOG.info("route_widened", route=ctx.route)
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "The routed source did not answer this. Every source "
+                        "is now available (Statistics Canada, open.canada.ca, "
+                        "the warehouse); try the others before answering."
+                    ),
+                }
+            )
+            continue
 
         # Terminal — model returned final text.
         if not completion.tool_calls:
@@ -218,6 +257,21 @@ def run(
         # forced final answer.
         if budget_forced:
             continue
+
+
+_ROUTE_LABELS = {
+    "statcan": "Statistics Canada",
+    "payments": "open.canada.ca payments (grants, contracts, travel)",
+    "warehouse": "warehouse and open.canada.ca catalogue",
+}
+
+
+def _read_any_data(ctx: TurnContext) -> bool:
+    """True once any source returned at least one row this turn."""
+    return any(
+        run.get("status") == "ok" and (run.get("row_count") or 0) > 0
+        for run in ctx.trace.sql_runs
+    )
 
 
 def _plan_free_retries(

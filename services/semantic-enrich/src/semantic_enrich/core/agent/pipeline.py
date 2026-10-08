@@ -15,7 +15,7 @@ import uuid
 from collections.abc import Callable, Generator, Iterator
 from dataclasses import dataclass, field
 
-from semantic_enrich.core import agent_events, agent_history
+from semantic_enrich.core import agent_events, agent_history, agent_tools
 from semantic_enrich.core.agent import (
     evidence,
     grounding,
@@ -100,6 +100,7 @@ def run_turn(
     # by the answer-fit checker and caveated for not containing data.
     if triage.fail_open_reason is not None and not ctx.scope_package_ids:
         ctx.turn_intent_known = False
+    ctx.route = _route_for(ctx, triage)
     for event in triage.events:
         yield record(event)
     if triage.short_circuit is not None:
@@ -393,6 +394,23 @@ def _skip_verify(ctx: TurnContext, result: ResearchResult) -> bool:
         # emit `clarify` or `retry`.
         return ctx.deps.settings.agent_verify_explore_mode == "off"
     return _candidate_is_clarify(ctx, result)
+
+
+def _route_for(ctx: TurnContext, triage: phases.TriageOutcome) -> str | None:
+    """Narrow research to one source only when the classifier read the
+    question, is sure, and nothing else already scopes the turn: a
+    clicked chip pins warehouse packages, and an exploration describes
+    warehouse datasets."""
+    settings = ctx.deps.settings
+    if settings.agent_source_routing != "act":
+        return None
+    if triage.fail_open_reason is not None or ctx.scope_package_ids:
+        return None
+    if ctx.turn_intent == "explore":
+        return None
+    if triage.source_confidence < settings.agent_route_min_confidence:
+        return None
+    return triage.source if triage.source in agent_tools.ROUTE_TOOLS else None
 
 
 def _skip_grounding(ctx: TurnContext, result: ResearchResult) -> bool:

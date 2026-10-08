@@ -533,6 +533,23 @@ time; nothing is ingested and the warehouse is never touched:
   resources in `LoopState.opencanada_tables`; events reuse
   `source_search` / `source_data`.
 
+## Source routing (`agent_source_routing`, v2 only)
+
+The triage call also returns `source` (`statcan` | `payments` |
+`warehouse` | `mixed`) and `source_confidence`: a few output tokens on
+a call that already runs, not a new model call.
+
+- `act` (default): when triage read the question (no fail-open), is at
+  least `agent_route_min_confidence` (0.7) sure, and the turn is not a
+  scoped chip or an exploration, research sees only
+  `agent_tools.ROUTE_TOOLS[source]` (plus `calculate`); `mixed` sees all.
+- Fallback: a routed turn that is about to answer without having read
+  a single row reopens every tool and is told to try the other sources
+  (`route_widened`). Routing therefore cannot surrender where the full
+  toolset would not have tried.
+- `log` records the route on `triage_result` without narrowing; `off`
+  ignores it.
+
 ## Self-enforcing tool contract
 
 Every deterministic rule the system prompt used to spell out is enforced inside the tools (`core/agent_tools.py` + `core/retrieval.py`); the prompt keeps one-liners. Tool names and existing schema fields are frozen — everything below is additive or server-side. Normalization lives in `core/sql_normalize.py` and is shared by every LLM-SQL door: the agent's `run_sql` and the offline eval runner both call `normalize_sql` before the guard, so eval scores grade the SQL production actually runs.

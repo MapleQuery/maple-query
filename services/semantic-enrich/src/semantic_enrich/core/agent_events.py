@@ -291,6 +291,9 @@ class TriageResult(_EventBase):
     confidence: float
     elapsed_ms: int
     enforced: bool
+    # Additive: the source the turn was routed to (triage.SOURCES).
+    source: str = field(default="mixed")
+    source_confidence: float = field(default=0.0)
 
     @property
     def event_type(self) -> EventType:

@@ -66,6 +66,8 @@ class TurnTrace:
     # One Derivation per successful numeric-yielding run_sql, captured
     # deterministically (no model call). Consumed by grounding/verify.
     derivations: list[Derivation] = field(default_factory=list)
+    # Set when a routed turn reopened every tool after its source missed.
+    route_widened: bool = False
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,10 @@ class TriageOutcome:
     # in_scope ruling, and everything that keys on intent then proceeds
     # as though the question had been classified.
     fail_open_reason: str | None = None
+    # Where the answer most likely lives (see triage.SOURCES), and how
+    # sure the classifier is. Defaults route nowhere.
+    source: str = "mixed"
+    source_confidence: float = 0.0
 
 
 @dataclass
@@ -215,6 +221,11 @@ class TurnContext:
     # than a reading of the question. Checks that depend on knowing what
     # was asked must not enforce on this turn.
     turn_intent_known: bool = True
+    # The source this turn is routed to (agent_tools.ROUTE_TOOLS key), or
+    # None for every tool. `route_widened` flips when the routed source
+    # failed to answer and research reopened every tool.
+    route: str | None = None
+    route_widened: bool = False
     turn_start_emitted: bool = False
     history_messages: list[dict[str, Any]] = field(default_factory=list)
     trace: TurnTrace = field(default_factory=TurnTrace)

@@ -115,6 +115,43 @@ _LOG = get_logger("semantic_enrich.agent_tools")
 # ── OpenAI tool schemas (frozen) ──
 
 
+# Tools each route exposes. `calculate` rides with every route; the
+# warehouse route keeps the open.canada.ca catalogue as its own next
+# step (the prompt's "warehouse, then search_open_canada").
+ROUTE_TOOLS: dict[str, frozenset[str]] = {
+    "statcan": frozenset(
+        {"search_statcan_tables", "describe_statcan_table", "get_statcan_data", "calculate"}
+    ),
+    "payments": frozenset(
+        {"search_open_canada", "describe_open_canada_table", "query_open_canada", "calculate"}
+    ),
+    "warehouse": frozenset(
+        {
+            "search_datasets",
+            "search_columns",
+            "list_documents",
+            "sample_rows",
+            "run_sql",
+            "describe_corpus",
+            "search_open_canada",
+            "describe_open_canada_table",
+            "query_open_canada",
+            "calculate",
+        }
+    ),
+}
+
+
+def routed_tool_schemas(route: str | None) -> list[dict[str, Any]]:
+    """`tool_schemas()` narrowed to a route; every tool when the route
+    is None or unknown."""
+    allowed = ROUTE_TOOLS.get(route or "")
+    tools = tool_schemas()
+    if allowed is None:
+        return tools
+    return [t for t in tools if t["function"]["name"] in allowed]
+
+
 def tool_schemas() -> list[dict[str, Any]]:
     """Return the list of tool definitions wrapped in OpenAI's outer
     `{"type": "function", "function": …}` envelope.

@@ -211,3 +211,17 @@ def test_date_window_bounds_from_where_and_derived_filters() -> None:
         [{"column": "agreement_start_date", "op": ">=", "value": "2026-01-01"}]
     ) == ("agreement_start_date", "2026-01-01")
     assert opencanada_tools._date_window([{"column": "owner_org", "op": "=", "value": "x"}]) is None
+
+
+def test_text_money_columns_sort_numerically() -> None:
+    client = FakeCkan()
+    out = opencanada_tools.run_query(
+        client,
+        resource_id=RID,
+        fields=["ref_number", "agreement_value"],
+        sort="agreement_value desc",
+        limit=2,
+    )
+    # "1,000" > "150" > "100" > "40" numerically; as strings "40" would win.
+    assert [r["agreement_value"] for r in out["rows"]] == ["1,000", "150"]
+    assert all("sort" not in c for c in client.calls)

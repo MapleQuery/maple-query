@@ -61,6 +61,21 @@ Rules:
   revenues, tax rates, and program totals are in_scope.
 - clarify requires naming the concrete ambiguity in clarify_question
   (one focused question). If you cannot name one, answer in_scope.
+- Statistics for a province or city (unemployment in Alberta, rent in
+  Toronto, Ontario's population) are in_scope: StatCan publishes them.
+  provincial is only for provincial or municipal POLITICS and
+  government operations.
+- source: where the answer lives, for in_scope and explore.
+  statcan = an economy- or population-wide statistic (prices,
+  inflation, rent, GDP, income, wages, jobs, unemployment, population,
+  immigration, housing starts, trade, government revenue, spending by
+  function, debt). payments = federal money paid to a named recipient,
+  company, country, organization or program, or by a department
+  (grants, contributions, contracts, travel, hospitality). warehouse =
+  any other federal program or departmental dataset, or a question
+  about what datasets contain. mixed = needs two of these, or you
+  cannot tell. source_confidence is how sure you are (0-1); use mixed
+  below 0.7.
 - deflection_hint (off_scope only): the nearest thing the corpus
   COULD answer, phrased as a suggestion, under 160 characters, no
   URLs. Null when nothing fits.
@@ -102,8 +117,15 @@ Q: what kind of housing data do you have? -> explore (subject-scoped
   contents question; not corpus-wide, so not meta)
 Q: show me what the trade data looks like -> explore
 Q: what time range does the contracts data cover -> explore
-Q: how much has canada donated to ukraine in the last year -> in_scope
-  (Canadian federal aid spending; grants data names recipient countries)
+Q: how much has canada donated to ukraine in the last year -> in_scope,
+  payments (grants data names recipient countries)
+Q: what is the unemployment rate in Alberta -> in_scope, statcan
+Q: which companies got the biggest federal contracts -> in_scope, payments
+Q: how much did departments spend on travel -> in_scope, payments
+Q: how has rent changed since 2020 -> in_scope, statcan
+Q: what kind of housing data do you have -> explore, warehouse
+Q: how did federal grants to Ontario compare with Ontario's population
+  growth -> in_scope, mixed
 Q: what percentage of Canadian exports go to the United States -> in_scope
 Q: which provinces are building the most housing per capita -> in_scope
 Q: how many homes does Canada need to build each year -> in_scope
