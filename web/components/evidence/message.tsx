@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { LogoMark } from "@/components/ui/logo";
 import { MapleLoader } from "@/components/ui/maple-loader";
 import { cn } from "@/lib/utils";
+import { MarkdownLink } from "./markdown-link";
 
 export interface MessageProps {
   role: "user" | "assistant";
@@ -46,26 +47,7 @@ export function Message({ role, content, streaming, meta }: MessageProps) {
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
-                a({ href, children }) {
-                  const url = href ?? "";
-                  if (url.startsWith("/")) {
-                    return (
-                      <Link href={url} className="text-navy underline decoration-coral/40 underline-offset-2 hover:decoration-coral">
-                        {children}
-                      </Link>
-                    );
-                  }
-                  return (
-                    <a
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-navy underline decoration-coral/40 underline-offset-2 hover:decoration-coral"
-                    >
-                      {children}
-                    </a>
-                  );
-                },
+                a: MarkdownLink,
                 code({ className, children, ...props }) {
                   const text = String(children ?? "");
                   const isBlock = className?.startsWith("language-");

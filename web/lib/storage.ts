@@ -146,6 +146,9 @@ export interface StoredConversation {
   /** Server-built turn records, echoed back as `turn_records` on the
    * next request. Optional: pre-record conversations load unchanged. */
   turnRecords?: Record<string, unknown>[];
+  /** The notebook this conversation's answers are being collected into.
+   * Optional: set the first time an answer is sent to a notebook. */
+  notebookId?: string;
 }
 
 export const conversations = {
@@ -175,6 +178,13 @@ export interface StoredNotebookBlockProse extends StoredNotebookBlockBase {
   type: "prose";
   markdown: string;
 }
+/** A live statistical table an answer read (StatCan today). */
+export interface StoredSource {
+  tableId: string;
+  title: string;
+  url: string;
+}
+
 export interface StoredNotebookBlockQuery extends StoredNotebookBlockBase {
   type: "query";
   question: string;
@@ -208,6 +218,9 @@ export interface StoredNotebookBlockQuery extends StoredNotebookBlockBase {
      * names after the shared title cache is cleared. Optional: blocks
      * saved before it existed fall back to the id. */
     packageTitles?: Record<string, string>;
+    /** Live StatCan tables read for this result. Optional: older blocks
+     * cite warehouse datasets only. */
+    sources?: StoredSource[];
   };
   errorMessage?: string;
 }
@@ -244,6 +257,9 @@ export interface StoredNotebook {
   createdAt: string;
   updatedAt: string;
   blocks: StoredNotebookBlock[];
+  /** The conversation this notebook was started from, for the link back.
+   * Optional: notebooks made from scratch have none. */
+  source?: { conversationId: string; title: string };
 }
 
 export const notebooks = {

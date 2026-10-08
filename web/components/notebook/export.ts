@@ -85,8 +85,14 @@ export function exportNotebookAsMarkdown(
         parts.push(rowsToMarkdownTable(b.result.rows.slice(0, 20)));
         parts.push("");
       }
-      if (b.result?.packageIds && b.result.packageIds.length > 0) {
-        parts.push(`_Sources: ${b.result.packageIds.map(name).join(", ")}_`);
+      const cited = [
+        ...(b.result?.packageIds ?? []).map(name),
+        ...(b.result?.sources ?? []).map(
+          (s) => `[Statistics Canada, ${s.title} (${s.tableId})](${s.url})`,
+        ),
+      ];
+      if (cited.length > 0) {
+        parts.push(`_Sources: ${cited.join("; ")}_`);
         parts.push("");
       }
     }

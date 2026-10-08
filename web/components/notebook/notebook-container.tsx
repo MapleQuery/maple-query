@@ -21,12 +21,21 @@ import {
   EyeOff,
 } from "lucide-react";
 import {
+  conversations,
   notebooks,
   type StoredNotebook,
   type StoredNotebookBlock,
   type StoredNotebookBlockProse,
   type StoredNotebookBlockQuery,
+  type StoredSource,
 } from "@/lib/storage";
+import {
+  blocksFromTurn,
+  citedPackageIds,
+  pivotSourceRows,
+  turnsFromConversation,
+} from "@/lib/turn-to-block";
+import { MarkdownLink } from "@/components/evidence/markdown-link";
 import { streamChat } from "@/lib/sse";
 import {
   EMPTY_RESULT_ROWS,
@@ -242,6 +251,24 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
     persist({ ...nb, blocks });
   };
 
+  /** Every finished answer of a saved conversation, appended in order. */
+  const importConversation = (conversationId: string) => {
+    if (!nb) return;
+    const convo = conversations.load(conversationId);
+    if (!convo) return;
+    const turns = turnsFromConversation(convo).filter((t) => t.assistantText);
+    const title =
+      nb.blocks.length === 0 && nb.title === "Untitled notebook" ? convo.title : nb.title;
+    persist({
+      ...nb,
+      title,
+      source: nb.source ?? { conversationId, title: convo.title },
+      blocks: [...nb.blocks, ...turns.flatMap(blocksFromTurn)],
+    });
+    if (!convo.notebookId) conversations.save({ ...convo, notebookId: nb.id });
+    toast.show(`Imported ${turns.length} answer${turns.length === 1 ? "" : "s"}`, "success");
+  };
+
   const removeBlock = (blockId: string) => {
     if (!nb) return;
     persist({ ...nb, blocks: nb.blocks.filter((b) => b.id !== blockId) });
@@ -389,6 +416,18 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
                   <Pencil className="h-4 w-4 opacity-0 group-hover:opacity-100 text-muted" />
                 </button>
               )}
+              {nb.source && (
+                <Link
+                  href={`/chat/${nb.source.conversationId}`}
+                  className="mt-2 inline-flex items-center gap-1.5 text-xs text-muted hover:text-navy"
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  From conversation:{" "}
+                  <span className="underline decoration-coral/40 underline-offset-2">
+                    {nb.source.title}
+                  </span>
+                </Link>
+              )}
               <p className="mt-2 font-mono text-xs text-muted">
                 {nb.blocks.length} block{nb.blocks.length === 1 ? "" : "s"}
                 {hiddenCount > 0 && ` · ${hiddenCount} not exported`} · last
@@ -406,7 +445,10 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
           </header>
 
           {nb.blocks.length === 0 ? (
-            <NotebookEmpty onAdd={(kind) => addBlock(kind)} />
+            <NotebookEmpty
+              onAdd={(kind) => addBlock(kind)}
+              onImport={importConversation}
+            />
           ) : (
             <div className="space-y-4">
               {nb.blocks.map((b, i) => (
@@ -447,8 +489,18 @@ export function NotebookContainer({ notebookId }: NotebookContainerProps) {
   );
 }
 
-function NotebookEmpty({ onAdd }: { onAdd: (k: "prose" | "query") => void }) {
+function NotebookEmpty({
+  onAdd,
+  onImport,
+}: {
+  onAdd: (k: "prose" | "query") => void;
+  onImport: (conversationId: string) => void;
+}) {
+  // Rendered only after the notebook loads client-side, so reading
+  // storage in the initializer never runs on the server.
+  const [recent] = React.useState(() => conversations.list().slice(0, 5));
   return (
+    <div className="space-y-4">
     <div className="rounded-2xl border border-dashed border-hairline bg-white/60 p-10 text-center">
       <FileText className="mx-auto mb-3 h-6 w-6 text-navy" />
       <h2 className="font-display text-xl font-medium text-ink">
@@ -474,6 +526,32 @@ function NotebookEmpty({ onAdd }: { onAdd: (k: "prose" | "query") => void }) {
           <MessageSquare className="mr-1 inline h-4 w-4" /> Add query
         </button>
       </div>
+    </div>
+    {recent.length > 0 && (
+      <div className="rounded-2xl border border-hairline bg-white p-5">
+        <p className="text-sm font-medium text-ink">Or start from a conversation</p>
+        <p className="mt-0.5 text-xs text-muted">
+          Every answer comes across with its numbers, sources and charts. Nothing re-runs.
+        </p>
+        <ul className="mt-3 divide-y divide-hairline">
+          {recent.map((c) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                onClick={() => onImport(c.id)}
+                className="flex w-full items-center gap-3 py-2 text-left text-sm text-body hover:text-navy"
+              >
+                <MessageSquare className="h-4 w-4 shrink-0 text-muted" />
+                <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                <span className="font-mono text-[10px] text-muted">
+                  {new Date(c.updatedAt).toLocaleDateString()}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
     </div>
   );
 }
@@ -875,10 +953,10 @@ function QueryBlock({
     setAssistantText("");
     let sql = "";
     let result = EMPTY_RESULT_ROWS;
-    const pkgIds = new Set<string>();
     const pkgTitles: Record<string, string> = {};
     let localAssistantText = "";
     let offers: SuggestionT[] = [];
+    const sources: StoredSource[] = [];
 
     onUpdate(block.id, (b) =>
       b.type === "query"
@@ -918,7 +996,6 @@ function QueryBlock({
                 // never have to ask the API what a package is called.
                 rememberDatasetTitles(event.payload.candidates);
                 for (const c of event.payload.candidates) {
-                  pkgIds.add(c.package_id);
                   const t = c.title?.trim();
                   if (t) pkgTitles[c.package_id] = t;
                 }
@@ -928,6 +1005,19 @@ function QueryBlock({
                 break;
               case "sql_executed":
                 result = seedPreviewRows(event.payload.sample_rows);
+                break;
+              case "source_data":
+                if (!sources.some((x) => x.tableId === event.payload.table_id)) {
+                  sources.push({
+                    tableId: event.payload.table_id,
+                    title: event.payload.title,
+                    url: event.payload.url,
+                  });
+                }
+                result = {
+                  rows: pivotSourceRows(event.payload.rows),
+                  ownerCallId: `statcan:${event.payload.table_id}`,
+                };
                 break;
               case "rows":
                 result = mergeRowsFrame(result, event.payload);
@@ -942,6 +1032,15 @@ function QueryBlock({
             }
           },
           onDone: () => {
+            // Cite what the answer cites, not every candidate the search
+            // ranked: a ranked-but-unused dataset listed as a source is a
+            // citation the answer never made.
+            const cited = citedPackageIds(localAssistantText);
+            const packageIds = cited.length > 0 ? cited : [];
+            const packageTitles: Record<string, string> = {};
+            for (const id of packageIds) {
+              if (pkgTitles[id]) packageTitles[id] = pkgTitles[id];
+            }
             onUpdate(block.id, (b) =>
               b.type === "query"
                 ? {
@@ -952,8 +1051,9 @@ function QueryBlock({
                       assistantText: localAssistantText,
                       sql,
                       rows: result.rows,
-                      packageIds: Array.from(pkgIds),
-                      packageTitles: { ...pkgTitles },
+                      packageIds,
+                      packageTitles,
+                      sources,
                     },
                   }
                 : b,
@@ -1045,7 +1145,9 @@ function QueryBlock({
 
       {block.state === "running" && assistantText && (
         <div className="prose-body rounded-lg border border-hairline bg-surface-soft/60 px-4 py-3 text-[15px] leading-relaxed">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{assistantText}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: MarkdownLink }}>
+            {assistantText}
+          </ReactMarkdown>
         </div>
       )}
 
@@ -1053,7 +1155,7 @@ function QueryBlock({
         <div className="space-y-3">
           {block.result.assistantText && (
             <div className="prose-body rounded-lg border border-hairline bg-surface-soft/60 px-4 py-3 text-[15px] leading-relaxed">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: MarkdownLink }}>
                 {block.result.assistantText}
               </ReactMarkdown>
             </div>
@@ -1069,6 +1171,24 @@ function QueryBlock({
                 Datasets:{" "}
                 {block.result.packageIds?.map((p) => (
                   <DatasetChip key={p} packageId={p} title={titles[p]} />
+                ))}
+              </p>
+            )}
+            {(block.result.sources?.length ?? 0) > 0 && (
+              <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                <Check className="h-3 w-3 text-success" />
+                Statistics Canada:{" "}
+                {block.result.sources?.map((src) => (
+                  <a
+                    key={src.tableId}
+                    href={src.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={src.title}
+                    className="rounded-full border border-hairline bg-white px-2 py-0.5 text-[11px] text-ink hover:border-navy hover:text-navy"
+                  >
+                    {src.tableId}
+                  </a>
                 ))}
               </p>
             )}

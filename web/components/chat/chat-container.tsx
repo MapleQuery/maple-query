@@ -8,12 +8,16 @@ import { CostBadge } from "@/components/evidence/cost-badge";
 import { ChatComposer } from "./chat-composer";
 import { ConversationSwitcher } from "./conversation-switcher";
 import { SuggestionChips } from "./suggestion-chips";
+import { TurnActions } from "./turn-actions";
 import { useChatStream } from "./use-chat-stream";
 import {
   conversations,
+  notebooks,
   type EvidenceCard,
   type StoredConversation,
 } from "@/lib/storage";
+import { addTurnsToNotebook, turnsFromConversation } from "@/lib/turn-to-block";
+import { BookOpen, PanelRight } from "lucide-react";
 import type { HistoryMessage, SuggestionT } from "@/lib/types";
 import { appendUserTurn, isAtMessageCap } from "@/lib/history";
 import { useToast } from "@/components/ui/toast";
@@ -56,6 +60,8 @@ export function ChatContainer({
     { id: string; title: string; updatedAt: string }[]
   >([]);
   const [currentTurnId, setCurrentTurnId] = React.useState<string | null>(null);
+  // Which turn's evidence the rail shows. Null follows the live turn.
+  const [inspectedTurnId, setInspectedTurnId] = React.useState<string | null>(null);
   // Next-step offers for the latest turn only, and deliberately NOT in
   // `StoredConversation`. An offer decays: reloading a three-week-old
   // conversation and clicking a chip would scope a turn to packages
@@ -82,7 +88,9 @@ export function ChatContainer({
 
     if (stored) {
       setConversation(stored);
-      setTurns(rehydrateTurns(stored));
+      setTurns(
+        turnsFromConversation(stored).map((t) => ({ ...t, status: "complete" as const })),
+      );
     } else {
       const now = new Date().toISOString();
       const fresh: StoredConversation = {
@@ -97,7 +105,48 @@ export function ChatContainer({
       setTurns([]);
     }
     setCurrentTurnId(null);
+    setInspectedTurnId(null);
   }, [conversationId, refreshIndex]);
+
+  const linkedNotebook = React.useMemo(() => {
+    const id = conversation?.notebookId;
+    if (!id) return null;
+    const nb = notebooks.load(id);
+    return nb ? { id: nb.id, title: nb.title || "Untitled notebook" } : null;
+  }, [conversation?.notebookId]);
+
+  const linkNotebook = React.useCallback((nb: { id: string }) => {
+    setConversation((prev) => {
+      if (!prev || prev.notebookId === nb.id) return prev;
+      const next = { ...prev, notebookId: nb.id };
+      conversations.save(next);
+      return next;
+    });
+  }, []);
+
+  const conversationTitle =
+    conversation && conversation.title !== "New conversation"
+      ? conversation.title
+      : truncate(turns[0]?.question ?? "Untitled notebook", 60);
+
+  // The whole conversation as a notebook: every finished answer becomes
+  // a block, in order, and the user lands in it.
+  const openAsNotebook = () => {
+    const done = turns.filter((t) => t.status === "complete" && t.assistantText);
+    if (linkedNotebook) {
+      router.push(`/notebook/${linkedNotebook.id}`);
+      return;
+    }
+    if (done.length === 0) return;
+    const nb = addTurnsToNotebook(
+      done.map((t) => ({ question: t.question, assistantText: t.assistantText, cards: t.cards })),
+      { newTitle: conversationTitle },
+      { conversationId, title: conversationTitle },
+    );
+    linkNotebook(nb);
+    track("chat_opened_as_notebook", { turns: done.length });
+    router.push(`/notebook/${nb.id}`);
+  };
 
   const { state, send, abort, reset } = useChatStream({
     conversationId,
@@ -256,6 +305,7 @@ export function ChatContainer({
 
     const turnId = uuid();
     setCurrentTurnId(turnId);
+    setInspectedTurnId(null);
     // Offers belong to the turn that produced them; the next turn
     // starts with none.
     setOffers(null);
@@ -311,6 +361,9 @@ export function ChatContainer({
     }
   };
 
+  const railTurnId =
+    inspectedTurnId ?? currentTurnId ?? turns[turns.length - 1]?.id ?? null;
+
   return (
     <div className="flex h-[calc(100vh-4rem)] min-h-0">
       <ConversationSwitcher
@@ -322,6 +375,25 @@ export function ChatContainer({
 
       <div className="flex min-w-0 flex-1 border-r border-hairline">
         <div className="flex min-w-0 flex-1 flex-col">
+          {turns.length > 0 && (
+            <div className="flex items-center gap-3 border-b border-hairline bg-canvas/80 px-4 py-2 backdrop-blur md:px-6 lg:px-8">
+              <p className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
+                {conversationTitle}
+              </p>
+              <button
+                type="button"
+                onClick={openAsNotebook}
+                disabled={
+                  !linkedNotebook &&
+                  !turns.some((t) => t.status === "complete" && t.assistantText)
+                }
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-hairline bg-white px-2.5 py-1 text-xs font-medium text-ink shadow-sm hover:border-navy hover:text-navy disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy"
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                {linkedNotebook ? "Open notebook" : "Open as notebook"}
+              </button>
+            </div>
+          )}
           <div
             ref={threadRef}
             className="flex-1 space-y-8 overflow-y-auto px-4 py-8 md:px-6 lg:px-8"
@@ -338,7 +410,46 @@ export function ChatContainer({
                   content={t.assistantText}
                   streaming={t.status === "streaming"}
                   meta={
-                    t.meta && (t.status === "complete" || t.status === "error") ? (
+                    t.status === "complete" && t.assistantText ? (
+                      <div className="space-y-2">
+                        {t.meta && (
+                          <CostBadge
+                            dollars={t.meta.dollars}
+                            toolCalls={t.meta.toolCalls}
+                            elapsedMs={t.meta.elapsedMs}
+                            cached={t.meta.cached}
+                          />
+                        )}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <TurnActions
+                            turn={{
+                              question: t.question,
+                              assistantText: t.assistantText,
+                              cards: t.cards,
+                            }}
+                            linked={linkedNotebook}
+                            conversationId={conversationId}
+                            conversationTitle={conversationTitle}
+                            onAdded={linkNotebook}
+                          />
+                          {t.cards.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setInspectedTurnId(t.id)}
+                              aria-pressed={railTurnId === t.id}
+                              className={`hidden items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs shadow-sm lg:inline-flex focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy ${
+                                railTurnId === t.id
+                                  ? "border-navy/40 bg-navy/5 text-navy"
+                                  : "border-hairline bg-white text-muted hover:text-ink"
+                              }`}
+                            >
+                              <PanelRight className="h-3.5 w-3.5" />
+                              {railTurnId === t.id ? "Showing evidence" : "Show evidence"}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ) : t.meta && t.status === "error" ? (
                       <CostBadge
                         dollars={t.meta.dollars}
                         toolCalls={t.meta.toolCalls}
@@ -381,13 +492,10 @@ export function ChatContainer({
       <aside className="hidden w-[420px] shrink-0 bg-surface-soft/70 lg:block">
         <EvidenceRail
           cards={
-            currentTurnId
-              ? (turns.find((t) => t.id === currentTurnId)?.cards.map(
-                  storedToCard,
-                ) ?? [])
-              : (turns[turns.length - 1]?.cards.map(storedToCard) ?? [])
+            turns.find((t) => t.id === railTurnId)?.cards.map(storedToCard) ??
+            []
           }
-          isStreaming={state.status === "streaming"}
+          isStreaming={state.status === "streaming" && railTurnId === currentTurnId}
           cached={state.cached}
         />
       </aside>
@@ -428,42 +536,6 @@ function storedToCard(
   c: EvidenceCard,
 ): import("@/components/evidence/evidence-rail").RailCard {
   return c.payload as import("@/components/evidence/evidence-rail").RailCard;
-}
-
-function rehydrateTurns(s: StoredConversation): Turn[] {
-  const turns: Turn[] = [];
-  let i = 0;
-  const h = s.history;
-  const evidence = s.evidenceByTurnId ?? {};
-  const turnIds = Object.keys(evidence);
-  let turnIdx = 0;
-  while (i < h.length) {
-    const msg = h[i];
-    if (msg.role === "user") {
-      const nextAssistantIdx = h.findIndex(
-        (m, j) => j > i && m.role === "assistant",
-      );
-      const assistantMsg =
-        nextAssistantIdx >= 0
-          ? (h[nextAssistantIdx] as {
-              role: "assistant";
-              content: string | null;
-            })
-          : null;
-      const turnId = turnIds[turnIdx++] ?? uuid();
-      turns.push({
-        id: turnId,
-        question: msg.content,
-        assistantText: assistantMsg?.content ?? "",
-        cards: evidence[turnId] ?? [],
-        status: "complete",
-      });
-      i = nextAssistantIdx >= 0 ? nextAssistantIdx + 1 : i + 1;
-    } else {
-      i += 1;
-    }
-  }
-  return turns;
 }
 
 function buildHistoryFromTurns(turns: Turn[]): HistoryMessage[] {

@@ -224,11 +224,14 @@ export function buildReport(
             : undefined,
       });
     }
-    if (b.result?.packageIds && b.result.packageIds.length > 0) {
-      push({
-        kind: "note",
-        text: `Sources: ${b.result.packageIds.map(name).join(", ")}`,
-      });
+    const cited = [
+      ...(b.result?.packageIds ?? []).map(name),
+      ...(b.result?.sources ?? []).map(
+        (s) => `Statistics Canada, ${s.title} (table ${s.tableId}), ${s.url}`,
+      ),
+    ];
+    if (cited.length > 0) {
+      push({ kind: "note", text: `Sources: ${cited.join("; ")}` });
     }
   }
 
