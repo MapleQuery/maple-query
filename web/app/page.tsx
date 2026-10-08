@@ -30,9 +30,10 @@ function Hero() {
             cite.
           </h1>
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-body">
-            MapleQuery turns fragmented Canadian open data into a
-            plain-language conversation. Every figure carries a footnote
-            that traces straight back to the original record.
+            MapleQuery reads Statistics Canada&apos;s official tables live and
+            queries thousands of federal open datasets, then answers in
+            plain language. Every figure links straight back to its
+            source table or record.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Link
@@ -164,8 +165,9 @@ function TrustBand() {
             Trust is a feature, not a footnote.
           </h2>
           <p className="mt-3 max-w-md text-body">
-            The corpus is Canadian federal open data. Every answer traces
-            back to a published record, and the guardrails are
+            Answers come from Statistics Canada&apos;s official tables and
+            Canadian federal open data. Every figure traces back to a
+            published table or record, and the guardrails are
             non-negotiable.
           </p>
         </Reveal>

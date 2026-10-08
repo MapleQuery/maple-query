@@ -16,38 +16,36 @@ interface ExampleQuestion {
 const QUESTIONS: ExampleQuestion[] = [
   {
     question:
-      "Which departments spent the most on IT consulting in 2023?",
-    angle: "Contract spend",
-    tag: "Fiscal 2023",
-  },
-  {
-    question: "How did housing grant approvals shift after 2020?",
-    angle: "Program outcomes",
-    tag: "Trend",
+      "How much has the average household's purchasing power changed since 2015?",
+    angle: "Cost of living",
+    tag: "StatCan · live",
   },
   {
     question:
-      "Which provinces received the largest federal transfers last year?",
-    angle: "Transfers",
-    tag: "Provincial",
+      "How has immigration changed Canada's population growth over the last 10 years?",
+    angle: "Population",
+    tag: "StatCan · live",
+  },
+  {
+    question: "What percentage of Canadian exports go to the United States?",
+    angle: "Trade",
+    tag: "StatCan · live",
+  },
+  {
+    question: "Which provinces are building the most housing per capita?",
+    angle: "Housing",
+    tag: "Per capita",
   },
   {
     question:
-      "What is the average PR application processing time by year?",
-    angle: "Immigration",
-    tag: "Processing time",
+      "Which federal departments gave the most in grants and contributions last year?",
+    angle: "Program spending",
+    tag: "Open data · SQL",
   },
   {
-    question:
-      "Compare defence procurement spend across the last three fiscal years.",
-    angle: "Procurement",
-    tag: "Multi-year",
-  },
-  {
-    question:
-      "Which grant programs had the highest rejection rates in 2022?",
-    angle: "Program rigour",
-    tag: "Rejections",
+    question: "Has Canada's GDP per capita actually grown over the last decade?",
+    angle: "Economy",
+    tag: "StatCan · live",
   },
 ];
 

@@ -22,25 +22,32 @@ export function CorpusStats() {
   const documents = pick(stats?.documents, failed, "14,000+");
   const rows = pick(stats?.rows, failed, "Millions");
 
+  // While the API wakes from zero, the approximate counts stand in,
+  // dimmed, rather than a placeholder that reads as "zero datasets".
   return (
-    <dl className="mt-12 grid max-w-xl gap-6 sm:grid-cols-3">
+    <dl className="mt-12 grid max-w-2xl gap-6 grid-cols-2 sm:grid-cols-4">
       <Callout
-        headline={datasets ?? "—"}
+        headline={datasets ?? "3,700+"}
         label="Datasets"
-        sublabel="unique packages on open.canada.ca"
+        sublabel="packages from open.canada.ca"
         loading={datasets === null}
       />
       <Callout
-        headline={documents ?? "—"}
+        headline={documents ?? "14,000+"}
         label="Documents"
         sublabel="CSV files within them"
         loading={documents === null}
       />
       <Callout
-        headline={rows ?? "—"}
+        headline={rows ?? "Millions"}
         label="Rows"
-        sublabel="joinable across every dataset"
+        sublabel="queryable with SQL"
         loading={rows === null}
+      />
+      <Callout
+        headline="8,000+"
+        label="StatCan tables"
+        sublabel="read live, current to the day"
       />
     </dl>
   );
@@ -75,7 +82,7 @@ function Callout({
           (loading ? "animate-pulse text-ink/30" : "")
         }
       >
-        {loading ? "0,000" : headline}
+        {headline}
       </dd>
       <dt className="mt-1 text-sm font-medium text-ink">{label}</dt>
       <p className="text-xs text-muted">{sublabel}</p>

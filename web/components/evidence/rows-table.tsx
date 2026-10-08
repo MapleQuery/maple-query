@@ -13,7 +13,7 @@ export interface RowsTableProps {
 function formatCell(v: unknown): string {
   if (v === null || v === undefined) return "";
   if (typeof v === "number")
-    return Number.isInteger(v) ? v.toLocaleString() : v.toString();
+    return v.toLocaleString(undefined, { maximumFractionDigits: 4 });
   if (typeof v === "boolean") return v ? "true" : "false";
   if (typeof v === "object") return JSON.stringify(v);
   return String(v);
