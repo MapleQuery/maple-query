@@ -7,6 +7,7 @@
 - [`services/ingest`](services/ingest.md): CKAN ingestion job (GCS + run log).
 - [`services/warehouse-load`](services/warehouse-load.md): GCS → BigQuery `raw.documents` / `raw.rows`.
 - [`services/semantic-enrich`](services/semantic-enrich.md): dataset/column enrichment, and the agent (pipeline, tools, live sources, routing, evals).
+- [`services/curate`](services/curate.md): Normalize (M3), the curated people, terms and linked contributions tables.
 - [`services/agent-service`](services/agent-service.md): FastAPI wrapper serving `/chat` and friends on Cloud Run.
 - [`web`](services/web.md): Next.js app (chat, evidence rail, notebook, explorer).
 

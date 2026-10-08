@@ -1,8 +1,15 @@
 # People spine: one table of politicians to join the record on
 
-Status: **proposed** (2026-10-08). Phase 2 of "hold politicians
-accountable". Phase 1, live Parliament tools (votes, bills, Hansard),
-shipped without new infrastructure.
+Status: **people + contributions built** (2026-10-08) in
+[`services/curate`](../services/curate.md); MP expenses not started.
+Phase 2 of "hold politicians accountable". Phase 1, live Parliament
+tools (votes, bills, Hansard), shipped without new infrastructure.
+
+What changed from the proposal while building it (each below):
+per-source link tables instead of one generic `person_links`; no
+"exact name outside any term" link (namesake risk); party breaks ties
+between namesakes; ingest lands the ZIP unchanged instead of
+extracting; the agent reads `curated` through a tool, not free SQL.
 
 ## Why a table, when Parliament is already live
 
@@ -38,12 +45,12 @@ references are to the repo at the time of writing).
 |---|---|---|
 | Stages hand off through storage, never calls | ingest → GCS → `raw.*` → `semantic.*` | New **Normalize (M3)** stage writes `curated.*`. Reads `raw.*` and the openparliament.ca API, writes nothing upstream |
 | Layer for typed, cleaned data | `curated` dataset exists in `infra/terraform/bigquery.tf`, no tables ("Empty in milestone 2") | All new tables land in `curated` |
-| Schema as code | `infra/terraform/schemas/*.json`, read by both Terraform and Python, with drift tests | `curated_people.json`, `curated_person_names.json`, `curated_person_terms.json`, `curated_person_links.json` + `bigquery.tftest.hcl` assertions |
+| Schema as code | `infra/terraform/schemas/*.json`, read by both Terraform and Python, with drift tests | `curated_people.json`, `curated_person_names.json`, `curated_person_terms.json`, `curated_person_contributions.json` + `tests/curate.tftest.hcl` |
 | Idempotency | stage → MERGE with explicit column ownership (`warehouse-load`), newer-`generated_at`-wins (`semantic-enrich`) | Deterministic ids; stage → MERGE on natural keys; a re-run with the same inputs is a no-op |
-| Quarantine over drop | named reasons, never silent | Ambiguous matches go to `person_links` with `status = 'ambiguous'` and candidates, never auto-linked, never dropped |
+| Quarantine over drop | named reasons, never silent | Ambiguous matches are stored with `status = 'ambiguous'` and their candidates, never auto-linked; unmatched rows are counted in the run summary |
 | One service account per service, dataset-scoped IAM | `sa-warehouse-load` edits `raw`; `sa-agent-service` reads `raw` + `semantic` only | New `sa-curate`: editor on `curated`, viewer on `raw`. `sa-agent-service` gets viewer on `curated` |
 | Layering lint | import-linter `types → config → providers → clients → core → entrypoint` per service | Same, in the new service |
-| Partitioning | none; clustering only | Cluster `person_links` by `source_system, person_id`; the rest are small (thousands of rows) |
+| Partitioning | none; clustering only | `person_contributions` clusters on `person_id, status`; the rest are small (thousands of rows) |
 
 ### The tables
 
@@ -60,12 +67,15 @@ All live in `curated`. Ids are deterministic so re-runs converge.
 - **`person_terms`**: `(person_id, role, start_date)` with `end_date`,
   party, riding name (as published for that term; context only, see
   below), province. From openparliament memberships.
-- **`person_links`**: `(source_system, record_key, field, person_id)`
-  with `match_method` (`exact_name_term`, `exact_name`),
-  `confidence`, `status` (`linked` | `ambiguous`), `candidates` (for
-  ambiguous), `run_id`, `linked_at`. `record_key` is
-  `document_id:row_index` for warehouse rows. Cluster
-  `source_system, person_id`.
+- **One linked table per source**, not a generic link table: each
+  source's questions need its own columns. Built so far:
+  **`person_contributions`**, Elections Canada contributions to
+  candidates and leadership or nomination contestants, aggregated per
+  (recipient, return, contributor type, province, and organization name
+  for non-individual contributors), with `person_id`, `status`
+  (`linked` | `ambiguous`), `candidates`, `match_method`, count and
+  totals. Individual donors are never named. Key `contribution_key`.
+  Next would be `person_expenses` (MP office expenditures).
 
 ### Riding is context, never the join
 
@@ -136,35 +146,29 @@ on-demand prices, every time. The rule forces the agent to pick
 specific documents first (`list_documents`), then query only those.
 
 **What that means for people links.** The agent will never be able to
-write "join `person_links` to `raw.rows`": the ids would come from a
+write "join a link table to `raw.rows`": the ids would come from a
 join, which the rule forbids. So the link builder (offline, not the
 agent) copies the values a question needs from the row into
-`person_links` (date, amount, counterpart name, document title) when it
+the link table (date, amount, counterpart, return) when it
 creates the link. The agent then reads only `curated`, which is small.
 `raw.rows` stays protected and is read only by the offline stage, scoped
 by `document_id` like everything else.
 
-Changes needed, all small:
-
-1. Add `"curated"` to `eval_allowed_datasets` (one setting) and to the
-   table-name normaliser (`core/sql_normalize.py` only rewrites
-   `raw.rows` today).
-2. `roles/bigquery.dataViewer` on `curated` for `sa-agent-service`
-   (Terraform, `agent_service.tf`).
-3. Better still, a `person_record` tool so the model rarely writes SQL
-   over these tables at all.
-
-Better than raw SQL for the model: one tool, `person_record(person,
-since, sources)`, that returns a politician's terms, votes (live),
-linked contributions and expenses in one call, built
-on these tables plus the live Parliament client.
+As built: the allow-list is **not** widened. The model never writes
+SQL against `curated`; the `person_record` tool runs fixed, parameterised
+queries over these small tables and returns a politician's terms and
+contribution totals per return (never summed across a leadership
+campaign's weekly reports and its final return, which overlap). That
+keeps the guard's surface unchanged. `sa-agent-service` gets read-only
+`curated` access in Terraform (`curate.tf`), and the tool ships behind
+`agent_people_enabled` until the tables exist.
 
 ## Inputs, and what each needs
 
 | Source | Where | Gets in via | Status |
 |---|---|---|---|
-| MPs, terms, name variants | openparliament.ca API (live, JSON) | The new stage calls it directly (`include=all` + memberships) | Ready |
-| Election contributions | Elections Canada, `od_cntrbtn_de_e.zip` (106 MB), listed on open.canada.ca (org `elections`, subject `government_and_politics`) | Existing ingest, **plus ZIP support**: the file is a ZIP labelled CSV, so the format sniff quarantines it today | Needs a small ingest change |
+| MPs, terms, name variants | openparliament.ca API (live, JSON) | `curate people` (`include=all`, memberships, per-person detail) | Built |
+| Election contributions | Elections Canada, `od_cntrbtn_de_e.zip` (212 MB ZIP of one 3.8 GB CSV, 10.85M rows), listed on open.canada.ca (org `elections`, subject `government_and_politics`) | `ingest --accept-archives` lands the ZIP unchanged; `curate contributions` streams the CSV out of it | Built |
 | MP office expenditures | ourcommons.ca proactive-disclosure pages (HTML, quarterly) | New ingest source kind (`api_kind` is `Literal["ckan"]` today) | Needs a scraper source kind |
 
 Ingest constraints that apply (from `services/ingest`): it queries
@@ -178,20 +182,29 @@ documents at 600 MiB / 50M rows. The contributions file fits.
 Deterministic first, and nothing silent:
 
 1. Normalise both sides the same way (`person_names.name_norm`).
-2. **Exact name + term overlap**: the record's date falls inside one
-   of the person's terms → `linked`, confidence 1.0.
-3. **Exact name, record dated outside every term** (e.g. a
-   contribution to a candidate before they won) → `linked` at 0.9 when
-   exactly one person has that name, else `ambiguous`.
-4. Two or more candidates → `ambiguous`, candidates recorded. The
-   agent states the ambiguity instead of choosing.
+2. **Exact name + term window**: the record's date is within one year
+   of one of the person's terms (a candidate files around the election
+   that starts or ends a term) → `linked` (`exact_name_term`).
+3. **Several namesakes fit**: if exactly one of them sat for the party
+   named on the record in the matching term → `linked`
+   (`exact_name_term_party`); otherwise `ambiguous`, candidates
+   recorded, nobody chosen.
+4. **No fitting person** → not linked, not stored, counted. Dropped
+   from the proposal: linking an exact name *outside* every term. On
+   real data that is a namesake trap (a "John Smith" who lost in 2004 is
+   not the John Smith elected in 2015).
 5. Fuzzy matching (edit distance) never links. A fuzzy-only match is
    recorded as `ambiguous` with its candidates and stays that way; no
    human review step.
 
 Re-running with the same inputs produces the same links: ids are
-deterministic, the MERGE key is `(source_system, record_key, field)`, and
-each run's `run_id` records when a link last changed.
+deterministic, each table is written as a whole snapshot (stage, then
+MERGE with delete, guarded against shrinking past 50%), and `run_id`
+records which run last changed a row.
+
+Measured on the real file (dry run): 10.85M rows in 32 s; 410K of 817K
+person rows linked to 791 people; zero surname mismatches; all 101
+namesake rows settled by party.
 
 ## Cost
 
@@ -214,16 +227,14 @@ each run's `run_id` records when a link last changed.
 2. **New service: `services/curate`** (decided 2026-10-08). It calls an
    external API, owns a different dataset and gets its own service
    account; warehouse-load does none of those.
-3. **ZIP reading has to be built.** Nothing in ingest or warehouse-load
-   opens an archive today: a "CSV" that is really a ZIP is sniffed as
-   `zip` and never lands as CSV, and warehouse-load only parses CSV/TSV.
-   The Elections Canada contributions file is a ZIP. Proposed: ingest
-   extracts CSV members at landing (one GCS object per member, with the
-   archive's `document_id` and member name recorded), so everything
-   downstream stays CSV-only.
-4. **Order**: people + terms first (no ingest needed, the
-   openparliament API is enough), then ZIP extraction + contributions,
-   then expenses (needs a scraper).
+3. **ZIPs land unchanged** (built). The contributions "CSV" is a ZIP
+   whose single member is 3.8 GB, past warehouse-load's 600 MB cap.
+   Rather than extract at ingest, `ingest --accept-archives` lands the
+   ZIP as published (raw stays immutable source bytes) and
+   `curate contributions` streams the member straight from GCS. The
+   rows never enter `raw.rows`.
+4. **Order**: people + terms (built), then contributions (built), then
+   MP expenses (needs a scraper source kind; not started).
    Riding context comes free from `person_terms`; no ridings table
    unless it earns one.
 

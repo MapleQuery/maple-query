@@ -1,0 +1,37 @@
+# CI for services/curate (and the schemas it shares with Terraform).
+# Test-only: the job is run by an operator, not deployed.
+
+name: Test curate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/curate/**"
+      - "infra/terraform/schemas/curated_*.json"
+      - ".github/workflows/test-curate.yml"
+  pull_request:
+    paths:
+      - "services/curate/**"
+      - "infra/terraform/schemas/curated_*.json"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: services/curate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.5.14"
+      - run: uv python install 3.12
+      - run: uv sync --frozen --extra dev
+      - run: uv run ruff check src tests
+      - run: uv run mypy src
+      - run: uv run lint-imports
+      - run: uv run pytest -q

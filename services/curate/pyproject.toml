@@ -1,0 +1,79 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "curate"
+version = "0.1.0"
+description = "MapleQuery Normalize (M3): builds curated.* (people, terms, names, linked contributions)."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  # GCP clients
+  "google-cloud-bigquery>=3.23,<4",
+  "google-cloud-storage>=2.16,<3",
+  # Config
+  "pydantic>=2.7,<3",
+  "pydantic-settings>=2.3,<3",
+  "python-dotenv>=1.0,<2",
+  # Logging + retry
+  "structlog>=24.1,<26",
+  "tenacity>=8.3,<9",
+  # CLI; >=0.15 for click>=8.2 compatibility (same pin as warehouse-load).
+  "typer>=0.15,<1",
+]
+
+[project.scripts]
+curate = "curate.entrypoint:app"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2,<9",
+  "ruff>=0.5,<1",
+  "mypy>=1.10,<2",
+  "import-linter>=2.0,<3",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/curate"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/curate/entrypoint.py" = ["B008"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+packages = ["curate"]
+
+[[tool.mypy.overrides]]
+module = ["google.cloud", "google.cloud.*", "google.api_core", "google.api_core.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+pythonpath = ["src"]
+
+[tool.importlinter]
+root_packages = ["curate"]
+include_external_packages = false
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture"
+type = "layers"
+layers = [
+  "curate.entrypoint",
+  "curate.core",
+  "curate.clients",
+  "curate.providers",
+  "curate.config",
+  "curate.types",
+]

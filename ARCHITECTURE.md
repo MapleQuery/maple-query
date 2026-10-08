@@ -24,8 +24,8 @@ never through direct calls.
                                          StatCan WDS · open.canada.ca DataStore · openparliament.ca
 
                    ┌──────────────┐
-  (not built yet)  │ Normalize    │ ──▶ bq.curated.*   (dataset exists, no tables)
-                   │ (M3)         │
+  openparliament ─▶│ Normalize    │ ──▶ bq.curated.people / person_names /
+  raw/ EC archive ▶│ (M3) curate  │     person_terms / person_contributions
                    └──────────────┘
 ```
 
@@ -35,7 +35,7 @@ never through direct calls.
 | Extract (M2) | `services/warehouse-load` | Built. Run log → `raw.documents` (MERGE on `document_id`); CSV bodies → `raw.rows` (one JSON row per CSV row). |
 | Enrich | `services/semantic-enrich` | Built. Per-dataset and per-column descriptions + embeddings → `semantic.*`, used for dataset search. |
 | Agent (M4) | `services/semantic-enrich` (loop, tools, prompts) served by `services/agent-service` | Built and deployed (Cloud Run, on push to `main`). Reads the warehouse with guarded SQL and three live APIs. |
-| Normalize (M3) | — | **Not built.** `bq.curated` exists in Terraform with no tables and no writer. First proposed work: the [people spine](docs/design/people-spine.md). |
+| Normalize (M3) | `services/curate` | Built: `curate people` (openparliament.ca → `curated.people`, `person_names`, `person_terms`) and `curate contributions` (Elections Canada archive → `curated.person_contributions`). Run by an operator. Design: [people spine](docs/design/people-spine.md). |
 
 ### Live sources (no ingest)
 
@@ -85,4 +85,4 @@ they constrain how earlier stages must shape their output.
 | `bq.raw.rows` | Extract (warehouse-load) | One row per CSV body row: `(document_id, row_index, row JSON)`, clustered by `document_id`, ~200 GB. Header names become JSON keys; every value is a string. |
 | `bq.raw.column_index` | Extract (warehouse-load) | `(col_name, file_count, document_ids)` over `raw.rows`. |
 | `bq.semantic.datasets` / `bq.semantic.columns` | Enrich (semantic-enrich) | Descriptions + 1536-dim embeddings per package / column; vector search for the agent. |
-| `bq.curated.*` | Normalize (M3) | TBD. First proposed tables: [people spine](docs/design/people-spine.md). |
+| `bq.curated.*` | Normalize (M3, `services/curate`) | `people`, `person_names`, `person_terms`, `person_contributions`; schemas `infra/terraform/schemas/curated_*.json`; snapshot-MERGE per table. See [people spine](docs/design/people-spine.md). |
