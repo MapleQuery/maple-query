@@ -127,18 +127,22 @@ class RealStatCanClient:
             for c in coordinates
         ]
         body = self._post("getDataFromCubePidCoordAndLatestNPeriods", payload)
-        if not isinstance(body, list) or len(body) != len(coordinates):
+        if not isinstance(body, list):
             raise StatCanError("series request: unexpected response shape")
-        out: list[dict[str, Any]] = []
-        for coord, item in zip(coordinates, body, strict=True):
+        # WDS does not answer in request order. Pairing by position put
+        # Alberta's population against Newfoundland; pair by the
+        # coordinate each object names instead.
+        by_coord: dict[str, dict[str, Any]] = {}
+        for item in body:
             if not isinstance(item, dict) or item.get("status") != "SUCCESS":
-                # A coordinate WDS doesn't hold is a per-series miss,
-                # not a failed request: report it in-band.
-                out.append({"coordinate": coord, "missing": True})
                 continue
             obj = item.get("object")
-            out.append(obj if isinstance(obj, dict) else {"coordinate": coord, "missing": True})
-        return out
+            if isinstance(obj, dict) and obj.get("coordinate"):
+                by_coord[_norm_coord(str(obj["coordinate"]))] = obj
+        return [
+            by_coord.get(_norm_coord(c)) or {"coordinate": c, "missing": True}
+            for c in coordinates
+        ]
 
     def code_sets(self) -> dict[str, Any]:
         with self._lock:
@@ -191,6 +195,13 @@ class RealStatCanClient:
             return json.loads(raw)
         except ValueError as exc:
             raise StatCanError(f"WDS returned non-JSON for {req.full_url}") from exc
+
+
+def _norm_coord(coord: str) -> str:
+    """'2.0.0' and '2.0.0.0.0.0.0.0.0.0' name the same series."""
+    parts = [p.strip() for p in coord.split(".")]
+    parts += ["0"] * (10 - len(parts))
+    return ".".join(str(int(p or 0)) for p in parts[:10])
 
 
 def _single_object(body: Any, *, what: str) -> dict[str, Any]:

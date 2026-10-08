@@ -261,3 +261,23 @@ def test_scalars_are_multiplied_out_exactly() -> None:
     assert statcan_tools.scale_value(1.25, 6) == 1250000
     assert statcan_tools.scale_value(169.8, 0) == 169.8
     assert statcan_tools.scale_value(None, 3) is None
+
+
+def test_series_pair_with_their_coordinate_not_response_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    from semantic_enrich.clients import statcan as client_mod
+
+    client = client_mod.RealStatCanClient()
+    reply = [
+        {
+            "status": "SUCCESS",
+            "object": {"coordinate": "3.0.0.0.0.0.0.0.0.0", "vectorDataPoint": [{"value": 30}]},
+        },
+        {
+            "status": "SUCCESS",
+            "object": {"coordinate": "2.0.0.0.0.0.0.0.0.0", "vectorDataPoint": [{"value": 20}]},
+        },
+    ]
+    monkeypatch.setattr(client, "_post", lambda method, payload: reply)
+    out = client.series_latest_n(1, ["2.0.0.0.0.0.0.0.0.0", "3.0.0.0.0.0.0.0.0.0", "4.0.0.0.0.0.0.0.0.0"], 1)
+    assert [o.get("vectorDataPoint", [{}])[0].get("value") for o in out[:2]] == [20, 30]
+    assert out[2]["missing"] is True

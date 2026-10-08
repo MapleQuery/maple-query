@@ -322,7 +322,28 @@ _SEARCH_STATCAN_TABLES: dict[str, Any] = {
         "(health, defence ...), debt and deficits. Query with StatCan "
         "vocabulary (e.g. 'consumer price index', 'components of "
         "demographic growth', 'housing starts', 'merchandise trade by "
-        "country', 'government finance statistics')."
+        "country', 'government finance statistics').\n"
+        "Common tables (use directly with describe_statcan_table):\n"
+        "  18-10-0004-01 CPI monthly: all-items, food, food from stores, "
+        "shelter, gasoline; by province\n"
+        "  18-10-0005-01 CPI annual average\n"
+        "  36-10-0706-01 GDP per capita and per capita indicators "
+        "(incl. real household disposable income per capita)\n"
+        "  36-10-0663-01 household income, consumption, saving by "
+        "quintile, per household\n"
+        "  17-10-0008-01 components of population growth, annual "
+        "(immigrants, non-permanent residents, births, deaths)\n"
+        "  17-10-0009-01 population, quarterly, Canada and provinces\n"
+        "  34-10-0126-01 housing starts and completions, annual, by "
+        "province\n"
+        "  12-10-0171-01 merchandise trade by country, annual\n"
+        "  10-10-0016-01 federal government finance: revenue (incl. "
+        "customs import duties), expense, debt\n"
+        "  10-10-0005-01 government spending by function (health, "
+        "defence, education) by level of government\n"
+        "  10-10-0002-01 central government debt, monthly\n"
+        "  36-10-0673-01 who holds government debt securities\n"
+        "  14-10-0287-01 labour force, monthly"
     ),
     "parameters": {
         "type": "object",
@@ -1581,6 +1602,11 @@ def run_get_statcan_data(
         coords, labels = statcan_tools.build_coordinates(meta, series)
         freq = int(meta.get("frequencyCode") or 0)
         n = statcan_tools.latest_n_for(freq, start, latest_n or None)
+        # In latest-N mode, over-fetch so unpublished trailing periods
+        # (StatCan's "..") can be skipped and N real values still come back.
+        keep_last = None if start else n
+        if not start:
+            n = min(statcan_tools.MAX_LATEST_N, n + 12)
     except ValueError as exc:
         raise InvalidToolArgsError(str(exc)) from exc
     try:
@@ -1594,6 +1620,7 @@ def run_get_statcan_data(
         codes=_codes_or_none(client),
         start_period=start,
         end_period=end,
+        keep_last=keep_last,
     )
     tid = statcan_tools.table_id(pid)
     title = str(meta.get("cubeTitleEn") or "")

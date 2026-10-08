@@ -438,8 +438,13 @@ def shape_series(
     codes: dict[str, Any] | None,
     start_period: str | None,
     end_period: str | None,
+    keep_last: int | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Return (series for the model, flat rows for the evidence UI)."""
+    """Return (series for the model, flat rows for the evidence UI).
+
+    Periods with no value (StatCan's ".." / "x") are dropped and counted:
+    a latest month that is not yet published is not a zero, and handing
+    it to the model as null read as "the data is missing"."""
     uoms = _uom_names(codes)
     scalars = _scalar_names(codes)
     symbols = _symbol_names(codes)
@@ -454,9 +459,13 @@ def shape_series(
         points = []
         unit = None
         scalar = None
+        empty = 0
         for p in obj.get("vectorDataPoint") or []:
             ref = _parse_period(str(p.get("refPer") or ""))
             if ref is None:
+                continue
+            if p.get("value") is None:
+                empty += 1
                 continue
             if start is not None and ref < start:
                 continue
@@ -476,6 +485,8 @@ def shape_series(
         uom_code = obj.get("memberUomCode")
         if isinstance(uom_code, int):
             unit = uoms.get(uom_code)
+        if keep_last is not None:
+            points = points[-keep_last:]
         thinned = False
         if len(points) > MAX_POINTS_PER_SERIES:
             points, thinned = _thin(points), True
@@ -488,6 +499,8 @@ def shape_series(
             "published_in": scalar,
             "points": [[pt["period"], pt["value"], *([pt["flag"]] if "flag" in pt else [])] for pt in points],
         }
+        if empty:
+            entry["unpublished_periods_skipped"] = empty
         if thinned:
             entry["thinned"] = (
                 "long monthly range: kept the first point, the last point, and one point per year "
