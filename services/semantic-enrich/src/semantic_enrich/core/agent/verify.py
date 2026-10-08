@@ -273,6 +273,13 @@ def compose_caveat(*, gap: str, answer: str) -> str:
     return f"**Partial answer:** this does not cover {gap_text}.\n\n{answer}"
 
 
+def _answered_from_live_sources(result: ResearchResult) -> bool:
+    ok = [r for r in result.sql_runs if r.get("status") == "ok"]
+    return bool(ok) and all(
+        r.get("source") in ("statcan", "open.canada.ca") for r in ok
+    )
+
+
 def compose_answer_note(*, gap: str, answer: str) -> str:
     """The caveat for an answer built from real data: a closing note,
     not a bold "Partial answer" banner over numbers that are right.
@@ -408,6 +415,24 @@ class AnswerFitVerifier:
                 hints=[SystemHint(text=_magnitude_hint(mag))],
             )
 
+        if _answered_from_live_sources(result):
+            # The fit checker sees SQL shapes and row counts, not values;
+            # on answers built from StatCan / open.canada.ca series it
+            # cannot see what was read, and live it caveated about half
+            # of them for gaps that were not there ("does not cover data
+            # for the last 10 years" under a ten-year comparison) while
+            # catching none of the real slips. Those answers ship as
+            # written; the rail shows every value they used.
+            events.append(
+                agent_events.Verification(
+                    fits=True,
+                    action="answer",
+                    confidence=0.0,
+                    reason="live_source_answer",
+                    enforced=False,
+                )
+            )
+            return Verdict(action="accept", events=events)
         fit = self._fit_check(ctx, result, final, events=events)
         if mag_enforce and mag.finding is not None:
             return _compose_magnitude(mag, fit, result)

@@ -6,6 +6,7 @@ transparency and the fail-open posture. The checker itself is a
 scripted FakeOpenAI — these tests pin the enforcement, not the
 model's judgment.
 """
+
 from __future__ import annotations
 
 import math
@@ -56,9 +57,7 @@ def _ctx(
         settings=settings,
         system_prompt="p",
         prompt_hash="h",
-        cache=ResponseCache(
-            max_entries=10, max_value_bytes=1_000_000, ttl_seconds=60
-        ),
+        cache=ResponseCache(max_entries=10, max_value_bytes=1_000_000, ttl_seconds=60),
         snapshot_hash_provider=lambda: "snap-0",
     )
     ctx = TurnContext.begin(
@@ -73,9 +72,7 @@ def _ctx(
     return ctx
 
 
-def _result(
-    *, answer: str = "the answer.", sql_ok: bool = True
-) -> ResearchResult:
+def _result(*, answer: str = "the answer.", sql_ok: bool = True) -> ResearchResult:
     sql_runs = (
         [
             {
@@ -113,9 +110,7 @@ def _checker_says(
 
 
 def _verification(ctx_events: list[Any]) -> agent_events.Verification:
-    found = [
-        e for e in ctx_events if isinstance(e, agent_events.Verification)
-    ]
+    found = [e for e in ctx_events if isinstance(e, agent_events.Verification)]
     assert len(found) == 1
     return found[0]
 
@@ -150,18 +145,14 @@ def test_caveat_on_a_data_backed_answer_is_a_closing_note() -> None:
     ctx = _ctx(settings=settings, responses=[_checker_says()])
     verdict = _verifier(settings).check(ctx, _result(answer="found $X."))
     assert verdict.action == "accept"
-    assert verdict.composed_message == (
-        "found $X.\n\n_Not covered: per-province figures._"
-    )
+    assert verdict.composed_message == ("found $X.\n\n_Not covered: per-province figures._")
     assert verdict.outcome_override == "answered_with_caveat"
 
 
 def test_caveat_on_a_surrender_prepends_the_banner() -> None:
     settings = _settings()
     ctx = _ctx(settings=settings, responses=[_checker_says()])
-    verdict = _verifier(settings).check(
-        ctx, _result(answer="nothing found.", sql_ok=False)
-    )
+    verdict = _verifier(settings).check(ctx, _result(answer="nothing found.", sql_ok=False))
     assert verdict.composed_message is not None
     assert verdict.composed_message.startswith("**Partial answer:**")
 
@@ -245,9 +236,7 @@ def test_surrender_keeps_the_retry_path() -> None:
         settings=settings,
         responses=[_checker_says(action="retry", confidence=0.95)],
     )
-    ctx.trace.searches.append(
-        {"query": "a", "top_similarity": 0.5, "retrieval_quality": "ok"}
-    )
+    ctx.trace.searches.append({"query": "a", "top_similarity": 0.5, "retrieval_quality": "ok"})
     verdict = _verifier(settings).check(ctx, _result(sql_ok=False))
     assert verdict.action == "retry"
 
@@ -284,20 +273,14 @@ def test_clarify_on_surrender_composes_question() -> None:
     settings = _settings()
     ctx = _ctx(
         settings=settings,
-        responses=[
-            _checker_says(
-                action="clarify", gap="which program", confidence=0.9
-            )
-        ],
+        responses=[_checker_says(action="clarify", gap="which program", confidence=0.9)],
     )
     verdict = _verifier(settings).check(ctx, _result(sql_ok=False))
     assert verdict.action == "accept"
     assert verdict.outcome_override == "clarified"
     assert verdict.composed_message is not None
     assert "which program" in verdict.composed_message
-    assert verdict.composed_message.rstrip().endswith(
-        "helps me search better."
-    )
+    assert verdict.composed_message.rstrip().endswith("helps me search better.")
 
 
 def test_clarify_never_withholds_real_data() -> None:
@@ -352,9 +335,7 @@ def test_checker_error_fails_open() -> None:
     settings = _settings()
     ctx = _ctx(
         settings=settings,
-        openai=_ExplodingOpenAI(
-            vector_factory=lambda _t: [1.0 / math.sqrt(1536)] * 1536
-        ),
+        openai=_ExplodingOpenAI(vector_factory=lambda _t: [1.0 / math.sqrt(1536)] * 1536),
     )
     verdict = _verifier(settings).check(ctx, _result())
     assert verdict.action == "accept"
@@ -379,11 +360,22 @@ def test_schema_invalid_output_fails_open() -> None:
 
 def test_off_mode_skips_the_call_entirely() -> None:
     settings = _settings(agent_verify_mode="off")
-    openai = FakeOpenAIClient(
-        vector_factory=lambda _t: [1.0 / math.sqrt(1536)] * 1536
-    )
+    openai = FakeOpenAIClient(vector_factory=lambda _t: [1.0 / math.sqrt(1536)] * 1536)
     ctx = _ctx(settings=settings, openai=openai)
     verdict = _verifier(settings).check(ctx, _result())
     assert verdict.action == "accept"
     assert verdict.events == []
     assert openai.structured_calls == []
+
+
+def test_live_source_answers_skip_the_fit_checker() -> None:
+    settings = _settings()
+    # A checker that would caveat, never consulted.
+    ctx = _ctx(settings=settings, responses=[_checker_says()])
+    result = _result()
+    result.sql_runs = [
+        {"sql": "StatCan table 17-10-0008-01", "status": "ok", "row_count": 33, "source": "statcan"}
+    ]
+    verdict = _verifier(settings).check(ctx, result)
+    assert verdict.action == "accept"
+    assert verdict.composed_message is None
