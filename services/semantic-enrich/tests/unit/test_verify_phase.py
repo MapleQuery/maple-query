@@ -145,16 +145,25 @@ def test_fits_ships_unchanged() -> None:
 # ── caveat ──
 
 
-def test_caveat_prepends_template_and_tags_outcome() -> None:
+def test_caveat_on_a_data_backed_answer_is_a_closing_note() -> None:
     settings = _settings()
     ctx = _ctx(settings=settings, responses=[_checker_says()])
     verdict = _verifier(settings).check(ctx, _result(answer="found $X."))
     assert verdict.action == "accept"
     assert verdict.composed_message == (
-        "**Partial answer:** this does not cover per-province figures."
-        "\n\nfound $X."
+        "found $X.\n\n_Not covered: per-province figures._"
     )
     assert verdict.outcome_override == "answered_with_caveat"
+
+
+def test_caveat_on_a_surrender_prepends_the_banner() -> None:
+    settings = _settings()
+    ctx = _ctx(settings=settings, responses=[_checker_says()])
+    verdict = _verifier(settings).check(
+        ctx, _result(answer="nothing found.", sql_ok=False)
+    )
+    assert verdict.composed_message is not None
+    assert verdict.composed_message.startswith("**Partial answer:**")
 
 
 def test_low_confidence_verdict_ships_a_data_backed_answer_clean() -> None:
@@ -300,7 +309,7 @@ def test_clarify_never_withholds_real_data() -> None:
     verdict = _verifier(settings).check(ctx, _result(sql_ok=True))
     assert verdict.outcome_override == "answered_with_caveat"
     assert verdict.composed_message is not None
-    assert verdict.composed_message.startswith("**Partial answer:**")
+    assert "_Not covered:" in verdict.composed_message
 
 
 def test_clarify_suppressed_after_previous_clarify() -> None:

@@ -8,6 +8,7 @@ import { LogoMark } from "@/components/ui/logo";
 import { MapleLoader } from "@/components/ui/maple-loader";
 import { cn } from "@/lib/utils";
 import { MarkdownLink } from "./markdown-link";
+import { plainMath } from "@/lib/plain-math";
 
 export interface MessageProps {
   role: "user" | "assistant";
@@ -69,7 +70,7 @@ export function Message({ role, content, streaming, meta }: MessageProps) {
                 },
               }}
             >
-              {content}
+              {plainMath(content)}
             </ReactMarkdown>
           ) : streaming ? (
             <span className="inline-flex items-center gap-2.5 rounded-2xl rounded-tl-md border border-hairline bg-white px-4 py-3">

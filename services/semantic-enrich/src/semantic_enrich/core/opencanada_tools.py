@@ -154,8 +154,17 @@ def run_query(
 
     def need(col: str, role: str) -> None:
         if col not in known:
+            hint = ""
+            if col in ("year", "fiscal_year", "month"):
+                dates = sorted(k for k in known if "date" in k)
+                hint = (
+                    f" To group or filter by {col}, derive it from a date column: "
+                    + ", ".join(f"'{col}:{d}'" for d in dates[:3])
+                    + "."
+                )
             raise QueryArgsError(
-                f"{role} column {col!r} is not in this table; columns are: {', '.join(sorted(known))}"
+                f"{role} column {col!r} is not in this table.{hint} Columns are: "
+                f"{', '.join(sorted(known))}"
             )
         if col not in needed:
             needed.append(col)
@@ -329,9 +338,29 @@ def _aggregate(
     # Time groupings read best in time order; everything else by size.
     if group_keys and all(fn is not None for _, fn, _ in group_keys):
         out.sort(key=lambda r: tuple(str(r[n]) for n, _, _ in group_keys))
+        _flag_thin_tail(out, rank)
     else:
         out.sort(key=lambda r: r[rank], reverse=True)
     return out
+
+
+def _flag_thin_tail(groups: list[dict[str, Any]], rank: str) -> None:
+    """Mark trailing periods far below the ones before them.
+
+    Disclosures land months after the fact, so the newest fiscal year
+    usually holds a sliver of its eventual total. Reported as "last
+    year's" figure, it understated aid to Ukraine thirtyfold. The flag
+    is a fact about the numbers, deterministic, so the model does not
+    have to notice it."""
+    if len(groups) < 4:
+        return
+    for i in range(len(groups) - 1, max(len(groups) - 3, 2), -1):
+        prior = sorted(float(g[rank]) for g in groups[i - 3 : i])
+        median = prior[1]
+        if median > 0 and float(groups[i][rank]) < 0.25 * median:
+            groups[i]["likely_incomplete"] = True
+        else:
+            break
 
 
 def _num(value: Any) -> float | None:

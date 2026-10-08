@@ -273,6 +273,15 @@ def compose_caveat(*, gap: str, answer: str) -> str:
     return f"**Partial answer:** this does not cover {gap_text}.\n\n{answer}"
 
 
+def compose_answer_note(*, gap: str, answer: str) -> str:
+    """The caveat for an answer built from real data: a closing note,
+    not a bold "Partial answer" banner over numbers that are right.
+    The checker's gaps on these answers are mostly dimensions nobody
+    asked for, and a banner made every one read as a failure."""
+    gap_text = gap.strip().rstrip(".")
+    return f"{answer.rstrip()}\n\n_Not covered: {gap_text}._"
+
+
 def compose_clarify(*, gap: str) -> str:
     gap_text = gap.strip().rstrip(".")
     return (
@@ -592,8 +601,10 @@ class AnswerFitVerifier:
             return Verdict(
                 action="accept",
                 events=events,
-                composed_message=compose_caveat(
-                    gap=gap, answer=result.candidate_answer
+                composed_message=(
+                    compose_answer_note(gap=gap, answer=result.candidate_answer)
+                    if inputs["answer_kind"] == "answer"
+                    else compose_caveat(gap=gap, answer=result.candidate_answer)
                 ),
                 # A caveat on a real answer is a caveated answer; a
                 # caveat prepended to a no-data claim does not upgrade

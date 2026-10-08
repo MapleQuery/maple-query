@@ -183,3 +183,21 @@ def test_derived_column_in_filters_becomes_a_where() -> None:
     )
     # B (2024-02-10) is fiscal 2023-24; only C (2024-06-01) is 2024-25.
     assert out["groups"] == [{"owner_org": "dnd", "count": 1, "sum_agreement_value": 40.0}]
+
+
+def test_a_thin_latest_period_is_flagged_incomplete() -> None:
+    groups = [
+        {"y": "2021", "sum_v": 100.0},
+        {"y": "2022", "sum_v": 400.0},
+        {"y": "2023", "sum_v": 480.0},
+        {"y": "2024", "sum_v": 230.0},
+        {"y": "2025", "sum_v": 8.0},
+    ]
+    opencanada_tools._flag_thin_tail(groups, "sum_v")
+    assert groups[-1].get("likely_incomplete") is True
+    assert "likely_incomplete" not in groups[-2]
+
+
+def test_bare_fiscal_year_names_the_derivation() -> None:
+    with pytest.raises(opencanada_tools.QueryArgsError, match="fiscal_year:agreement_start_date"):
+        opencanada_tools.run_query(FakeCkan(), resource_id=RID, group_by=["fiscal_year"])
