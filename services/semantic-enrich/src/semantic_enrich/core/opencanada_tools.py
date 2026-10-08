@@ -24,7 +24,7 @@ MAX_ROWS = 30_000
 # Date-window reads (newest-first, stop at the window's start).
 WINDOW_PAGE_SIZE = 32_000
 WINDOW_MAX_ROWS = 100_000
-WINDOW_TIME_BUDGET_S = 15.0
+WINDOW_TIME_BUDGET_S = 10.0
 MAX_RETURN_ROWS = 50
 MAX_GROUPS = 50
 

@@ -65,7 +65,7 @@ class RealOpenCanadaClient:
         self,
         *,
         base_url: str = CKAN_BASE,
-        timeout_s: float = 25.0,
+        timeout_s: float = 20.0,
         cache_size: int = 128,
     ) -> None:
         self._base = base_url.rstrip("/")
@@ -146,7 +146,22 @@ class RealOpenCanadaClient:
                 raise _TransientError(f"open.canada.ca {exc.code}") from exc
             body = _error_message(exc.read())
             raise OpenCanadaError(body or f"open.canada.ca {exc.code}") from exc
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+        except TimeoutError as exc:
+            # Not retried: open.canada.ca does not time out on a blip, it
+            # times out on a scan (a broad filter on the contracts table
+            # ran 37 s), and a second attempt only doubles the wait.
+            raise OpenCanadaError(
+                f"open.canada.ca took over {self._timeout:.0f}s: this query is too "
+                "broad for the live API. Narrow it (owner_org, a text match, or a "
+                "smaller date window)."
+            ) from exc
+        except (urllib.error.URLError, ConnectionError) as exc:
+            if isinstance(getattr(exc, "reason", None), TimeoutError):
+                raise OpenCanadaError(
+                    f"open.canada.ca took over {self._timeout:.0f}s: this query is too "
+                    "broad for the live API. Narrow it (owner_org, a text match, or a "
+                    "smaller date window)."
+                ) from exc
             raise _TransientError(f"open.canada.ca unreachable: {exc}") from exc
         try:
             payload = json.loads(raw)
