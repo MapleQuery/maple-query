@@ -19,20 +19,12 @@ export const dynamic = "force-dynamic";
 const ALLOWED = [/^chat$/, /^sql\/run$/, /^corpus\/stats$/, /^datasets(\/[^/]+(\/(columns|documents))?)?$/];
 
 function upstreamBase(): string | null {
-  const raw =
-    process.env.MAPLEQUERY_API_BASE_URL ??
-    // Read here, server-side only, while the Vercel env still carries
-    // the old name; it never reaches the client bundle from this file.
-    process.env.NEXT_PUBLIC_MAPLEQUERY_API_BASE_URL;
+  const raw = process.env.MAPLEQUERY_API_BASE_URL;
   return raw ? raw.replace(/\/+$/, "") : null;
 }
 
 function token(): string {
-  return (
-    process.env.MAPLEQUERY_API_TOKEN ??
-    process.env.NEXT_PUBLIC_MAPLEQUERY_API_TOKEN ??
-    ""
-  );
+  return process.env.MAPLEQUERY_API_TOKEN ?? "";
 }
 
 async function relay(

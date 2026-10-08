@@ -353,9 +353,9 @@ runtime) relays the paths the app uses (`chat`, `sql/run`,
 `corpus/stats`, `datasets/...`) to Cloud Run, adding the bearer token
 server-side and streaming SSE straight through. Anything else is a 404.
 The token must never be a `NEXT_PUBLIC_` variable: those are inlined
-into the client bundle. (The relay still reads the old
-`NEXT_PUBLIC_MAPLEQUERY_API_*` names as a fallback, server-side only,
-until the Vercel env is renamed.)
+into the client bundle. `next.config.js` fails the build if any
+`NEXT_PUBLIC_` variable's name reads like a secret (TOKEN, SECRET,
+PASSWORD, PRIVATE, API_KEY).
 
 
 Every env var is `NEXT_PUBLIC_*` because it needs to reach the browser. See
