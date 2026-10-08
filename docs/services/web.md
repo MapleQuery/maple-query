@@ -87,6 +87,25 @@ carry the visual distinction that separate serif / mono families would.
 - `/chat` (no id) redirects client-side to the most recent conversation or
   spawns a new one.
 
+### Chat → notebook (`lib/turn-to-block.ts`, `components/chat/turn-actions.tsx`)
+
+A finished chat answer moves into a notebook as a *completed* query
+block (text, SQL, rows, live sources) plus a chart block when its rows
+have a shape. Nothing re-runs, so the notebook shows the numbers the
+user just read, at no second cost.
+
+- **Add to notebook** under every answer. A conversation links to one
+  notebook (`StoredConversation.notebookId`); later answers append
+  there. The dropdown starts a new notebook or picks a recent one.
+- **Open as notebook** in the chat header turns the whole conversation
+  into one; an empty notebook offers recent conversations to import.
+- Notebooks keep `source` (the conversation they came from) and link
+  back to it.
+- Blocks cite what the answer cites (`/datasets/<id>` links in its
+  text), not every ranked candidate. StatCan rows are pivoted to one
+  column per series (`pivotSourceRows`) so they chart as lines.
+- **Show evidence** reopens any earlier answer's trace in the rail.
+
 ### /notebook · secondary
 - Ordered list of **prose** (Markdown), **query** (single-turn `/chat`) and
   **chart** blocks. All three move, delete, and hide the same way.
