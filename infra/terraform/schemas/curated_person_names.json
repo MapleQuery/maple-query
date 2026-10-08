@@ -1,0 +1,12 @@
+[
+  {"name": "person_id", "type": "STRING", "mode": "REQUIRED",
+   "description": "FK to curated.people.person_id."},
+  {"name": "name_norm", "type": "STRING", "mode": "REQUIRED",
+   "description": "Casefolded, accent-stripped, honorifics and punctuation removed, middle initials dropped, words in 'given family' order. What linking matches on."},
+  {"name": "name_raw", "type": "STRING", "mode": "REQUIRED",
+   "description": "The variant as found."},
+  {"name": "origin", "type": "STRING", "mode": "REQUIRED",
+   "description": "Where the variant came from: openparliament_name | given_family | alternate_name."},
+  {"name": "run_id", "type": "STRING", "mode": "REQUIRED",
+   "description": "Curate run that last wrote this row."}
+]

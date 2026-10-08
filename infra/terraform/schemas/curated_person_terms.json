@@ -1,0 +1,22 @@
+[
+  {"name": "term_id", "type": "STRING", "mode": "REQUIRED",
+   "description": "openparliament.ca membership URL path (/politicians/memberships/<n>/). Primary key."},
+  {"name": "person_id", "type": "STRING", "mode": "REQUIRED",
+   "description": "FK to curated.people.person_id."},
+  {"name": "role", "type": "STRING", "mode": "REQUIRED",
+   "description": "'MP' (House of Commons member). Other roles are not modelled yet."},
+  {"name": "start_date", "type": "DATE", "mode": "REQUIRED",
+   "description": "Term start."},
+  {"name": "end_date", "type": "DATE", "mode": "NULLABLE",
+   "description": "Term end; NULL while the term is open."},
+  {"name": "party", "type": "STRING", "mode": "NULLABLE",
+   "description": "Party short name during the term."},
+  {"name": "riding_name", "type": "STRING", "mode": "NULLABLE",
+   "description": "Riding name as openparliament.ca publishes it for this term. Context only: never a join key (numbers and names changed across electoral maps; see docs/design/people-spine.md)."},
+  {"name": "province", "type": "STRING", "mode": "NULLABLE",
+   "description": "Two-letter province/territory code."},
+  {"name": "label", "type": "STRING", "mode": "NULLABLE",
+   "description": "openparliament.ca's label, e.g. 'Conservative MP for Avalon'."},
+  {"name": "run_id", "type": "STRING", "mode": "REQUIRED",
+   "description": "Curate run that last wrote this row."}
+]

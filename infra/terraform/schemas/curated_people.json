@@ -1,0 +1,22 @@
+[
+  {"name": "person_id", "type": "STRING", "mode": "REQUIRED",
+   "description": "Stable id: 'op:' + the last segment of the person's openparliament.ca URL (a slug like 'op:pierre-poilievre', or a number for people openparliament gives no slug). Primary key."},
+  {"name": "name", "type": "STRING", "mode": "REQUIRED",
+   "description": "Display name as openparliament.ca publishes it."},
+  {"name": "given_name", "type": "STRING", "mode": "NULLABLE",
+   "description": "From the person's openparliament.ca detail record; NULL until fetched."},
+  {"name": "family_name", "type": "STRING", "mode": "NULLABLE",
+   "description": "From the person's openparliament.ca detail record; NULL until fetched."},
+  {"name": "openparliament_url", "type": "STRING", "mode": "REQUIRED",
+   "description": "https://openparliament.ca/politicians/<slug or id>/"},
+  {"name": "current_mp", "type": "BOOL", "mode": "REQUIRED",
+   "description": "Holds an open House of Commons term (person_terms.end_date IS NULL) as of updated_at."},
+  {"name": "first_term_start", "type": "DATE", "mode": "NULLABLE",
+   "description": "Earliest person_terms.start_date; NULL for people with no Commons term in openparliament.ca (records since 1994)."},
+  {"name": "last_term_end", "type": "DATE", "mode": "NULLABLE",
+   "description": "Latest person_terms.end_date; NULL while current or when there is no term."},
+  {"name": "updated_at", "type": "TIMESTAMP", "mode": "REQUIRED",
+   "description": "When the curate run that last wrote this row started."},
+  {"name": "run_id", "type": "STRING", "mode": "REQUIRED",
+   "description": "Curate run that last wrote this row."}
+]

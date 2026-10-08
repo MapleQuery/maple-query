@@ -42,14 +42,14 @@ run "cloud_run_scaling_and_concurrency" {
     error_message = "Per-instance concurrency must be 80 — matches Cloud Run default for I/O-bound loops."
   }
 
-  # min_instances=1 keeps a warm instance during the demo period so the
-  # first question of every session doesn't eat a 5-10s cold start.
+  # Scales to zero when idle (#72). A cold start takes ~35 s; the web
+  # app's /api/mq relay opens the SSE stream at once so it never 504s.
   assert {
     condition = alltrue([
       for t in google_cloud_run_v2_service.agent_service.template :
-      alltrue([for s in t.scaling : s.min_instance_count == 1])
+      alltrue([for s in t.scaling : s.min_instance_count == 0])
     ])
-    error_message = "min_instance_count must be 1 during the M4 demo period."
+    error_message = "min_instance_count is 0: agent-service scales to zero when idle (#72); the web relay keeps the SSE stream open through a cold start."
   }
 
   assert {
