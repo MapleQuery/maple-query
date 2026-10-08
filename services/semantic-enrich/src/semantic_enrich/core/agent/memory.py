@@ -205,6 +205,7 @@ def build_digest(
             "sql_generated",
             "sql_guarded",
             "source_search",
+            "calculation",
             "derivation",
             "verification",
             "turn_record",

@@ -29,6 +29,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 import jinja2
@@ -172,6 +173,7 @@ def assemble_inputs(
             for s in ctx.trace.searches
         ],
         "question_asks_for": None,
+        "today": date.today().isoformat(),
     }
 
 
@@ -535,7 +537,11 @@ class AnswerFitVerifier:
                 action = "answer"
             elif check.confidence < settings.agent_verify_min_confidence:
                 demotions.append("low_confidence")
-                action = "caveat"
+                # An unsure checker does not get to stamp "Partial
+                # answer" on an answer built from real data: that read
+                # as a defect on answers that were fine. Unsure about a
+                # surrender, it still caveats.
+                action = "answer" if inputs["answer_kind"] != "no_data" else "caveat"
         if mode == "act" and action == "retry" and (
             final or not ctx.retries_remaining()
         ):

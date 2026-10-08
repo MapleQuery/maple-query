@@ -45,6 +45,7 @@ EventType = Literal[
     "suggestions",
     "source_search",
     "source_data",
+    "calculation",
 ]
 
 PhaseName = Literal["triage", "memory", "research", "verify", "answer"]
@@ -433,6 +434,18 @@ class SourceData(_EventBase):
         return "source_data"
 
 
+@dataclass(frozen=True)
+class Calculation(_EventBase):
+    """Arithmetic the answer relies on: `[{label, expression, value}]`,
+    `value` null where the expression was refused."""
+
+    items: list[dict[str, Any]]
+
+    @property
+    def event_type(self) -> EventType:
+        return "calculation"
+
+
 AgentEvent = (
     TurnStart
     | CacheHit
@@ -462,6 +475,7 @@ AgentEvent = (
     | Suggestions
     | SourceSearch
     | SourceData
+    | Calculation
 )
 
 
@@ -494,6 +508,7 @@ _EVENT_CLASSES: dict[str, type[_EventBase]] = {
     "suggestions": Suggestions,
     "source_search": SourceSearch,
     "source_data": SourceData,
+    "calculation": Calculation,
 }
 
 

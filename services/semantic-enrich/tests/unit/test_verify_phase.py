@@ -157,13 +157,26 @@ def test_caveat_prepends_template_and_tags_outcome() -> None:
     assert verdict.outcome_override == "answered_with_caveat"
 
 
-def test_low_confidence_non_answer_demotes_to_caveat() -> None:
+def test_low_confidence_verdict_ships_a_data_backed_answer_clean() -> None:
+    # An unsure checker does not get to prepend "Partial answer" to an
+    # answer built from real rows.
     settings = _settings()
     ctx = _ctx(
         settings=settings,
         responses=[_checker_says(action="retry", confidence=0.5)],
     )
     verdict = _verifier(settings).check(ctx, _result())
+    assert verdict.action == "accept"
+    assert verdict.composed_message is None
+
+
+def test_low_confidence_non_answer_on_a_surrender_demotes_to_caveat() -> None:
+    settings = _settings()
+    ctx = _ctx(
+        settings=settings,
+        responses=[_checker_says(action="caveat", confidence=0.5)],
+    )
+    verdict = _verifier(settings).check(ctx, _result(sql_ok=False))
     assert verdict.action == "accept"
     assert verdict.composed_message is not None
     assert verdict.composed_message.startswith("**Partial answer:**")

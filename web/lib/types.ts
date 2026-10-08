@@ -191,6 +191,18 @@ const SourceData = z.object({
   rows: RowsShape.default([]),
 });
 
+const Calculation = z.object({
+  items: z
+    .array(
+      z.object({
+        label: z.string(),
+        expression: z.string(),
+        value: z.number().nullable(),
+      }),
+    )
+    .default([]),
+});
+
 const Done = z.object({
   turn_id: z.string(),
   total_tool_calls: z.number(),
@@ -224,6 +236,7 @@ export const AgentEventSchemas = {
   suggestions: Suggestions,
   source_search: SourceSearch,
   source_data: SourceData,
+  calculation: Calculation,
   done: Done,
   error: ErrorEvt,
 } as const;

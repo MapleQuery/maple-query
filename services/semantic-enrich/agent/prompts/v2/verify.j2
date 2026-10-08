@@ -31,6 +31,12 @@ fits=false signals (each must be grounded in the question's wording):
 - A null_ratio_warning in result_summary on an answered turn: the
   cited column was mostly empty.
 
+Sources: package ids starting "statcan:" are Statistics Canada's
+national statistics and "open.canada.ca:" are complete federal
+disclosure tables — the federal-boundary signal above applies only to
+warehouse program datasets. Every period up to `today` is past data,
+never a projection.
+
 Answers with answer_kind "no_data" that are NOT data-missing claims
 are judged on their own terms: an answer about the corpus or system
 itself fits when it answers the question, and a refusal explaining
@@ -49,8 +55,9 @@ Actions (pick exactly one):
 - clarify: only when the question itself is the blocker — no search
   can succeed without knowing more from the user.
 
-Set gap to what the question asked for that the answer lacks (null
-when fits). Confidence is your certainty in the verdict, 0.0-1.0.
+Set gap to what the question asked for that the answer lacks, as a
+short noun phrase of at most 12 words that completes "this does not
+cover …" (e.g. "a breakdown by province"); null when fits. Confidence is your certainty in the verdict, 0.0-1.0.
 
 Evidence:
 {{ evidence }}

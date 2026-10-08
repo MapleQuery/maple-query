@@ -41,7 +41,12 @@ from semantic_enrich.clients.statcan import (
     StatCanError,
 )
 from semantic_enrich.config.settings import Settings
-from semantic_enrich.core import agent_events, opencanada_tools, statcan_tools
+from semantic_enrich.core import (
+    agent_events,
+    calculator,
+    opencanada_tools,
+    statcan_tools,
+)
 
 # What counts as a synthesised positional name is owned by
 # `header_recovery`, which also has to reason about it; this module keeps
@@ -101,6 +106,7 @@ TOOL_NAMES = (
     "search_open_canada",
     "describe_open_canada_table",
     "query_open_canada",
+    "calculate",
 )
 
 _LOG = get_logger("semantic_enrich.agent_tools")
@@ -128,6 +134,7 @@ def tool_schemas() -> list[dict[str, Any]]:
         {"type": "function", "function": _SEARCH_OPEN_CANADA},
         {"type": "function", "function": _DESCRIBE_OPEN_CANADA_TABLE},
         {"type": "function", "function": _QUERY_OPEN_CANADA},
+        {"type": "function", "function": _CALCULATE},
     ]
 
 
@@ -522,6 +529,29 @@ _QUERY_OPEN_CANADA: dict[str, Any] = {
             },
             "sort": {"type": "string", "description": "e.g. 'agreement_value desc'"},
             "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+        },
+    },
+}
+
+
+_CALCULATE: dict[str, Any] = {
+    "name": "calculate",
+    "description": (
+        "Evaluate arithmetic exactly. Use for EVERY derived figure "
+        "(shares, per capita, percent change, real change, sums): one "
+        "call can take several labelled expressions. Numbers, + - * / ** "
+        "( ) and round/abs/min/max only. Real change example: "
+        "(42737/31423) / (164.2/126.6) - 1."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["expressions"],
+        "properties": {
+            "expressions": {
+                "type": "object",
+                "description": "label -> expression, e.g. {\"us_share\": \"562.7/778.0*100\"}",
+            }
         },
     },
 }
@@ -1833,7 +1863,28 @@ def run_query_open_canada(
     return out
 
 
+def run_calculate(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    exprs = args.get("expressions")
+    if not isinstance(exprs, dict) or not exprs:
+        raise InvalidToolArgsError("expressions must be a non-empty object of label -> expression")
+    if len(exprs) > 30:
+        raise InvalidToolArgsError("at most 30 expressions per call")
+    results: dict[str, Any] = {}
+    items: list[dict[str, Any]] = []
+    for label, expr in exprs.items():
+        try:
+            value = round(calculator.evaluate(str(expr)), 6)
+            results[str(label)] = value
+            items.append({"label": str(label), "expression": str(expr), "value": value})
+        except calculator.CalcError as exc:
+            results[str(label)] = {"error": str(exc)}
+            items.append({"label": str(label), "expression": str(expr), "value": None})
+    ctx.emit(agent_events.Calculation(items=items))
+    return {"status": "ok", "results": results}
+
+
 _IMPLS: dict[str, Callable[..., dict[str, Any]]] = {
+    "calculate": run_calculate,
     "search_open_canada": run_search_open_canada,
     "describe_open_canada_table": run_describe_open_canada_table,
     "query_open_canada": run_query_open_canada,

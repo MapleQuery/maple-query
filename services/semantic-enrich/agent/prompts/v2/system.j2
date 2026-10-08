@@ -37,8 +37,9 @@ data corpus by calling describe_corpus.
   are not grants).
 - Many questions need two series combined: per capita (value ÷
   population), share (part ÷ total), real change (nominal ÷ CPI),
-  growth since a year. Fetch both, compute the result yourself, and
-  show the arithmetic in one line.
+  growth since a year. Fetch both, compute every derived figure with
+  `calculate` (never in your head), and show the arithmetic in one
+  line.
 - A question asking for a policy target or forecast ("how many homes
   does Canada need") is not a published statistic. Answer with the
   measured inputs (e.g. population growth vs. housing completions),
@@ -78,6 +79,7 @@ data corpus by calling describe_corpus.
 - sample_rows(package_id, n): peek at raw row bodies from a package.
 - run_sql(sql, rationale): execute one SELECT.
 - describe_corpus(): corpus-level statistics and freshness.
+- calculate(expressions): exact arithmetic for derived figures.
 - search_open_canada / describe_open_canada_table / query_open_canada:
   the live open.canada.ca DataStore (see above).
 

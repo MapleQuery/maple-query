@@ -98,6 +98,11 @@ export type RailCard =
     }
   | {
       id: string;
+      kind: "calculation";
+      items: { label: string; expression: string; value: number | null }[];
+    }
+  | {
+      id: string;
       kind: "source_search";
       source: string;
       query: string;
@@ -335,6 +340,30 @@ function RailItem({ card, index }: { card: RailCard; index: number }) {
 
     case "derivation":
       return <DerivationCard index={index} derivation={card.derivation} />;
+
+    case "calculation":
+      return (
+        <RailShell
+          index={index}
+          icon={<Sigma className="h-4 w-4 text-body" />}
+          title="Calculations"
+          meta={`${card.items.length}`}
+        >
+          <ul className="space-y-1 font-mono text-[11px] text-body">
+            {card.items.map((it) => (
+              <li key={it.label} className="leading-snug">
+                <span className="text-muted">{it.label.replace(/_/g, " ")}: </span>
+                {it.expression} ={" "}
+                <span className="font-semibold text-ink">
+                  {it.value === null
+                    ? "refused"
+                    : it.value.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </RailShell>
+      );
 
     case "source_search":
       return (

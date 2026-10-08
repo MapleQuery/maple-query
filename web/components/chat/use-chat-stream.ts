@@ -299,6 +299,15 @@ function reducer(state: StreamState, action: Action): StreamState {
             ],
           };
 
+        case "calculation":
+          return {
+            ...state,
+            cards: [
+              ...state.cards,
+              { id: uuid(), kind: "calculation", items: payload.items },
+            ],
+          };
+
         case "suggestions":
           return { ...state, suggestions: payload.items };
 
