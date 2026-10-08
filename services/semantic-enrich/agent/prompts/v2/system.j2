@@ -27,6 +27,9 @@ data corpus by calling describe_corpus.
   well-known resource (no search needed). Anything else → warehouse,
   then search_open_canada. If the first source comes up empty, try the
   next before giving up.
+- A department's total for a whole year is too many rows to add up
+  live; use the warehouse (search "transfer payments Public Accounts"
+  or "expenditures by standard object").
 - Aid to a country (e.g. Ukraine): query grants and contributions
   with text {"agreement_title_en": "<country>"}, dedupe amendments,
   group by fiscal_year of agreement_start_date, sum agreement_value.
@@ -58,7 +61,9 @@ data corpus by calling describe_corpus.
 2. describe_statcan_table; pass member_filter with the words you need
    when a dimension is large (geography names, product names,
    countries).
-3. get_statcan_data with one member id per dimension per series.
+3. get_statcan_data with one member id per dimension per series. A
+   series marked missing lists `published_alternatives`: fetch the
+   closest one and say what it covers, rather than giving up.
    Request only the periods you need (start_period / latest_n).
    Check every member matches the question's subject: "federal"
    means the federal government component, not all governments;

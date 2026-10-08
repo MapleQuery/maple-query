@@ -266,7 +266,11 @@ TABLE_ALIASES: dict[int, str] = {
     ),
     10100005: "all governments combined consolidated spending function health defence education",
     10100002: "federal debt national debt owe liabilities",
-    36100673: "who holds owns government debt bonds holders securities",
+    36100673: (
+        "who holds owns government debt bonds holders securities non-residents foreign "
+        "(issuer: general governments; federal alone is not published)"
+    ),
+    18100007: "cpi basket weights share spending food shelter contribution expenses",
     14100287: "jobs unemployment rate employment labour force",
 }
 
@@ -470,16 +474,11 @@ def neighbour_series(meta: dict[str, Any], series: list[int]) -> list[list[int]]
     return out
 
 
-def build_coordinates_unchecked(
-    meta: dict[str, Any], series: list[list[int]]
-) -> tuple[list[str], list[str]]:
+def build_coordinates_unchecked(meta: dict[str, Any], series: list[list[int]]) -> tuple[list[str], list[str]]:
     """`build_coordinates` without the per-call series cap, for probes
     whose members come from the table's own metadata."""
     dims = meta.get("dimension") or []
-    names = [
-        {m.get("memberId"): str(m.get("memberNameEn")) for m in d.get("member") or []}
-        for d in dims
-    ]
+    names = [{m.get("memberId"): str(m.get("memberNameEn")) for m in d.get("member") or []} for d in dims]
     coords = [".".join(str(x) for x in [*s, *([0] * (10 - len(s)))]) for s in series]
     labels = ["; ".join(names[i].get(mid, "?") for i, mid in enumerate(s)) for s in series]
     return coords, labels

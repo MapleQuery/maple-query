@@ -351,7 +351,10 @@ _SEARCH_STATCAN_TABLES: dict[str, Any] = {
         "level\n"
         "  10-10-0005-01 spending by function, all governments combined\n"
         "  10-10-0002-01 central government debt, monthly\n"
-        "  36-10-0673-01 who holds government debt securities\n"
+        "  36-10-0673-01 who holds government debt securities (issuer: "
+        "General governments)\n"
+        "  18-10-0007-01 CPI basket weights: a component's contribution "
+        "= weight x its change / all-items change\n"
         "  14-10-0287-01 labour force, monthly"
     ),
     "parameters": {
