@@ -26,6 +26,7 @@ import math
 import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
 MAX_SERIES_PER_CALL = 12
@@ -461,9 +462,14 @@ def shape_series(
                 continue
             if end is not None and ref > end:
                 continue
-            scalar = scalars.get(int(p.get("scalarFactorCode") or 0), scalar)
+            code = int(p.get("scalarFactorCode") or 0)
+            if code:
+                scalar = scalars.get(code, scalar)
             sym = symbols.get(str(p.get("symbolCode") or "0"))
-            point = {"period": _fmt_period(ref, frequency_code), "value": p.get("value")}
+            point = {
+                "period": _fmt_period(ref, frequency_code),
+                "value": scale_value(p.get("value"), code),
+            }
             if sym:
                 point["flag"] = sym
             points.append(point)
@@ -477,7 +483,9 @@ def shape_series(
             "series": label,
             "vector": f"v{obj.get('vectorId')}" if obj.get("vectorId") else None,
             "unit": unit,
-            "scalar": scalar,
+            # Values are already multiplied out; this records what StatCan
+            # published them in, so a reader can match the table.
+            "published_in": scalar,
             "points": [[pt["period"], pt["value"], *([pt["flag"]] if "flag" in pt else [])] for pt in points],
         }
         if thinned:
@@ -493,10 +501,19 @@ def shape_series(
                     "period": pt["period"],
                     "value": pt["value"],
                     "unit": unit,
-                    "scalar": scalar,
                 }
             )
     return series_out, rows
+
+
+def scale_value(value: Any, scalar_code: int) -> Any:
+    """StatCan publishes many money series "in thousands" or "in
+    millions". Multiplying out here, exactly, means the model only ever
+    sees base units and cannot forget a scalar."""
+    if not isinstance(value, int | float) or isinstance(value, bool) or scalar_code == 0:
+        return value
+    scaled = Decimal(str(value)).scaleb(scalar_code)
+    return int(scaled) if scaled == scaled.to_integral_value() else float(scaled)
 
 
 def _thin(points: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -1,5 +1,6 @@
 """Live StatCan tools: search ranking, coordinate validation, period
 windows, and the tool contract (events, trace state, named errors)."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -104,9 +105,7 @@ class FakeStatCan:
             raise StatCanError("WDS 503")
         return META
 
-    def series_latest_n(
-        self, product_id: int, coordinates: list[str], latest_n: int
-    ) -> list[dict[str, Any]]:
+    def series_latest_n(self, product_id: int, coordinates: list[str], latest_n: int) -> list[dict[str, Any]]:
         self.requests.append((product_id, coordinates, latest_n))
         return [
             {
@@ -188,7 +187,10 @@ def test_describe_truncates_large_dimensions_toward_the_filter() -> None:
         for i in range(1, 80)
     ]
     members.append({"memberId": 99, "memberNameEn": "United States", "parentMemberId": 1})
-    meta = {**META, "dimension": [{"dimensionPositionId": 1, "dimensionNameEn": "Country", "member": members}]}
+    meta = {
+        **META,
+        "dimension": [{"dimensionPositionId": 1, "dimensionNameEn": "Country", "member": members}],
+    }
     out = statcan_tools.describe_table(meta, CODES, member_filter="united states", max_members=10)
     dim = out["dimensions"][0]
     assert dim["truncated"] is True
@@ -205,7 +207,12 @@ def test_get_data_filters_window_applies_units_and_records_state() -> None:
     ctx, events = _ctx(client)
     out = agent_tools.run_get_statcan_data(
         ctx=ctx,
-        args={"product_id": "18-10-0004-01", "series": [[2, 2]], "start_period": "2015", "end_period": "2025"},
+        args={
+            "product_id": "18-10-0004-01",
+            "series": [[2, 2]],
+            "start_period": "2015",
+            "end_period": "2025",
+        },
     )
     assert out["status"] == "ok"
     series = out["series"][0]
@@ -247,3 +254,10 @@ def test_tools_are_registered_and_round_trip_as_sse() -> None:
         source="statcan", table_id="x", title="t", url="u", request={}, row_count=0, rows=[]
     )
     assert agent_events.from_sse_frame(event.to_sse_frame()) == event
+
+
+def test_scalars_are_multiplied_out_exactly() -> None:
+    assert statcan_tools.scale_value(562698185.1, 3) == 562698185100
+    assert statcan_tools.scale_value(1.25, 6) == 1250000
+    assert statcan_tools.scale_value(169.8, 0) == 169.8
+    assert statcan_tools.scale_value(None, 3) is None

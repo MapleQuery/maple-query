@@ -418,6 +418,15 @@ def _skip_grounding(ctx: TurnContext, result: ResearchResult) -> bool:
         # Skipped regardless of the explore-checker mode: this one is
         # not about verification at all.
         return True
+    if not result.derivations and any(
+        run.get("source") == "statcan" and run.get("status") == "ok"
+        for run in result.sql_runs
+    ):
+        # Grounding ties a headline to a SQL derivation. A StatCan answer
+        # has none by construction: its figures are series values read
+        # verbatim (shown in the rail's data card) or arithmetic on them,
+        # so grounding could only ever paint them "unverified".
+        return True
     return _candidate_is_clarify(ctx, result)
 
 

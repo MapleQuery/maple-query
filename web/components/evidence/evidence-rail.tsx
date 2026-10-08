@@ -22,6 +22,7 @@ import { SqlBlock } from "./sql-block";
 import { RowsTable } from "./rows-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn, formatElapsed } from "@/lib/utils";
+import { pivotSourceRows } from "@/lib/turn-to-block";
 import type { ResultRows } from "@/lib/result-rows";
 import type {
   ColumnCandidateT,
@@ -396,7 +397,7 @@ function RailItem({ card, index }: { card: RailCard; index: number }) {
             Table {card.tableId} · {window} · read live from StatCan
           </p>
           <div className="mt-2">
-            <RowsTable rows={card.rows} maxRows={500} />
+            <RowsTable rows={pivotSourceRows(card.rows)} maxRows={500} />
           </div>
         </RailShell>
       );

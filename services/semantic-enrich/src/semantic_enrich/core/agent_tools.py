@@ -364,8 +364,9 @@ _GET_STATCAN_DATA: dict[str, Any] = {
         "series is a list of member ids, exactly one per dimension, in "
         "dimension order (from describe_statcan_table). Give "
         "start_period (and optionally end_period) for a time range, or "
-        "latest_n for the most recent periods. Values carry a unit and "
-        "a scalar (e.g. 'millions') that you must apply."
+        "latest_n for the most recent periods. Values are already in "
+        "base units (StatCan's 'thousands'/'millions' multiplied out); "
+        "each series still carries its unit (dollars, persons, an index)."
     ),
     "parameters": {
         "type": "object",
