@@ -88,6 +88,21 @@ jobs:
         working-directory: services/agent-service
         run: uv run pytest
 
+      # The loop, tools and prompts live in semantic-enrich and ship in
+      # this image, so their unit suite gates the deploy too. Unit only:
+      # the integration suite needs vendor keys and the GPU extra.
+      - name: Sync semantic-enrich deps
+        working-directory: services/semantic-enrich
+        run: uv sync --frozen --extra dev
+
+      - name: Ruff (semantic-enrich)
+        working-directory: services/semantic-enrich
+        run: uv run ruff check src tests
+
+      - name: Pytest (semantic-enrich unit)
+        working-directory: services/semantic-enrich
+        run: uv run pytest tests/unit -q
+
   deploy:
     name: Build + deploy
     needs: test

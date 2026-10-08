@@ -39,6 +39,9 @@ def test_generate_json_returns_dict_from_string_result() -> None:
 
 
 def test_generate_json_returns_dict_from_dict_result() -> None:
+    # A dict result goes through outlines' JSON path, which only the GPU
+    # extra installs; CI and agent-service images do not carry it.
+    pytest.importorskip("outlines")
     model = MagicMock(return_value={"package_id": "pkg-3", "summary": "Third."})
 
     result = generate_json("p", {"type": "object"}, model=model)
