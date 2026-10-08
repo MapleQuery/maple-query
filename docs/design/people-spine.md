@@ -11,7 +11,8 @@ voted, what they said. The accountability questions people actually
 ask join a *person* across sources:
 
 - who lobbied MP X, who donated to X, and how X then voted;
-- grants that went to X's riding while X held it;
+- (context only) grants to organizations located in X's riding while
+  X held it;
 - X's office expenses against the median MP's.
 
 Every source spells names its own way ("Hon. Pierre Poilievre",
@@ -50,48 +51,49 @@ All live in `curated`. Ids are deterministic so re-runs converge.
   `origin` (openparliament alternate names, Hansard attribution, a
   confirmed match from a source). `name_norm` = casefolded,
   accent-stripped, honorifics removed. This is what linking matches on.
-- **`ridings`**: see "Riding joins" below.
 - **`person_terms`**: `(person_id, role, start_date)` with `end_date`,
-  party, riding name and number, province. From openparliament
-  memberships. Answers "who held riding R on date D".
+  party, riding name (as published for that term; context only, see
+  below), province. From openparliament memberships.
 - **`person_links`**: `(source_system, record_key, field, person_id)`
-  with `match_method` (`exact_name_term`, `riding_term`, `manual`),
+  with `match_method` (`exact_name_term`, `exact_name`, `manual`),
   `confidence`, `status` (`linked` | `ambiguous`), `candidates` (for
   ambiguous), `run_id`, `linked_at`. `record_key` is
   `document_id:row_index` for warehouse rows. Cluster
   `source_system, person_id`.
 
-### Riding joins: possible, partial, and easy to get wrong
+### Riding is context, never the join
 
-Checked against live data on 2026-10-08, not assumed:
+Links come **only from records that name the person**: contributions to
+a candidate, lobbying communications with an MP, the MP's own expense
+reports, ministers' travel and hospitality claims, and (live) their
+votes and Hansard. Every link is to a record *about that person*.
 
-- **Coverage is about a fifth.** In the 2,000 newest grants and
-  contributions rows, 22% carry `federal_riding_name_en` /
-  `federal_riding_number`. Grants to individuals (`recipient_type = P`,
-  the largest group) never do; organizations mostly do. So "grants to
-  X's riding" can only ever mean grants to *organizations* located there,
-  and every answer has to say so. The postal code is present on 92% of
-  rows, but mapping postal codes to ridings needs StatCan's Postal Code
-  Conversion File, which is licensed, not open.
-- **Riding numbers are not stable ids.** Ridings were redrawn for the
-  2025 election (2023 Representation Order), and numbers were reused. In
-  the grants data, `48018` is *Edmonton Riverbend* (2013 order); in
-  openparliament.ca, `48018` is *Edmonton Manning* (2023 order), while
-  the grants data has Edmonton Manning as `48016`. Joining on the number
-  attaches money to the wrong MP, silently.
+Riding is an attribute of a term (`person_terms.riding_name`), not a key.
+Where another record happens to carry a riding, the agent may add it as
+a labelled extra, e.g. "N grants to organizations located in this
+riding during their term", worked out at question time from the riding
+name, and never counted as the MP's money. A grant is a department's
+decision; where it landed is context, not accountability.
+
+Why not a key (checked against live data 2026-10-08):
+
+- **Coverage is about a fifth.** 22% of the 2,000 newest grants and
+  contributions rows carry `federal_riding_name_en` /
+  `federal_riding_number`; grants to individuals (`recipient_type = P`)
+  never do. Postal codes are on 92% of rows, but postal-code-to-riding
+  needs StatCan's licensed Postal Code Conversion File.
+- **Numbers were reused across electoral maps.** In the grants data
+  `48018` is *Edmonton Riverbend* (2013 Representation Order); in
+  openparliament.ca it is *Edmonton Manning* (2023 order), which the
+  grants data numbers `48016`. A numeric join pins money on the wrong
+  MP, silently.
 - **Names differ in punctuation:** `Kanata--Carleton` vs `Kanata—Carleton`.
 
-So the join is **(normalised riding name, representation order inferred
-from the agreement date) → riding → term**, never the bare number. That
-needs one more small table, **`ridings`**: `(riding_key, order, number,
-name_variants, valid_from, valid_to)`, built from Elections Canada's
-published electoral-district lists for both the 2013 and 2023 orders
-(openparliament's riding ids follow the 2023 order, and it relabels
-older memberships onto them, so it cannot supply the 2013 numbering). Grant rows without a riding
-stay unlinked, and answers say what share of the money that leaves out.
-
-Row-level person links are only for sources that name a person
-(contributions, lobbying communications, expense reports).
+So the riding extra matches on the normalised name *and* the electoral
+map in force on the record's date, and when either is ambiguous it is
+**omitted, not guessed**. Nothing else depends on it. A `ridings` table
+(both orders, from Elections Canada's electoral-district lists) is only
+worth building if the extra proves useful.
 
 ### What the agent needs to read it: the SQL guard
 
@@ -173,8 +175,9 @@ Deterministic first, and nothing silent:
 1. Normalise both sides the same way (`person_names.name_norm`).
 2. **Exact name + term overlap**: the record's date falls inside one
    of the person's terms → `linked`, confidence 1.0.
-3. **Exact name, no term overlap, or one riding + date** →
-   `linked` at 0.9 when exactly one candidate survives.
+3. **Exact name, record dated outside every term** (e.g. a
+   contribution to a candidate before they won) → `linked` at 0.9 when
+   exactly one person has that name, else `ambiguous`.
 4. Two or more candidates → `ambiguous`, candidates recorded. The
    agent states the ambiguity instead of choosing.
 5. Fuzzy matching (edit distance) only ever proposes; a fuzzy match is
@@ -224,9 +227,11 @@ each run's `run_id` records when a link last changed.
    extracts CSV members at landing (one GCS object per member, with the
    archive's `document_id` and member name recorded), so everything
    downstream stays CSV-only.
-5. **Order**: people + terms + ridings first (no ingest needed, the
+5. **Order**: people + terms first (no ingest needed, the
    openparliament API is enough), then ZIP extraction + contributions,
    then expenses (needs a scraper), then lobbying once access is sorted.
+   Riding context comes free from `person_terms`; no ridings table
+   unless it earns one.
 
 ## Drift found while mapping (fix alongside)
 
