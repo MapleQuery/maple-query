@@ -68,5 +68,4 @@ they constrain how earlier stages must shape their output.
 | `gs://maplequery-raw/quarantine/...` | Ingest | Files that failed safety checks; 30-day TTL. |
 | `gs://maplequery-raw/sandbox/...` | (any) | Ad-hoc experiments; 7-day TTL. Never read by production code. |
 | `bq.raw.documents` | Ingest | One row per ingested file. |
-| `bq.raw.ingest_watermark` | Ingest | Per-org incremental cursor. |
-| `bq.curated.*` | Normalize (M3) | TBD. |
+| `bq.curated.*` | Normalize (M3) | TBD. First proposed tables: [people spine](docs/design/people-spine.md). |
