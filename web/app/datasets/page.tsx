@@ -60,6 +60,36 @@ export default function DatasetsPage() {
           plain-language description. Click a dataset to see its columns and
           sample rows.
         </p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <a
+            href="https://www150.statcan.gc.ca/n1/en/type/data"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-xl border border-hairline bg-white/70 px-4 py-3 text-sm transition-colors hover:border-navy"
+          >
+            <span className="font-medium text-ink">
+              + 8,000 Statistics Canada tables, read live
+            </span>
+            <span className="mt-0.5 block text-xs text-muted">
+              Prices, GDP, population, housing, trade, government finance.
+              Not listed here: Ask finds the right table at question time.
+            </span>
+          </a>
+          <a
+            href="https://search.open.canada.ca/grants/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-xl border border-hairline bg-white/70 px-4 py-3 text-sm transition-colors hover:border-navy"
+          >
+            <span className="font-medium text-ink">
+              + Full proactive-disclosure tables, read live
+            </span>
+            <span className="mt-0.5 block text-xs text-muted">
+              Every grant, contribution, contract over $10K, travel and
+              hospitality claim on open.canada.ca.
+            </span>
+          </a>
+        </div>
       </header>
 
       <div className="mb-6 flex items-center gap-2 rounded-xl border border-hairline bg-white px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-navy">
