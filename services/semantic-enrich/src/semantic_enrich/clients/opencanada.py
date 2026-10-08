@@ -122,14 +122,19 @@ class RealOpenCanadaClient:
         if isinstance(query.get("fields"), list):
             query["fields"] = ",".join(query["fields"])
         url = f"{self._base}/{action}?{urllib.parse.urlencode(query)}"
-        for attempt in Retrying(
-            stop=stop_after_attempt(3),
-            wait=wait_exponential_jitter(initial=0.5, max=4.0),
-            retry=retry_if_exception_type(_TransientError),
-            reraise=True,
-        ):
-            with attempt:
-                return self._once(url)
+        try:
+            for attempt in Retrying(
+                stop=stop_after_attempt(2),
+                wait=wait_exponential_jitter(initial=0.5, max=2.0),
+                retry=retry_if_exception_type(_TransientError),
+                reraise=True,
+            ):
+                with attempt:
+                    return self._once(url)
+        except _TransientError as exc:
+            # Out of retries: a named, catchable failure rather than an
+            # internal error the tool layer never sees coming.
+            raise OpenCanadaError(str(exc)) from exc
         raise OpenCanadaError("unreachable")  # pragma: no cover
 
     def _once(self, url: str) -> dict[str, Any]:

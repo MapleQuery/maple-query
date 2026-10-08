@@ -170,3 +170,16 @@ def test_ckan_failure_is_a_named_error() -> None:
     out = agent_tools.run_query_open_canada(ctx=ctx, args={"resource_id": RID, "fields": ["owner_org"]})
     assert out["reason"] == "opencanada_error"
     assert "nope" in out["message"]
+
+
+def test_derived_column_in_filters_becomes_a_where() -> None:
+    out = opencanada_tools.run_query(
+        FakeCkan(),
+        resource_id=RID,
+        filters={"fiscal_year:agreement_start_date": "2024-25"},
+        group_by=["owner_org"],
+        sum_columns=["agreement_value"],
+        dedupe={"key": "ref_number", "order": "amendment_number"},
+    )
+    # B (2024-02-10) is fiscal 2023-24; only C (2024-06-01) is 2024-25.
+    assert out["groups"] == [{"owner_org": "dnd", "count": 1, "sum_agreement_value": 40.0}]

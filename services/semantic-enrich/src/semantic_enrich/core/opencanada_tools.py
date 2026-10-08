@@ -138,7 +138,14 @@ def run_query(
 ) -> dict[str, Any]:
     columns, _total = client.resource_fields(resource_id)
     known = {str(c.get("id")) for c in columns}
-    where = where or []
+    where = list(where or [])
+    # A derived key ("fiscal_year:agreement_start_date") cannot be sent
+    # to CKAN as an exact-match filter; it becomes a where condition.
+    if filters:
+        derived = {k: v for k, v in filters.items() if _DERIVED.match(k)}
+        filters = {k: v for k, v in filters.items() if k not in derived}
+        for k, v in derived.items():
+            where.append({"column": k, "op": "=", "value": v})
     group_by = group_by or []
     sum_columns = sum_columns or []
     aggregate = bool(group_by or sum_columns)
@@ -160,7 +167,8 @@ def run_query(
     for cond in where:
         if cond.get("op") not in _OPS:
             raise QueryArgsError(f"where op must be one of {sorted(_OPS)}")
-        need(str(cond.get("column")), "where")
+        m = _DERIVED.match(str(cond.get("column")))
+        need(m.group(2) if m else str(cond.get("column")), "where")
     group_keys: list[tuple[str, str | None, str]] = []
     for g in group_by:
         m = _DERIVED.match(g)
@@ -242,7 +250,12 @@ def run_query(
 
 def _match(row: dict[str, Any], cond: dict[str, Any]) -> bool:
     col, op, want = str(cond.get("column")), cond.get("op"), cond.get("value")
-    have = row.get(col)
+    if isinstance(want, list):
+        if op != "=":
+            return False
+        return any(_match(row, {**cond, "value": w}) for w in want)
+    m = _DERIVED.match(col)
+    have = _derive(m.group(1), row.get(m.group(2))) if m else row.get(col)
     if op == "contains":
         return str(want).casefold() in str(have or "").casefold()
     if op == "starts_with":

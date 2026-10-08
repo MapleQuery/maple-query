@@ -281,3 +281,13 @@ def test_series_pair_with_their_coordinate_not_response_order(monkeypatch: pytes
     out = client.series_latest_n(1, ["2.0.0.0.0.0.0.0.0.0", "3.0.0.0.0.0.0.0.0.0", "4.0.0.0.0.0.0.0.0.0"], 1)
     assert [o.get("vectorDataPoint", [{}])[0].get("value") for o in out[:2]] == [20, 30]
     assert out[2]["missing"] is True
+
+
+def test_catalogue_is_served_from_the_bundle_without_waiting(monkeypatch: pytest.MonkeyPatch) -> None:
+    from semantic_enrich.clients import statcan as client_mod
+
+    client = client_mod.RealStatCanClient()
+    monkeypatch.setattr(client, "_refresh_catalogue", lambda: None)
+    cubes = client.list_cubes()
+    assert len(cubes) > 5000
+    assert any(c["productId"] == 18100004 for c in cubes)

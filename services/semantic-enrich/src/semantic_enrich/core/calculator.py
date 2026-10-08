@@ -11,17 +11,18 @@ from __future__ import annotations
 
 import ast
 import operator
+from collections.abc import Callable
 from typing import Any
 
-_BIN = {
+_BIN: dict[type[ast.operator], Callable[[Any, Any], Any]] = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
     ast.Mult: operator.mul,
     ast.Div: operator.truediv,
     ast.Pow: operator.pow,
 }
-_UNARY = {ast.UAdd: operator.pos, ast.USub: operator.neg}
-_FUNCS = {"round": round, "abs": abs, "min": min, "max": max}
+_UNARY: dict[type[ast.unaryop], Callable[[Any], Any]] = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+_FUNCS: dict[str, Callable[..., Any]] = {"round": round, "abs": abs, "min": min, "max": max}
 MAX_LEN = 500
 
 

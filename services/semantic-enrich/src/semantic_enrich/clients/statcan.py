@@ -20,12 +20,14 @@ catalogue fetch. Transport errors and 5xx retry; anything else raises
 """
 from __future__ import annotations
 
+import gzip
 import json
 import threading
 import time
 import urllib.error
 import urllib.request
 from collections import OrderedDict
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from tenacity import (
@@ -35,7 +37,10 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
+from semantic_enrich.providers.logging import get_logger
+
 WDS_BASE = "https://www150.statcan.gc.ca/t1/wds/rest"
+_LOG = get_logger("semantic_enrich.clients.statcan")
 
 
 class StatCanError(RuntimeError):
@@ -72,7 +77,7 @@ class RealStatCanClient:
         self,
         *,
         base_url: str = WDS_BASE,
-        timeout_s: float = 20.0,
+        timeout_s: float = 15.0,
         catalogue_ttl_s: float = 6 * 3600,
         metadata_cache_size: int = 256,
     ) -> None:
@@ -82,6 +87,7 @@ class RealStatCanClient:
         self._lock = threading.Lock()
         self._cubes: list[dict[str, Any]] | None = None
         self._cubes_at = 0.0
+        self._refreshing = False
         self._codes: dict[str, Any] | None = None
         self._meta: OrderedDict[int, dict[str, Any]] = OrderedDict()
         self._meta_cap = metadata_cache_size
@@ -89,21 +95,39 @@ class RealStatCanClient:
     # ── public surface ──
 
     def list_cubes(self) -> list[dict[str, Any]]:
+        """The catalogue, never blocking on the network.
+
+        The live catalogue is a 5 MB download that took over 20 s from
+        Cloud Run on a cold start, and every concurrent first turn
+        started its own. So search reads a bundled snapshot (titles and
+        date ranges, ~170 KB) immediately, and one background thread
+        swaps in the live list when it arrives. A stale title costs
+        nothing: data and metadata calls are always live."""
         with self._lock:
-            fresh = (
-                self._cubes is not None
-                and time.monotonic() - self._cubes_at < self._catalogue_ttl
+            if self._cubes is None:
+                self._cubes = _bundled_catalogue()
+                self._cubes_at = 0.0
+            stale = time.monotonic() - self._cubes_at >= self._catalogue_ttl
+            if (stale or self._cubes_at == 0.0) and not self._refreshing:
+                self._refreshing = True
+                threading.Thread(target=self._refresh_catalogue, daemon=True).start()
+            return self._cubes
+
+    def _refresh_catalogue(self) -> None:
+        try:
+            cubes = self._request(
+                urllib.request.Request(f"{self._base}/getAllCubesListLite"),
+                timeout=max(self._timeout, 90.0),
             )
-            if fresh:
-                assert self._cubes is not None
-                return self._cubes
-        cubes = self._get("getAllCubesListLite")
-        if not isinstance(cubes, list):
-            raise StatCanError("getAllCubesListLite: expected a list")
-        with self._lock:
-            self._cubes = cubes
-            self._cubes_at = time.monotonic()
-        return cubes
+            if isinstance(cubes, list) and cubes:
+                with self._lock:
+                    self._cubes = cubes
+                    self._cubes_at = time.monotonic()
+        except StatCanError as exc:
+            _LOG.warning("statcan_catalogue_refresh_failed", error=str(exc))
+        finally:
+            with self._lock:
+                self._refreshing = False
 
     def cube_metadata(self, product_id: int) -> dict[str, Any]:
         with self._lock:
@@ -170,20 +194,27 @@ class RealStatCanClient:
         )
         return self._request(req)
 
-    def _request(self, req: urllib.request.Request) -> Any:
-        for attempt in Retrying(
-            stop=stop_after_attempt(3),
-            wait=wait_exponential_jitter(initial=0.5, max=4.0),
-            retry=retry_if_exception_type(_TransientError),
-            reraise=True,
-        ):
-            with attempt:
-                return self._once(req)
+    def _request(
+        self, req: urllib.request.Request, *, timeout: float | None = None
+    ) -> Any:
+        try:
+            for attempt in Retrying(
+                stop=stop_after_attempt(2),
+                wait=wait_exponential_jitter(initial=0.5, max=2.0),
+                retry=retry_if_exception_type(_TransientError),
+                reraise=True,
+            ):
+                with attempt:
+                    return self._once(req, timeout or self._timeout)
+        except _TransientError as exc:
+            # Out of retries: a named, catchable failure rather than an
+            # internal error the tool layer never sees coming.
+            raise StatCanError(str(exc)) from exc
         raise StatCanError("unreachable")  # pragma: no cover
 
-    def _once(self, req: urllib.request.Request) -> Any:
+    def _once(self, req: urllib.request.Request, timeout: float) -> Any:
         try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read()
         except urllib.error.HTTPError as exc:
             if exc.code >= 500:
@@ -195,6 +226,13 @@ class RealStatCanClient:
             return json.loads(raw)
         except ValueError as exc:
             raise StatCanError(f"WDS returned non-JSON for {req.full_url}") from exc
+
+
+def _bundled_catalogue() -> list[dict[str, Any]]:
+    path = Path(__file__).resolve().parent.parent / "data" / "statcan_catalogue.json.gz"
+    with gzip.open(path, "rt", encoding="utf-8") as fh:
+        cubes: list[dict[str, Any]] = json.load(fh)
+    return cubes
 
 
 def _norm_coord(coord: str) -> str:
