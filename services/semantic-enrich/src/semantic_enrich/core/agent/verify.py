@@ -276,7 +276,9 @@ def compose_caveat(*, gap: str, answer: str) -> str:
 def _answered_from_live_sources(result: ResearchResult) -> bool:
     ok = [r for r in result.sql_runs if r.get("status") == "ok"]
     return bool(ok) and all(
-        r.get("source") in ("statcan", "open.canada.ca", "parliament") for r in ok
+        r.get("source")
+        in ("statcan", "open.canada.ca", "parliament", "curated")
+        for r in ok
     )
 
 

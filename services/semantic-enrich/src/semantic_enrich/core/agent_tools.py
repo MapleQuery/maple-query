@@ -17,6 +17,7 @@ per-turn mutable state.
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 import uuid
@@ -156,14 +157,23 @@ ROUTE_TOOLS: dict[str, frozenset[str]] = {
 }
 
 
-def routed_tool_schemas(route: str | None) -> list[dict[str, Any]]:
+def routed_tool_schemas(
+    route: str | None, settings: Settings | None = None
+) -> list[dict[str, Any]]:
     """`tool_schemas()` narrowed to a route; every tool when the route
-    is None or unknown."""
+    is None or unknown. Flag-gated tools (person_record) are appended
+    when `settings` enables them and the route is Parliament or open."""
     allowed = ROUTE_TOOLS.get(route or "")
     tools = tool_schemas()
-    if allowed is None:
-        return tools
-    return [t for t in tools if t["function"]["name"] in allowed]
+    if allowed is not None:
+        tools = [t for t in tools if t["function"]["name"] in allowed]
+    if (
+        settings is not None
+        and settings.agent_people_enabled
+        and route in (None, "parliament", "mixed")
+    ):
+        tools.append({"type": "function", "function": _PERSON_RECORD})
+    return tools
 
 
 def tool_schemas() -> list[dict[str, Any]]:
@@ -695,6 +705,33 @@ _POLITICIAN_SPEECHES: dict[str, Any] = {
             "query": {"type": "string"},
             "since": {"type": "string"},
             "limit": {"type": "integer", "minimum": 1, "maximum": 15},
+        },
+    },
+}
+
+
+_PERSON_RECORD: dict[str, Any] = {
+    "name": "person_record",
+    "description": (
+        "A federal politician's linked public record from the curated "
+        "warehouse: Commons terms (party, riding as context), and money "
+        "received as a candidate or leadership/nomination contestant "
+        "(Elections Canada), totalled PER RETURN with contributor types "
+        "and the largest organization contributors. Never add amounts "
+        "across a leadership campaign's weekly reports and its final "
+        "return: they overlap. Individual donors are counted, never "
+        "named. Takes the `politician` slug from find_politician."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["politician"],
+        "properties": {
+            "politician": {"type": "string"},
+            "since": {
+                "type": "string",
+                "description": "ISO date; returns filed on or after it",
+            },
         },
     },
 }
@@ -2054,7 +2091,150 @@ def run_politician_speeches(*, ctx: ToolContext, args: dict[str, Any]) -> dict[s
     return _parliament_result(ctx, "politician_speeches", args, rows, speeches_scanned=scanned)
 
 
+# ── person_record (curated, flag-gated) ──
+
+_PERSON_SQL = """
+SELECT person_id, name, current_mp, first_term_start, last_term_end,
+       openparliament_url
+FROM `{ds}.people` WHERE person_id = @pid
+""".strip()
+
+_TERMS_SQL = """
+SELECT start_date, end_date, party, riding_name, province
+FROM `{ds}.person_terms` WHERE person_id = @pid ORDER BY start_date
+""".strip()
+
+_RETURNS_SQL = """
+SELECT political_entity, electoral_event, financial_report, report_date,
+       recipient_party, contributor_type,
+       SUM(contribution_count) AS contributions,
+       SUM(monetary_total) AS monetary,
+       SUM(non_monetary_total) AS non_monetary
+FROM `{ds}.person_contributions`
+WHERE person_id = @pid AND status = 'linked'
+  AND (@since IS NULL OR report_date >= @since)
+GROUP BY political_entity, electoral_event, financial_report, report_date,
+         recipient_party, contributor_type
+ORDER BY report_date, financial_report, monetary DESC
+LIMIT 200
+""".strip()
+
+_ORGS_SQL = """
+SELECT contributor_name, contributor_type, financial_report, report_date,
+       SUM(monetary_total) AS monetary
+FROM `{ds}.person_contributions`
+WHERE person_id = @pid AND status = 'linked'
+  AND contributor_name IS NOT NULL
+  AND (@since IS NULL OR report_date >= @since)
+GROUP BY contributor_name, contributor_type, financial_report, report_date
+ORDER BY monetary DESC
+LIMIT 10
+""".strip()
+
+_AMBIGUOUS_SQL = """
+SELECT COUNT(*) AS n FROM `{ds}.person_contributions`
+WHERE status = 'ambiguous' AND @pid IN UNNEST(candidates)
+""".strip()
+
+
+def run_person_record(
+    *, ctx: ToolContext, args: dict[str, Any]
+) -> dict[str, Any]:
+    if not ctx.settings.agent_people_enabled:
+        raise InvalidToolArgsError("person_record is not enabled")
+    slug = _require_str(args, "politician")
+    if not re.fullmatch(r"[a-z0-9-]+", slug):
+        raise InvalidToolArgsError(
+            "politician must be a slug from find_politician"
+        )
+    since = _opt_str(args, "since")
+    since_date = None
+    if since:
+        try:
+            since_date = datetime.fromisoformat(since).date()
+        except ValueError as exc:
+            raise InvalidToolArgsError("since must be an ISO date") from exc
+    pid = f"op:{slug}"
+    ds = f"{ctx.settings.gcp_project_id}.{ctx.settings.bq_dataset_curated}"
+    pid_param = bigquery.ScalarQueryParameter("pid", "STRING", pid)
+    since_param = bigquery.ScalarQueryParameter("since", "DATE", since_date)
+    try:
+        person = list(
+            ctx.bq.query_rows(_PERSON_SQL.format(ds=ds), params=[pid_param])
+        )
+        terms = list(
+            ctx.bq.query_rows(_TERMS_SQL.format(ds=ds), params=[pid_param])
+        )
+        returns = list(
+            ctx.bq.query_rows(
+                _RETURNS_SQL.format(ds=ds), params=[pid_param, since_param]
+            )
+        )
+        orgs = list(
+            ctx.bq.query_rows(
+                _ORGS_SQL.format(ds=ds), params=[pid_param, since_param]
+            )
+        )
+        ambiguous = list(
+            ctx.bq.query_rows(_AMBIGUOUS_SQL.format(ds=ds), params=[pid_param])
+        )
+    except Exception as exc:  # the curated tables may not be built yet
+        return {
+            "status": "source_error",
+            "reason": "curated_unavailable",
+            "message": (
+                f"The linked record could not be read ({exc}). "
+                "Say so; do not guess."
+            ),
+        }
+    if not person:
+        return {
+            "status": "ok",
+            "row_count": 0,
+            "message": f"No curated record for {pid}.",
+        }
+    rows = [_jsonable(r) for r in returns]
+    ctx.emit(
+        agent_events.SourceData(
+            source="curated",
+            table_id="person_contributions",
+            title=(
+                "Elections Canada contributions linked to "
+                f"{person[0].get('name')}"
+            ),
+            url=str(person[0].get("openparliament_url") or ""),
+            request={"politician": slug, **({"since": since} if since else {})},
+            row_count=len(rows),
+            rows=rows[:200],
+        )
+    )
+    return {
+        "status": "ok",
+        "row_count": len(rows) + len(terms),
+        "person": _jsonable(person[0]),
+        "terms": [_jsonable(t) for t in terms],
+        "contributions_by_return": rows,
+        "largest_organization_contributors": [_jsonable(o) for o in orgs],
+        "ambiguous_records_naming_them": int(
+            (ambiguous[0] if ambiguous else {}).get("n") or 0
+        ),
+        "notes": (
+            "Totals are per return as filed with Elections Canada. A "
+            "leadership campaign's weekly reports overlap its final "
+            "return: report them separately, never summed. Individual "
+            "donors are aggregated (count and province only). Riding is "
+            "context."
+        ),
+        "cite_as": (
+            "[Elections Canada contributions]"
+            "(https://www.elections.ca/content.aspx?section=fin&dir=oth"
+            "&document=index&lang=e)"
+        ),
+    }
+
+
 _IMPLS: dict[str, Callable[..., dict[str, Any]]] = {
+    "person_record": run_person_record,
     "find_politician": run_find_politician,
     "parliament_votes": run_parliament_votes,
     "find_bills": run_find_bills,

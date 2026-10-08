@@ -104,7 +104,7 @@ def run(
             return _result(ctx, answer="", reason="timeout")
 
         tools = agent_tools.routed_tool_schemas(
-            None if ctx.route_widened else ctx.route
+            None if ctx.route_widened else ctx.route, deps.settings
         )
         try:
             completion = deps.openai_client.chat_with_tools(
@@ -390,6 +390,21 @@ def _record_trace(
                 "source": "statcan",
                 "table_id": result.get("table_id"),
                 "title": result.get("title"),
+            }
+        )
+    elif tc.name == "person_record" and status == "ok":
+        ctx.trace.sql_runs.append(
+            {
+                "sql": (
+                    "curated person_record "
+                    f"{json.dumps(tc.arguments, sort_keys=True)}"
+                ),
+                "status": status,
+                "row_count": result.get("row_count"),
+                "null_ratio_warning": None,
+                "source": "curated",
+                "table_id": "person_contributions",
+                "title": "person_record",
             }
         )
     elif tc.name in _PARLIAMENT_TOOLS and status == "ok":

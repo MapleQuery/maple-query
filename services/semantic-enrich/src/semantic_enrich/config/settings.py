@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     bq_documents_table: str = "documents"
     bq_rows_table: str = "rows"
     bq_dataset_semantic: str = "semantic"
+    # Normalize (M3) output, built by services/curate. Read only through
+    # the person_record tool (fixed queries), never by model-written SQL.
+    bq_dataset_curated: str = "curated"
     bq_datasets_table: str = "datasets"
     bq_columns_table: str = "columns"
 
@@ -336,6 +339,11 @@ class Settings(BaseSettings):
     agent_source_routing: Literal["off", "log", "act"] = "act"
     # Below this source confidence the turn is not narrowed.
     agent_route_min_confidence: float = 0.7
+    # Expose the person_record tool (curated.people / person_terms /
+    # person_contributions). Off until services/curate has built those
+    # tables in this project; while off, the agent's prompt and tools are
+    # exactly as before.
+    agent_people_enabled: bool = False
     agent_triage_model: str = "gpt-4o-mini"
     # Hard deadline for the classifier call. Triage may slow a turn by
     # at most this much; on timeout the turn fails open to research.
