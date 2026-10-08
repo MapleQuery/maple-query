@@ -533,10 +533,29 @@ time; nothing is ingested and the warehouse is never touched:
   resources in `LoopState.opencanada_tables`; events reuse
   `source_search` / `source_data`.
 
+## Parliament tools (`clients/parliament.py`, `core/parliament_tools.py`)
+
+| Tool | API | Returns |
+| -- | -- | -- |
+| `find_politician(query, include_former)` | `/politicians/` (cached 6 h; all-time list 24 h) | slug, party, riding, current or former |
+| `parliament_votes(politician, bill, session, limit)` | `/votes/`, `/votes/ballots/`, vote detail | votes with result and totals; `their_ballot` for an MP; per-party breakdown for a bill |
+| `find_bills(query, session)` | `/bills/?session=` (cached), bill detail | introduced, became law, sponsor, recorded votes |
+| `politician_speeches(politician, query, since, limit)` | `/speeches/?politician=` | Hansard excerpts with date, topic, link (scans the last 300 when filtering) |
+
+- The API ignores `name=`/`q=` on politicians and bills, so those lists
+  are fetched whole and matched locally; votes, ballots and speeches
+  filter server-side.
+- Polite by construction: identifying User-Agent, cached lists, at most
+  5 detail fetches per call, no retry on timeout.
+- A ballot the record does not hold reads `not recorded` (not an MP at
+  the time, or absent), never a guessed vote.
+- Route `parliament` in `ROUTE_TOOLS`; triage puts federal politicians'
+  public record in scope and keeps character / private life out.
+
 ## Source routing (`agent_source_routing`, v2 only)
 
 The triage call also returns `source` (`statcan` | `payments` |
-`warehouse` | `mixed`) and `source_confidence`: a few output tokens on
+`parliament` | `warehouse` | `mixed`) and `source_confidence`: a few output tokens on
 a call that already runs, not a new model call.
 
 - `act` (default): when triage read the question (no fail-open), is at

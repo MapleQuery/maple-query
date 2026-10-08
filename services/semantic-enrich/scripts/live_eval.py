@@ -152,6 +152,12 @@ def regressions(entry: dict[str, Any], before: dict[str, Any] | None) -> list[st
     got = (entry.get("route") or {}).get("source")
     if expected and got and got != expected:
         flags.append(f"routed to {got}, expected {expected}")
+    want_cat = entry.get("expected_category")
+    got_cat = (entry.get("route") or {}).get("category")
+    if want_cat and got_cat != want_cat:
+        flags.append(f"triaged {got_cat}, expected {want_cat}")
+    if want_cat and want_cat != "in_scope":
+        return flags  # a refusal reads no data by design
     if before is None:
         if entry["set"] == "stay_great" and not entry.get("read_data"):
             flags.append("read no data")
@@ -206,7 +212,8 @@ def main() -> int:
         result = ask(args.base, token, q["question"], args.timeout)
         with lock:
             committed += result["dollars"] - EST_DOLLARS_PER_QUESTION
-        entry = {**{k: q.get(k) for k in ("id", "set", "question", "expected_source")}, **result}
+        keys = ("id", "set", "question", "expected_source", "expected_category")
+        entry = {**{k: q.get(k) for k in keys}, **result}
         entry["flags"] = regressions(entry, baseline.get(q["id"]))
         mark = "!!" if entry["flags"] else "ok"
         print(f"  {mark} {q['id']} ({entry['secs']}s, ${entry['dollars']})", flush=True)

@@ -89,3 +89,27 @@
   expected_source: payments
   question: "Which federal departments gave the most in grants and contributions last fiscal year?"
   note: A full fiscal year of grants is >160K rows; needs a Public Accounts table.
+
+# Parliament (live, openparliament.ca). Added with the Parliament tools;
+# before them these were refused or answered from the wrong place.
+- id: c4-votes-by-party
+  set: get_better
+  expected_source: parliament
+  question: "How did each party vote on Bill C-4?"
+- id: c4-became-law
+  set: get_better
+  expected_source: parliament
+  question: "Did bill C-4 become law, and who sponsored it?"
+- id: poilievre-housing-speeches
+  set: get_better
+  expected_source: parliament
+  question: "What has Pierre Poilievre said about housing in the House of Commons recently?"
+- id: aboultaif-maid-vote
+  set: get_better
+  expected_source: parliament
+  question: "How did Ziad Aboultaif vote on Bill C-218?"
+- id: politician-character-guard
+  set: get_better
+  expected_category: off_scope
+  question: "Is Pierre Poilievre a good person?"
+  note: Accountability means the public record; character judgements stay refused.

@@ -77,6 +77,12 @@ Rules:
   about what datasets contain. mixed = needs two of these, or you
   cannot tell. source_confidence is how sure you are (0-1); use mixed
   below 0.7.
+- Federal politicians' PUBLIC record is in_scope: how an MP or
+  minister voted, what they said in the House, bills they sponsored,
+  expenses they filed. Their private life, beliefs or character is
+  off_scope (personal). Provincial politicians stay off_scope unless
+  the question is about federal program data.
+- source parliament = votes, bills, House debates, who an MP is.
 - deflection_hint (off_scope only): the nearest thing the corpus
   COULD answer, phrased as a suggestion, under 160 characters, no
   URLs. Null when nothing fits.
@@ -121,6 +127,9 @@ Q: what time range does the contracts data cover -> explore
 Q: how much has canada donated to ukraine in the last year -> in_scope,
   payments (grants data names recipient countries)
 Q: what is the unemployment rate in Alberta -> in_scope, statcan
+Q: how did Pierre Poilievre vote on bill C-4 -> in_scope, parliament
+Q: what has my MP said about housing -> in_scope, parliament
+Q: is Mark Carney a good person -> off_scope (opinion)
 Q: which companies got the biggest federal contracts -> in_scope, payments
 Q: how much did departments spend on travel -> in_scope, payments
 Q: how much does the federal government spend on healthcare -> in_scope,

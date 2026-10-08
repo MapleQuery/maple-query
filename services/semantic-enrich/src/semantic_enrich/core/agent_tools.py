@@ -14,6 +14,7 @@ depends on them staying stable. Implementation-side, every tool:
 The tools are pure functions of a `ToolContext`; the loop owns the
 per-turn mutable state.
 """
+
 from __future__ import annotations
 
 import threading
@@ -35,6 +36,11 @@ from semantic_enrich.clients.opencanada import (
     OpenCanadaError,
     RealOpenCanadaClient,
 )
+from semantic_enrich.clients.parliament import (
+    ParliamentClient,
+    ParliamentError,
+    RealParliamentClient,
+)
 from semantic_enrich.clients.statcan import (
     RealStatCanClient,
     StatCanClient,
@@ -45,6 +51,7 @@ from semantic_enrich.core import (
     agent_events,
     calculator,
     opencanada_tools,
+    parliament_tools,
     statcan_tools,
 )
 
@@ -107,6 +114,10 @@ TOOL_NAMES = (
     "describe_open_canada_table",
     "query_open_canada",
     "calculate",
+    "find_politician",
+    "parliament_votes",
+    "find_bills",
+    "politician_speeches",
 )
 
 _LOG = get_logger("semantic_enrich.agent_tools")
@@ -119,6 +130,9 @@ _LOG = get_logger("semantic_enrich.agent_tools")
 # warehouse route keeps the open.canada.ca catalogue as its own next
 # step (the prompt's "warehouse, then search_open_canada").
 ROUTE_TOOLS: dict[str, frozenset[str]] = {
+    "parliament": frozenset(
+        {"find_politician", "parliament_votes", "find_bills", "politician_speeches", "calculate"}
+    ),
     "statcan": frozenset(
         {"search_statcan_tables", "describe_statcan_table", "get_statcan_data", "calculate"}
     ),
@@ -172,6 +186,10 @@ def tool_schemas() -> list[dict[str, Any]]:
         {"type": "function", "function": _DESCRIBE_OPEN_CANADA_TABLE},
         {"type": "function", "function": _QUERY_OPEN_CANADA},
         {"type": "function", "function": _CALCULATE},
+        {"type": "function", "function": _FIND_POLITICIAN},
+        {"type": "function", "function": _PARLIAMENT_VOTES},
+        {"type": "function", "function": _FIND_BILLS},
+        {"type": "function", "function": _POLITICIAN_SPEECHES},
     ]
 
 
@@ -521,10 +539,10 @@ _QUERY_OPEN_CANADA: dict[str, Any] = {
         "Filter and aggregate one open.canada.ca DataStore resource live. "
         "Server-side: `filters` (exact match, value or list of values) and "
         "`text` (word search within a column, e.g. "
-        "{\"agreement_title_en\": \"Ukraine\"}). Then on our side: `where` "
+        '{"agreement_title_en": "Ukraine"}). Then on our side: `where` '
         "(=, !=, >, >=, <, <=, contains, starts_with), `dedupe` (keep the "
-        "latest amendment per agreement: {\"key\": \"ref_number\", "
-        "\"order\": \"amendment_number\"} for grants and contracts — always "
+        'latest amendment per agreement: {"key": "ref_number", '
+        '"order": "amendment_number"} for grants and contracts — always '
         "use it before summing their values), `group_by` (columns, or "
         "derived `year:<date col>`, `fiscal_year:<date col>`, "
         "`month:<date col>`) and `sum_columns`. Aggregation reads at most "
@@ -593,8 +611,90 @@ _CALCULATE: dict[str, Any] = {
         "properties": {
             "expressions": {
                 "type": "object",
-                "description": "label -> expression, e.g. {\"us_share\": \"562.7/778.0*100\"}",
+                "description": 'label -> expression, e.g. {"us_share": "562.7/778.0*100"}',
             }
+        },
+    },
+}
+
+
+_FIND_POLITICIAN: dict[str, Any] = {
+    "name": "find_politician",
+    "description": (
+        "Look up a federal MP (current, or former with include_former) by "
+        "name or riding. Returns the `politician` slug the other "
+        "Parliament tools take, plus party, riding and province."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["query"],
+        "properties": {
+            "query": {"type": "string", "description": "A name or riding."},
+            "include_former": {"type": "boolean"},
+        },
+    },
+}
+
+
+_PARLIAMENT_VOTES: dict[str, Any] = {
+    "name": "parliament_votes",
+    "description": (
+        "Recorded House of Commons votes. With `politician` (a slug): how "
+        "that MP voted (their_ballot), newest first. With `bill` (C-4, "
+        "S-209 or 45-1/C-4): every vote on the bill with result and a "
+        "per-party breakdown; with both, that MP's ballot on each. "
+        "Neither: the latest votes of the session."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [],
+        "properties": {
+            "politician": {"type": "string"},
+            "bill": {"type": "string"},
+            "session": {"type": "string", "description": "e.g. 45-1; default current"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+        },
+    },
+}
+
+
+_FIND_BILLS: dict[str, Any] = {
+    "name": "find_bills",
+    "description": (
+        "Find bills by words in their title, or by number (C-4, 45-1/C-4). "
+        "Returns status: introduced date, whether it became law, sponsor, "
+        "number of recorded votes."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["query"],
+        "properties": {
+            "query": {"type": "string"},
+            "session": {"type": "string", "description": "e.g. 44-1; default current"},
+        },
+    },
+}
+
+
+_POLITICIAN_SPEECHES: dict[str, Any] = {
+    "name": "politician_speeches",
+    "description": (
+        "What an MP said in the House (Hansard), newest first: excerpts "
+        "with date, debate topic and link. `query` keeps speeches about a "
+        "subject (scans their last 300); `since` is an ISO date."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["politician"],
+        "properties": {
+            "politician": {"type": "string"},
+            "query": {"type": "string"},
+            "since": {"type": "string"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 15},
         },
     },
 }
@@ -654,9 +754,7 @@ class LoopState:
     # doc_id → {positional key: the name its real header row gives it}.
     # The SQL path reads this to translate a name the model was shown
     # back into the key the stored row actually has.
-    doc_recovered_names: dict[str, dict[str, str]] = field(
-        default_factory=dict
-    )
+    doc_recovered_names: dict[str, dict[str, str]] = field(default_factory=dict)
     # doc_id → the index of that real header row. The rows at or above
     # it are preamble: harmless in SUM (their text casts to NULL) and
     # not harmless in COUNT.
@@ -697,6 +795,8 @@ class LoopState:
     statcan_tables: dict[str, str] = field(default_factory=dict)
     # open.canada.ca DataStore resources read live: resource_id → title.
     opencanada_tables: dict[str, str] = field(default_factory=dict)
+    # Parliament records cited this turn: openparliament.ca URL → label.
+    parliament_refs: dict[str, str] = field(default_factory=dict)
 
 
 EmitFn = Callable[[agent_events.AgentEvent], None]
@@ -719,6 +819,8 @@ class ToolContext:
     statcan: StatCanClient | None = None
     # Live open.canada.ca client; None = the process-wide default.
     opencanada: OpenCanadaClient | None = None
+    # Live openparliament.ca client; None = the process-wide default.
+    parliament: ParliamentClient | None = None
 
 
 class InvalidToolArgsError(ValueError):
@@ -735,9 +837,7 @@ _GUIDANCE_REFORMULATE = (
     "official program names, issuing-department terms, broader "
     "phrasing) and search again before concluding the data is missing."
 )
-_GUIDANCE_DUPLICATE = (
-    "identical query; rephrase with different vocabulary or ask the user"
-)
+_GUIDANCE_DUPLICATE = "identical query; rephrase with different vocabulary or ask the user"
 _GUIDANCE_CLARIFY = (
     "Do not search again. Either proceed with the best available "
     "candidate — list its documents, run your SQL, and state clearly "
@@ -828,9 +928,7 @@ def run_search_datasets(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
     vec = _get_or_embed(ctx=ctx, query=query)
 
     settings = ctx.settings.model_copy(update={"eval_k_packages": k})
-    packages, _latency = retrieve_packages(
-        bq=ctx.bq, question_vec=vec, settings=settings
-    )
+    packages, _latency = retrieve_packages(bq=ctx.bq, question_vec=vec, settings=settings)
     candidates: list[dict[str, Any]] = [
         {
             "package_id": p.package_id,
@@ -848,27 +946,18 @@ def run_search_datasets(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
         }
         for p in packages
     ]
-    top_similarity = max(
-        (float(c["similarity"]) for c in candidates), default=None
-    )
+    top_similarity = max((float(c["similarity"]) for c in candidates), default=None)
 
     # Track known package IDs so search_columns can enforce the
     # whitelist at runtime.
     for c in candidates:
         ctx.state.known_package_ids.add(str(c["package_id"]))
 
-    ctx.emit(
-        agent_events.DatasetsRanked(
-            candidates=candidates, top_similarity=top_similarity
-        )
-    )
+    ctx.emit(agent_events.DatasetsRanked(candidates=candidates, top_similarity=top_similarity))
 
     # In-band weak/ok verdict: the floor lives in settings, the
     # comparison lives here, and the model only ever reads the verdict.
-    weak = (
-        top_similarity is None
-        or top_similarity < ctx.settings.agent_search_similarity_floor
-    )
+    weak = top_similarity is None or top_similarity < ctx.settings.agent_search_similarity_floor
     result: dict[str, Any] = {
         "candidates": candidates,
         "top_similarity": top_similarity,
@@ -889,9 +978,7 @@ def run_search_datasets(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
     return result
 
 
-def run_search_columns(
-    *, ctx: ToolContext, args: dict[str, Any]
-) -> dict[str, Any]:
+def run_search_columns(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     package_ids = _require_str_list(args, "package_ids")
     if not package_ids:
         raise InvalidToolArgsError("package_ids must be non-empty")
@@ -903,8 +990,7 @@ def run_search_columns(
     unknown = [p for p in package_ids if p not in ctx.state.known_package_ids]
     if unknown:
         raise InvalidToolArgsError(
-            f"invalid_package_id: {unknown!r} not returned by "
-            "search_datasets in this turn"
+            f"invalid_package_id: {unknown!r} not returned by search_datasets in this turn"
         )
 
     vec = _get_or_embed(ctx=ctx, query=query)
@@ -935,17 +1021,11 @@ def run_search_columns(
             c.column_name,
             {"semantic_type": c.semantic_type, "description": c.description},
         )
-    ctx.emit(
-        agent_events.ColumnsRanked(
-            package_ids=list(package_ids), candidates=candidates
-        )
-    )
+    ctx.emit(agent_events.ColumnsRanked(package_ids=list(package_ids), candidates=candidates))
     return {"candidates": candidates}
 
 
-def run_list_documents(
-    *, ctx: ToolContext, args: dict[str, Any]
-) -> dict[str, Any]:
+def run_list_documents(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     package_ids = _require_str_list(args, "package_ids")
     if not package_ids:
         raise InvalidToolArgsError("package_ids must be non-empty")
@@ -958,8 +1038,7 @@ def run_list_documents(
     unknown = [p for p in package_ids if p not in ctx.state.known_package_ids]
     if unknown:
         raise InvalidToolArgsError(
-            f"invalid_package_id: {unknown!r} not returned by "
-            "search_datasets in this turn"
+            f"invalid_package_id: {unknown!r} not returned by search_datasets in this turn"
         )
 
     # One bounded raw.rows job supplies both the per-doc column key
@@ -975,19 +1054,14 @@ def run_list_documents(
             "title": d.title,
             "row_count": d.row_count,
             "resource_last_modified": (
-                d.resource_last_modified.isoformat()
-                if d.resource_last_modified is not None
-                else None
+                d.resource_last_modified.isoformat() if d.resource_last_modified is not None else None
             ),
             "columns": list(d.columns),
         }
         samples = read.samples.get(d.document_id)
         if samples:
             entry["column_samples"] = samples
-        if (
-            generated_header_ratio(d.columns)
-            > ctx.settings.agent_generated_header_ratio
-        ):
+        if generated_header_ratio(d.columns) > ctx.settings.agent_generated_header_ratio:
             entry["quality"] = "low_generated_headers"
             _apply_header_recovery(ctx=ctx, entry=entry, read=read)
         payload.append(entry)
@@ -1017,9 +1091,7 @@ def run_list_documents(
             ctx.state.doc_row_count[doc_id] = rc
         recovered = entry.get("column_names_recovered")
         if isinstance(recovered, dict) and recovered:
-            ctx.state.doc_recovered_names[doc_id] = {
-                str(k): str(v) for k, v in recovered.items()
-            }
+            ctx.state.doc_recovered_names[doc_id] = {str(k): str(v) for k, v in recovered.items()}
         header_row = entry.get("header_row_index")
         if isinstance(header_row, int):
             ctx.state.doc_header_row[doc_id] = header_row
@@ -1068,9 +1140,7 @@ def run_list_documents(
             package_ids=list(package_ids),
             documents=result["documents"],
             filtered_out=filtered_out or None,
-            required_columns_unsatisfiable=bool(
-                result.get("required_columns_unsatisfiable", False)
-            ),
+            required_columns_unsatisfiable=bool(result.get("required_columns_unsatisfiable", False)),
         )
     )
     return result
@@ -1115,15 +1185,9 @@ def _apply_required_columns(
     matches: dict[str, dict[str, list[str]]] = {}
     for entry in payload:
         columns = [str(c) for c in entry["columns"]]
-        matches[str(entry["document_id"])] = {
-            name: match_columns(name, columns) for name in required_columns
-        }
+        matches[str(entry["document_id"])] = {name: match_columns(name, columns) for name in required_columns}
 
-    unmatched = [
-        name
-        for name in required_columns
-        if not any(m[name] for m in matches.values())
-    ]
+    unmatched = [name for name in required_columns if not any(m[name] for m in matches.values())]
     if unmatched:
         result["required_columns_unsatisfiable"] = True
         result["unmatched_columns"] = unmatched
@@ -1168,9 +1232,7 @@ def _apply_required_columns(
         {
             "document_id": e["document_id"],
             "missing_columns": [
-                name
-                for name in required_columns
-                if not is_exact(name, [str(c) for c in e["columns"]])
+                name for name in required_columns if not is_exact(name, [str(c) for c in e["columns"]])
             ],
         }
         for e in payload
@@ -1189,9 +1251,7 @@ def _is_demoted(entry: dict[str, Any]) -> bool:
     return entry.get("quality") == _QUALITY_DEMOTED
 
 
-def _apply_header_recovery(
-    *, ctx: ToolContext, entry: dict[str, Any], read: DocumentRead
-) -> None:
+def _apply_header_recovery(*, ctx: ToolContext, entry: dict[str, Any], read: DocumentRead) -> None:
     """Try to name a demoted document's positional columns, in place.
 
     `columns` is deliberately left alone. It stays the single source of
@@ -1207,9 +1267,7 @@ def _apply_header_recovery(
     rows = read.header_rows.get(str(entry["document_id"]))
     if not rows:
         return
-    generated = [
-        c for c in entry["columns"] if GENERATED_COL_RE.fullmatch(str(c))
-    ]
+    generated = [c for c in entry["columns"] if GENERATED_COL_RE.fullmatch(str(c))]
     recovery = detect_header(
         rows,
         generated,
@@ -1223,17 +1281,13 @@ def _apply_header_recovery(
     entry["quality"] = _QUALITY_RECOVERED
 
 
-def run_sample_rows(
-    *, ctx: ToolContext, args: dict[str, Any]
-) -> dict[str, Any]:
+def run_sample_rows(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     package_id = _require_str(args, "package_id")
     n = _optional_int(args, "n", default=5, min_=1, max_=10)
 
     project_id = ctx.settings.gcp_project_id
     if not project_id:
-        raise InvalidToolArgsError(
-            "sample_rows requires WHENRICH_GCP_PROJECT_ID to be set"
-        )
+        raise InvalidToolArgsError("sample_rows requires WHENRICH_GCP_PROJECT_ID to be set")
 
     # `row` is a native JSON object; the SDK returns it to Python as a
     # dict, so the model can reference keys verbatim.
@@ -1249,9 +1303,7 @@ def run_sample_rows(
     ]
     rows = [dict(r) for r in ctx.bq.query_rows(sql, params=params)]
     normalized = [_jsonable(r) for r in rows]
-    ctx.emit(
-        agent_events.SampleRows(package_id=package_id, rows=normalized)
-    )
+    ctx.emit(agent_events.SampleRows(package_id=package_id, rows=normalized))
     return {"package_id": package_id, "rows": normalized}
 
 
@@ -1304,10 +1356,7 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         # saying so; refusing makes the model narrow its scope.
         detail = "; ".join(
             f"'{c.name}' means "
-            + ", ".join(
-                f"{key} in document {doc}"
-                for doc, key in sorted(c.keys_by_document.items())
-            )
+            + ", ".join(f"{key} in document {doc}" for doc, key in sorted(c.keys_by_document.items()))
             for c in alias.conflicts
         )
         short_reason = (
@@ -1333,8 +1382,7 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
                     "positional `__col_N` key you want explicitly."
                 ),
                 "conflicts": [
-                    {"name": c.name, "documents": dict(c.keys_by_document)}
-                    for c in alias.conflicts
+                    {"name": c.name, "documents": dict(c.keys_by_document)} for c in alias.conflicts
                 ],
             }
         )
@@ -1342,16 +1390,12 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     if alias.translated:
         normalizations["recovered_names_resolved"] = dict(alias.translated)
     if alias.preamble_excluded:
-        normalizations["preamble_rows_excluded"] = dict(
-            alias.preamble_excluded
-        )
+        normalizations["preamble_rows_excluded"] = dict(alias.preamble_excluded)
 
     # Unknown-document check, before the pairing check: an invented id
     # has no columns to pair against, so the pairing check would skip it
     # and the query would run against nothing.
-    unknown_docs, unknown_msg = check_document_ids_known(
-        sql=sql, state=ctx.state
-    )
+    unknown_docs, unknown_msg = check_document_ids_known(sql=sql, state=ctx.state)
     if unknown_docs:
         short_reason = (
             f"unknown_document_id: {len(unknown_docs)} document id(s) "
@@ -1379,9 +1423,7 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     # the WHERE IN, refuse before hitting the SQL guard so the model
     # gets a targeted error telling it which column is missing from
     # which doc — rather than a silent all-NULL result post-execution.
-    violations, pairing_msg = check_doc_column_pairing(
-        sql=sql, state=ctx.state
-    )
+    violations, pairing_msg = check_doc_column_pairing(sql=sql, state=ctx.state)
     if violations:
         short_reason = (
             f"doc_column_pairing_violation: {len(violations)} column(s) "
@@ -1425,9 +1467,7 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    execution = execute_sql(
-        sql=guard_result.sql_final, bq=ctx.bq, settings=ctx.settings
-    )
+    execution = execute_sql(sql=guard_result.sql_final, bq=ctx.bq, settings=ctx.settings)
     ctx.state.sql_execution_count += 1
 
     normalized_rows = [_jsonable(r) for r in execution.rows]
@@ -1452,11 +1492,7 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
             null_ratio_warning=null_ratio_warning,
         )
     )
-    ctx.emit(
-        agent_events.Rows(
-            sql_call_id=call_id, rows=normalized_rows, is_last=True
-        )
-    )
+    ctx.emit(agent_events.Rows(sql_call_id=call_id, rows=normalized_rows, is_last=True))
     if execution.timed_out or execution.error:
         return _result(
             {
@@ -1482,14 +1518,10 @@ def run_run_sql(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     return _result(payload)
 
 
-def run_describe_corpus(
-    *, ctx: ToolContext, args: dict[str, Any]
-) -> dict[str, Any]:
+def run_describe_corpus(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     project_id = ctx.settings.gcp_project_id
     if not project_id:
-        raise InvalidToolArgsError(
-            "describe_corpus requires WHENRICH_GCP_PROJECT_ID to be set"
-        )
+        raise InvalidToolArgsError("describe_corpus requires WHENRICH_GCP_PROJECT_ID to be set")
     ttl = ctx.settings.agent_snapshot_refresh_seconds
     with _CORPUS_STATS_LOCK:
         cached = _CORPUS_STATS_CACHE.get(project_id)
@@ -1501,10 +1533,7 @@ def run_describe_corpus(
     return dict(stats)
 
 
-_CORPUS_DESCRIPTION = (
-    "Canadian federal open-data CSVs from open.canada.ca, loaded into "
-    "a BigQuery warehouse."
-)
+_CORPUS_DESCRIPTION = "Canadian federal open-data CSVs from open.canada.ca, loaded into a BigQuery warehouse."
 
 # In-process TTL cache, keyed by project id. Corpus stats change on
 # warehouse loads, not per turn; repeated calls within the snapshot
@@ -1519,15 +1548,11 @@ def reset_corpus_stats_cache() -> None:
         _CORPUS_STATS_CACHE.clear()
 
 
-def _fetch_corpus_stats(
-    *, ctx: ToolContext, project_id: str
-) -> dict[str, Any]:
+def _fetch_corpus_stats(*, ctx: ToolContext, project_id: str) -> dict[str, Any]:
     s = ctx.settings
     # Row count comes from table metadata — free, no bytes scanned.
     # `raw.rows` is never queried here.
-    rows_total = ctx.bq.table_num_rows(
-        f"{project_id}.{s.bq_dataset_raw}.{s.bq_rows_table}"
-    )
+    rows_total = ctx.bq.table_num_rows(f"{project_id}.{s.bq_dataset_raw}.{s.bq_rows_table}")
     sql = _CORPUS_STATS_SQL.format(
         project_id=project_id,
         semantic_dataset=s.bq_dataset_semantic,
@@ -1602,9 +1627,7 @@ def _codes_or_none(client: StatCanClient) -> dict[str, Any] | None:
         return None
 
 
-def run_search_statcan_tables(
-    *, ctx: ToolContext, args: dict[str, Any]
-) -> dict[str, Any]:
+def run_search_statcan_tables(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     query = _require_str(args, "query")
     k = _optional_int(args, "k", default=8, min_=1, max_=15)
     try:
@@ -1612,11 +1635,7 @@ def run_search_statcan_tables(
     except StatCanError as exc:
         return _statcan_error(exc)
     candidates = statcan_tools.search_tables(cubes, query, k=k)
-    ctx.emit(
-        agent_events.SourceSearch(
-            source="statcan", query=query, candidates=candidates
-        )
-    )
+    ctx.emit(agent_events.SourceSearch(source="statcan", query=query, candidates=candidates))
     payload: dict[str, Any] = {"status": "ok", "candidates": candidates}
     if not candidates:
         payload["guidance"] = (
@@ -1659,9 +1678,7 @@ def _attach_alternatives(
         ][:10]
 
 
-def run_describe_statcan_table(
-    *, ctx: ToolContext, args: dict[str, Any]
-) -> dict[str, Any]:
+def run_describe_statcan_table(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     try:
         pid = statcan_tools.parse_product_id(args.get("product_id"))
     except ValueError as exc:
@@ -1674,24 +1691,19 @@ def run_describe_statcan_table(
         meta = client.cube_metadata(pid)
     except StatCanError as exc:
         return _statcan_error(exc)
-    out = statcan_tools.describe_table(
-        meta, _codes_or_none(client), member_filter=member_filter
-    )
+    out = statcan_tools.describe_table(meta, _codes_or_none(client), member_filter=member_filter)
     ctx.state.statcan_tables[out["table_id"]] = str(out.get("title") or "")
     return {"status": "ok", **out}
 
 
-def run_get_statcan_data(
-    *, ctx: ToolContext, args: dict[str, Any]
-) -> dict[str, Any]:
+def run_get_statcan_data(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     try:
         pid = statcan_tools.parse_product_id(args.get("product_id"))
     except ValueError as exc:
         raise InvalidToolArgsError(str(exc)) from exc
     series = args.get("series")
     if not isinstance(series, list) or not all(
-        isinstance(s, list) and all(isinstance(m, int) for m in s)
-        for s in series
+        isinstance(s, list) and all(isinstance(m, int) for m in s) for s in series
     ):
         raise InvalidToolArgsError("series must be a list of integer lists")
     start = args.get("start_period")
@@ -1796,9 +1808,7 @@ def _opencanada_error(exc: Exception) -> dict[str, Any]:
     }
 
 
-def run_search_open_canada(
-    *, ctx: ToolContext, args: dict[str, Any]
-) -> dict[str, Any]:
+def run_search_open_canada(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     query = _require_str(args, "query")
     k = _optional_int(args, "k", default=6, min_=1, max_=10)
     try:
@@ -1823,9 +1833,7 @@ def run_search_open_canada(
     return {"status": "ok", "packages": packages}
 
 
-def run_describe_open_canada_table(
-    *, ctx: ToolContext, args: dict[str, Any]
-) -> dict[str, Any]:
+def run_describe_open_canada_table(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     resource_id = _require_str(args, "resource_id")
     try:
         out = opencanada_tools.describe_resource(_opencanada(ctx), resource_id)
@@ -1835,9 +1843,7 @@ def run_describe_open_canada_table(
     return {"status": "ok", **out}
 
 
-def run_query_open_canada(
-    *, ctx: ToolContext, args: dict[str, Any]
-) -> dict[str, Any]:
+def run_query_open_canada(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     resource_id = _require_str(args, "resource_id")
     client = _opencanada(ctx)
 
@@ -1849,9 +1855,7 @@ def run_query_open_canada(
 
     def _strs(key: str) -> list[str] | None:
         val = args.get(key)
-        if val is not None and (
-            not isinstance(val, list) or not all(isinstance(v, str) for v in val)
-        ):
+        if val is not None and (not isinstance(val, list) or not all(isinstance(v, str) for v in val)):
             raise InvalidToolArgsError(f"{key} must be a list of strings")
         return val
 
@@ -1926,7 +1930,135 @@ def run_calculate(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     return {"status": "ok", "results": results}
 
 
+# ── Parliament live tools ──
+
+_PARLIAMENT_DEFAULT: ParliamentClient | None = None
+
+_PARLIAMENT_LABELS = {
+    "find_politician": "Members of Parliament",
+    "parliament_votes": "House of Commons recorded votes",
+    "find_bills": "Bills before Parliament",
+    "politician_speeches": "House of Commons debates (Hansard)",
+}
+
+
+def _parliament(ctx: ToolContext) -> ParliamentClient:
+    global _PARLIAMENT_DEFAULT
+    if ctx.parliament is not None:
+        return ctx.parliament
+    with _STATCAN_LOCK:
+        if _PARLIAMENT_DEFAULT is None:
+            _PARLIAMENT_DEFAULT = RealParliamentClient()
+        return _PARLIAMENT_DEFAULT
+
+
+def _parliament_result(
+    ctx: ToolContext, tool: str, args: dict[str, Any], rows: list[dict[str, Any]], **extra: Any
+) -> dict[str, Any]:
+    label = _PARLIAMENT_LABELS[tool]
+    for r in rows:
+        url = r.get("url")
+        if isinstance(url, str):
+            ctx.state.parliament_refs[url] = str(
+                r.get("name") or r.get("description") or r.get("topic") or label
+            )
+    ctx.emit(
+        agent_events.SourceData(
+            source="parliament",
+            table_id=tool,
+            title=label,
+            url="https://openparliament.ca",
+            request={k: v for k, v in args.items() if v not in (None, "")},
+            row_count=len(rows),
+            rows=[{k: v for k, v in r.items() if k != "url"} for r in rows][:200],
+        )
+    )
+    return {
+        "status": "ok",
+        "row_count": len(rows),
+        "rows": rows,
+        "cite_as": "link each record's `url`, e.g. [vote 45-1/8](https://openparliament.ca/votes/45-1/8/)",
+        **extra,
+    }
+
+
+def _parliament_error(exc: Exception) -> dict[str, Any]:
+    return {
+        "status": "source_error",
+        "reason": "parliament_unavailable",
+        "message": f"openparliament.ca did not answer ({exc}). Say so; do not guess the record.",
+    }
+
+
+def _opt_str(args: dict[str, Any], key: str) -> str | None:
+    val = args.get(key)
+    if val is not None and not isinstance(val, str):
+        raise InvalidToolArgsError(f"{key} must be a string")
+    return val or None
+
+
+def run_find_politician(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    query = _require_str(args, "query")
+    include_former = bool(args.get("include_former"))
+    try:
+        rows = parliament_tools.find_politician(_parliament(ctx), query, include_former=include_former)
+    except parliament_tools.ParliamentArgsError as exc:
+        raise InvalidToolArgsError(str(exc)) from exc
+    except ParliamentError as exc:
+        return _parliament_error(exc)
+    return _parliament_result(ctx, "find_politician", args, rows)
+
+
+def run_parliament_votes(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    limit = _optional_int(args, "limit", default=15, min_=1, max_=50)
+    try:
+        rows = parliament_tools.parliament_votes(
+            _parliament(ctx),
+            politician=_opt_str(args, "politician"),
+            bill=_opt_str(args, "bill"),
+            session=_opt_str(args, "session"),
+            limit=limit,
+        )
+    except parliament_tools.ParliamentArgsError as exc:
+        raise InvalidToolArgsError(str(exc)) from exc
+    except ParliamentError as exc:
+        return _parliament_error(exc)
+    return _parliament_result(ctx, "parliament_votes", args, rows)
+
+
+def run_find_bills(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    query = _require_str(args, "query")
+    try:
+        rows = parliament_tools.find_bills(_parliament(ctx), query, session=_opt_str(args, "session"))
+    except parliament_tools.ParliamentArgsError as exc:
+        raise InvalidToolArgsError(str(exc)) from exc
+    except ParliamentError as exc:
+        return _parliament_error(exc)
+    return _parliament_result(ctx, "find_bills", args, rows)
+
+
+def run_politician_speeches(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    limit = _optional_int(args, "limit", default=8, min_=1, max_=15)
+    try:
+        rows, scanned = parliament_tools.politician_speeches(
+            _parliament(ctx),
+            politician=_require_str(args, "politician"),
+            query=_opt_str(args, "query"),
+            since=_opt_str(args, "since"),
+            limit=limit,
+        )
+    except parliament_tools.ParliamentArgsError as exc:
+        raise InvalidToolArgsError(str(exc)) from exc
+    except ParliamentError as exc:
+        return _parliament_error(exc)
+    return _parliament_result(ctx, "politician_speeches", args, rows, speeches_scanned=scanned)
+
+
 _IMPLS: dict[str, Callable[..., dict[str, Any]]] = {
+    "find_politician": run_find_politician,
+    "parliament_votes": run_parliament_votes,
+    "find_bills": run_find_bills,
+    "politician_speeches": run_politician_speeches,
     "calculate": run_calculate,
     "search_open_canada": run_search_open_canada,
     "describe_open_canada_table": run_describe_open_canada_table,
@@ -1943,9 +2075,7 @@ _IMPLS: dict[str, Callable[..., dict[str, Any]]] = {
 }
 
 
-def dispatch(
-    *, ctx: ToolContext, tool_name: str, args: dict[str, Any]
-) -> dict[str, Any]:
+def dispatch(*, ctx: ToolContext, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     """Route a tool call to the matching implementation, wrapped in a
     `tool.<name>` Braintrust span when tracing is on.
 
@@ -1957,9 +2087,7 @@ def dispatch(
     impl = _IMPLS.get(tool_name)
     if impl is None:
         raise InvalidToolArgsError(f"unknown_tool: {tool_name!r}")
-    if not (
-        ctx.settings.agent_trace_sessions and braintrust_tracing.is_enabled()
-    ):
+    if not (ctx.settings.agent_trace_sessions and braintrust_tracing.is_enabled()):
         return impl(ctx=ctx, args=args)
     with braintrust_tracing.trace_span(
         name=f"tool.{tool_name}",
@@ -2004,11 +2132,7 @@ def _result_digest(tool_name: str, result: dict[str, Any]) -> dict[str, Any]:
         candidates = result.get("candidates") or []
         keep = ("package_id", "column_name", "distance")
         return {
-            "candidates": [
-                {k: c.get(k) for k in keep if k in c}
-                for c in candidates
-                if isinstance(c, dict)
-            ],
+            "candidates": [{k: c.get(k) for k in keep if k in c} for c in candidates if isinstance(c, dict)],
             "candidate_count": len(candidates),
         }
     if tool_name == "list_documents":
@@ -2140,8 +2264,7 @@ def compute_aggregate_null_note(
     all_null = sorted(
         col
         for col in aggregate_columns
-        if any(col in row for row in rows)
-        and all(row.get(col) is None for row in rows)
+        if any(col in row for row in rows) and all(row.get(col) is None for row in rows)
     )
     if not all_null:
         return None
@@ -2176,8 +2299,7 @@ def _scalar_aggregate_columns(sql: str) -> set[str]:
                 name = f"f{anonymous_index}_"
                 anonymous_index += 1
             has_scalar_agg = any(
-                agg.find_ancestor(exp.Window) is None
-                for agg in projection.find_all(exp.AggFunc)
+                agg.find_ancestor(exp.Window) is None for agg in projection.find_all(exp.AggFunc)
             )
             if has_scalar_agg:
                 names.add(name)
@@ -2204,9 +2326,7 @@ def _shared_prefix(a: str, b: str) -> int:
     return n
 
 
-def check_document_ids_known(
-    *, sql: str, state: LoopState
-) -> tuple[list[dict[str, Any]], str | None]:
+def check_document_ids_known(*, sql: str, state: LoopState) -> tuple[list[dict[str, Any]], str | None]:
     """Verify every inlined `document_id` was actually listed this turn.
 
     Returns `(unknown, formatted_message)`. Empty = clean.
@@ -2239,9 +2359,7 @@ def check_document_ids_known(
         # A near-identical id is almost certainly the one it meant, and
         # saying so turns "that id is wrong" into "use this one".
         near = sorted(
-            known
-            for known in state.known_document_ids
-            if _shared_prefix(known, doc_id) >= _ID_PREFIX_HINT
+            known for known in state.known_document_ids if _shared_prefix(known, doc_id) >= _ID_PREFIX_HINT
         )
         unknown.append({"document_id": doc_id, "did_you_mean": near})
 
@@ -2258,9 +2376,7 @@ def check_document_ids_known(
         lines.append(f"  - '{u['document_id']}' is not a listed document.")
         if u["did_you_mean"]:
             lines.append(
-                "    You most likely meant: "
-                f"{u['did_you_mean']} — copy it exactly, all 64 "
-                "characters."
+                f"    You most likely meant: {u['did_you_mean']} — copy it exactly, all 64 characters."
             )
     lines.append(
         "Fix: re-read the `document_id` values from list_documents and "
@@ -2308,9 +2424,7 @@ def _pairing_scopes(sql: str) -> list[str]:
     return arms or [sql]
 
 
-def check_doc_column_pairing(
-    *, sql: str, state: LoopState
-) -> tuple[list[dict[str, Any]], str | None]:
+def check_doc_column_pairing(*, sql: str, state: LoopState) -> tuple[list[dict[str, Any]], str | None]:
     """Verify every JSONPath column reference exists in every inlined doc.
 
     Returns `(violations, formatted_message)`. Empty violations = clean.
@@ -2353,8 +2467,7 @@ def check_doc_column_pairing(
                 other_docs = sorted(
                     d
                     for d, cols in state.doc_columns.items()
-                    if col in cols
-                    or col in state.doc_recovered_names.get(d, {}).values()
+                    if col in cols or col in state.doc_recovered_names.get(d, {}).values()
                 )
                 violations.append(
                     {
@@ -2389,10 +2502,7 @@ def check_doc_column_pairing(
                 f"{v['did_you_mean']}. Re-run with that exact name."
             )
         if v["other_docs_with_column"]:
-            lines.append(
-                "    The column DOES exist in these documents: "
-                f"{v['other_docs_with_column']}."
-            )
+            lines.append(f"    The column DOES exist in these documents: {v['other_docs_with_column']}.")
         else:
             lines.append(
                 "    The column does not exist in any document from "
@@ -2452,23 +2562,17 @@ def _require_str(args: dict[str, Any], key: str) -> str:
 
 def _require_str_list(args: dict[str, Any], key: str) -> list[str]:
     value = args.get(key)
-    if not isinstance(value, list) or not all(
-        isinstance(v, str) for v in value
-    ):
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
         raise InvalidToolArgsError(f"invalid_string_list: {key!r}")
     return list(value)
 
 
-def _optional_int(
-    args: dict[str, Any], key: str, *, default: int, min_: int, max_: int
-) -> int:
+def _optional_int(args: dict[str, Any], key: str, *, default: int, min_: int, max_: int) -> int:
     value = args.get(key, default)
     if isinstance(value, bool) or not isinstance(value, int):
         raise InvalidToolArgsError(f"non_integer: {key!r}")
     if value < min_ or value > max_:
-        raise InvalidToolArgsError(
-            f"out_of_range: {key!r} must be in [{min_}, {max_}]"
-        )
+        raise InvalidToolArgsError(f"out_of_range: {key!r} must be in [{min_}, {max_}]")
     return int(value)
 
 

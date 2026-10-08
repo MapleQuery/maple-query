@@ -43,6 +43,12 @@ in `services/semantic-enrich`) instead of copying them into BigQuery:
   CKAN filters server-side; grouping, sums and amendment de-duplication
   run in `core/opencanada_tools.py` over at most 30,000 matching rows.
 
+- **Live** (openparliament.ca API): the House of Commons record —
+  MPs, recorded votes with per-party breakdowns, bills and their status,
+  Hansard speeches. A volunteer-run mirror of ourcommons.ca / LEGISinfo,
+  so the client identifies itself, caches slow-changing lists and caps
+  detail fetches per call.
+
 Rule of thumb for a new source: mirror it only when the publisher has no
 query API, or when answering needs joins across its raw rows. Otherwise
 read it live.

@@ -17,8 +17,10 @@ from semantic_enrich.core.agent_tracing import count_prompt_tokens
 # Raised from 1,300 when the live StatCan and open.canada.ca sources
 # landed: choosing between three sources is routing prose no tool can
 # own.
-# 2,000 at ~4 model calls a turn is ~$0.02 of prompt per turn on gpt-4o.
-PROMPT_V2_TOKEN_BUDGET = 2_000
+# 2,000 at ~4 model calls a turn is ~$0.02 of prompt per turn on gpt-4o;
+# 2,250 once Parliament made it four sources (and the accountability
+# rules that come with naming politicians).
+PROMPT_V2_TOKEN_BUDGET = 2_250
 
 
 def _rendered() -> str:

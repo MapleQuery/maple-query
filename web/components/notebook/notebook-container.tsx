@@ -1191,7 +1191,7 @@ function QueryBlock({
                     title={src.title}
                     className="rounded-full border border-hairline bg-white px-2 py-0.5 text-[11px] text-ink hover:border-navy hover:text-navy"
                   >
-                    {src.source === "open.canada.ca" ? src.title : src.tableId}
+                    {src.source === "statcan" || !src.source ? src.tableId : src.title}
                   </a>
                 ))}
               </p>

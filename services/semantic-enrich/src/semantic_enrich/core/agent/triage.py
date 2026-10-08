@@ -62,7 +62,7 @@ _OFF_SCOPE_REASONS = (
 # Where the answer lives, read off the same classifier call so routing
 # costs a few output tokens, not a model call. `mixed` = needs more than
 # one source, or unsure: research then sees every tool.
-SOURCES = ("statcan", "payments", "warehouse", "mixed")
+SOURCES = ("statcan", "payments", "parliament", "warehouse", "mixed")
 
 # Strict Structured Outputs schema: every property required, nullables
 # via anyOf, so the vendor guarantees the shape and any deviation is

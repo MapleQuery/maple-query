@@ -259,7 +259,12 @@ def run(
             continue
 
 
+_PARLIAMENT_TOOLS = frozenset(
+    {"find_politician", "parliament_votes", "find_bills", "politician_speeches"}
+)
+
 _ROUTE_LABELS = {
+    "parliament": "Parliament (votes, bills, Hansard)",
     "statcan": "Statistics Canada",
     "payments": "open.canada.ca payments (grants, contracts, travel)",
     "warehouse": "warehouse and open.canada.ca catalogue",
@@ -385,6 +390,18 @@ def _record_trace(
                 "source": "statcan",
                 "table_id": result.get("table_id"),
                 "title": result.get("title"),
+            }
+        )
+    elif tc.name in _PARLIAMENT_TOOLS and status == "ok":
+        ctx.trace.sql_runs.append(
+            {
+                "sql": f"openparliament.ca {tc.name} {json.dumps(tc.arguments, sort_keys=True)}",
+                "status": status,
+                "row_count": result.get("row_count"),
+                "null_ratio_warning": None,
+                "source": "parliament",
+                "table_id": tc.name,
+                "title": tc.name,
             }
         )
     elif tc.name == "query_open_canada" and status == "ok":

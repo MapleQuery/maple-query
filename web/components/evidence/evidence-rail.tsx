@@ -417,7 +417,7 @@ function RailItem({ card, index }: { card: RailCard; index: number }) {
         <RailShell
           index={index}
           icon={<BarChart3 className="h-4 w-4 text-teal" />}
-          title={statcan ? "Statistics Canada data" : "open.canada.ca data"}
+          title={SOURCE_LABELS[card.source] ?? `${card.source} data`}
           meta={`${card.rowCount.toLocaleString()} ${statcan ? "values" : "rows"}`}
         >
           <a
@@ -432,7 +432,9 @@ function RailItem({ card, index }: { card: RailCard; index: number }) {
           <p className="mt-0.5 font-mono text-[10px] text-muted">
             {statcan
               ? `Table ${card.tableId} · ${window} · read live from StatCan`
-              : `${window} · read live from open.canada.ca`}
+              : card.source === "parliament"
+                ? `${describeLiveQuery(card.request)} · read live from openparliament.ca`
+                : `${window} · read live from open.canada.ca`}
           </p>
           <div className="mt-2">
             <RowsTable
@@ -450,7 +452,13 @@ function RailItem({ card, index }: { card: RailCard; index: number }) {
   }
 }
 
-/** One line for what a live DataStore query asked for. */
+const SOURCE_LABELS: Record<string, string> = {
+  statcan: "Statistics Canada data",
+  "open.canada.ca": "open.canada.ca data",
+  parliament: "Parliament record",
+};
+
+/** One line for what a live query asked for. */
 function describeLiveQuery(request: Record<string, unknown>): string {
   const parts: string[] = [];
   const fmt = (v: unknown) =>
@@ -462,6 +470,10 @@ function describeLiveQuery(request: Record<string, unknown>): string {
   if (Array.isArray(request.group_by) && request.group_by.length)
     parts.push(`by ${request.group_by.join(", ")}`);
   if (request.dedupe) parts.push("latest amendments only");
+  for (const key of ["politician", "bill", "query", "since", "session"]) {
+    const v = request[key];
+    if (typeof v === "string" && v) parts.push(`${key} ${v}`);
+  }
   return parts.join(" · ") || "rows";
 }
 

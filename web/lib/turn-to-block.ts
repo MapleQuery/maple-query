@@ -218,7 +218,7 @@ export function turnsFromConversation(
 
 /** "Statistics Canada, <title> (table 18-10-0004-01)" or "open.canada.ca, <title>". */
 export function sourceCitation(s: StoredSource): string {
-  return s.source === "open.canada.ca"
-    ? `open.canada.ca, ${s.title}`
-    : `Statistics Canada, ${s.title} (table ${s.tableId})`;
+  if (s.source === "open.canada.ca") return `open.canada.ca, ${s.title}`;
+  if (s.source === "parliament") return `openparliament.ca, ${s.title}`;
+  return `Statistics Canada, ${s.title} (table ${s.tableId})`;
 }
