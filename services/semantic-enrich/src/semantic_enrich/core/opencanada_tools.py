@@ -12,6 +12,7 @@ a question like "grants to Ukraine by year" is one call.
 from __future__ import annotations
 
 import re
+import time
 from collections import defaultdict
 from typing import Any
 
@@ -19,6 +20,10 @@ from semantic_enrich.clients.opencanada import OpenCanadaClient
 
 PAGE_SIZE = 10_000
 MAX_ROWS = 30_000
+# Date-window reads (newest-first, stop at the window's start).
+WINDOW_PAGE_SIZE = 32_000
+WINDOW_MAX_ROWS = 100_000
+WINDOW_TIME_BUDGET_S = 20.0
 MAX_RETURN_ROWS = 50
 MAX_GROUPS = 50
 
@@ -194,7 +199,20 @@ def run_query(
     if not aggregate and not fields:
         needed = [str(c.get("id")) for c in columns]
 
-    params: dict[str, Any] = {"resource_id": resource_id, "fields": needed, "limit": PAGE_SIZE}
+    # A date window (a lower bound on one date column) lets a query that
+    # matches too many rows to read still finish: sort newest-first and
+    # stop paging once the window's start is passed. Good for recent
+    # windows (the last few months of grants). A whole fiscal year of
+    # grants is >160K rows and took 54 s, so reads stop at 100K rows /
+    # 20 s and say so rather than holding the turn hostage.
+    window = _date_window(where)
+    if window and not sort:
+        sort = f"{window[0]} desc"
+    windowed = bool(window and sort and sort.split()[0] == window[0] and sort.lower().endswith("desc"))
+    if windowed and window:
+        need(window[0], "date window")
+
+    params: dict[str, Any] = {"resource_id": resource_id, "fields": needed}
     if filters:
         params["filters"] = filters
     if text:
@@ -205,24 +223,46 @@ def run_query(
     rows: list[dict[str, Any]] = []
     total = 0
     offset = 0
-    page_target = MAX_ROWS if (aggregate or where or dedupe) else max(limit, 1)
+    page_size = WINDOW_PAGE_SIZE if windowed else PAGE_SIZE
+    read_cap = WINDOW_MAX_ROWS if windowed else MAX_ROWS
+    page_target = read_cap if (aggregate or where or dedupe) else max(limit, 1)
+    started = time.monotonic()
+    window_closed = False
     while True:
-        page = client.datastore_search({**params, "offset": offset, "limit": min(PAGE_SIZE, page_target)})
+        page = client.datastore_search({**params, "offset": offset, "limit": min(page_size, page_target)})
         total = int(page.get("total") or 0)
-        if aggregate and total > MAX_ROWS:
+        if aggregate and not windowed and total > MAX_ROWS:
             return {
                 "status": "too_broad",
                 "matched_rows": total,
                 "message": (
                     f"{total:,} rows match; aggregation reads at most {MAX_ROWS:,}. "
-                    "Narrow with filters (e.g. owner_org) or text, then retry."
+                    "Narrow with filters (e.g. owner_org) or text, or bound a date "
+                    "column (where >= / fiscal_year:<date col>) so it can read "
+                    "newest-first, then retry."
                 ),
             }
         records = page.get("records") or []
         rows.extend(records)
         offset += len(records)
+        if windowed and window and records:
+            oldest = str(records[-1].get(window[0]) or "")
+            if oldest and oldest < window[1]:
+                window_closed = True
+                break
         if not records or offset >= total or len(rows) >= page_target:
             break
+        if time.monotonic() - started > WINDOW_TIME_BUDGET_S:
+            break
+    if windowed and aggregate and not window_closed and offset < total:
+        return {
+            "status": "too_broad",
+            "matched_rows": total,
+            "message": (
+                f"Read {offset:,} rows newest-first without reaching {window[1] if window else ''}; "
+                "narrow the window or add filters, then retry."
+            ),
+        }
 
     fetched = len(rows)
     rows = [r for r in rows if all(_match(r, c) for c in where)]
@@ -255,6 +295,26 @@ def run_query(
     else:
         out["rows"] = [{k: _clip(v, 200) for k, v in r.items() if k != "_id"} for r in rows[:limit]]
     return out
+
+
+def _date_window(where: list[dict[str, Any]]) -> tuple[str, str] | None:
+    """(date column, earliest ISO date) when `where` bounds a date from
+    below: `col >= 2024-04-01`, or a derived `fiscal_year:col = 2024-25`
+    / `year:col = 2024`."""
+    for cond in where:
+        col, op, val = str(cond.get("column")), cond.get("op"), cond.get("value")
+        m = _DERIVED.match(col)
+        if m and op == "=" and not isinstance(val, list):
+            year = re.match(r"(\d{4})", str(val))
+            if not year:
+                continue
+            if m.group(1) == "fiscal_year":
+                return m.group(2), f"{year.group(1)}-04-01"
+            if m.group(1) == "year":
+                return m.group(2), f"{year.group(1)}-01-01"
+        if not m and op in (">=", ">") and re.match(r"\d{4}-\d{2}", str(val)):
+            return col, str(val)
+    return None
 
 
 def _match(row: dict[str, Any], cond: dict[str, Any]) -> bool:

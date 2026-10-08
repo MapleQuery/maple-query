@@ -201,3 +201,13 @@ def test_a_thin_latest_period_is_flagged_incomplete() -> None:
 def test_bare_fiscal_year_names_the_derivation() -> None:
     with pytest.raises(opencanada_tools.QueryArgsError, match="fiscal_year:agreement_start_date"):
         opencanada_tools.run_query(FakeCkan(), resource_id=RID, group_by=["fiscal_year"])
+
+
+def test_date_window_bounds_from_where_and_derived_filters() -> None:
+    assert opencanada_tools._date_window(
+        [{"column": "fiscal_year:agreement_start_date", "op": "=", "value": "2024-25"}]
+    ) == ("agreement_start_date", "2024-04-01")
+    assert opencanada_tools._date_window(
+        [{"column": "agreement_start_date", "op": ">=", "value": "2026-01-01"}]
+    ) == ("agreement_start_date", "2026-01-01")
+    assert opencanada_tools._date_window([{"column": "owner_org", "op": "=", "value": "x"}]) is None
