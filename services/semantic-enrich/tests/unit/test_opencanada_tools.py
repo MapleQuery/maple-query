@@ -225,3 +225,21 @@ def test_text_money_columns_sort_numerically() -> None:
     # "1,000" > "150" > "100" > "40" numerically; as strings "40" would win.
     assert [r["agreement_value"] for r in out["rows"]] == ["1,000", "150"]
     assert all("sort" not in c for c in client.calls)
+
+
+def test_sort_by_an_aggregate_output_orders_the_groups() -> None:
+    client = FakeCkan()
+    out = opencanada_tools.run_query(
+        client,
+        resource_id=RID,
+        group_by=["owner_org"],
+        sum_columns=["agreement_value"],
+        sort="sum_agreement_value desc",
+    )
+    assert [g["owner_org"] for g in out["groups"]] == ["gac", "dnd"]
+    assert all("sort" not in c for c in client.calls)
+
+
+def test_sort_by_an_unknown_column_is_a_fixable_error() -> None:
+    with pytest.raises(opencanada_tools.QueryArgsError, match="aggregate output"):
+        opencanada_tools.run_query(FakeCkan(), resource_id=RID, sort="value desc")

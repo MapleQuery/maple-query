@@ -69,9 +69,10 @@ Rules:
   statcan = an economy- or population-wide statistic (prices,
   inflation, rent, GDP, income, wages, jobs, unemployment, population,
   immigration, housing starts, trade, government revenue, spending by
-  function, debt). payments = federal money paid to a named recipient,
-  company, country, organization or program, or by a department
-  (grants, contributions, contracts, travel, hospitality). warehouse =
+  function, debt; also how much the government spends IN TOTAL on an
+  area like health or defence). payments = federal money paid to a
+  named recipient, company, country or organization, or itemized
+  grants, contracts, travel and hospitality records. warehouse =
   any other federal program or departmental dataset, or a question
   about what datasets contain. mixed = needs two of these, or you
   cannot tell. source_confidence is how sure you are (0-1); use mixed
@@ -122,6 +123,8 @@ Q: how much has canada donated to ukraine in the last year -> in_scope,
 Q: what is the unemployment rate in Alberta -> in_scope, statcan
 Q: which companies got the biggest federal contracts -> in_scope, payments
 Q: how much did departments spend on travel -> in_scope, payments
+Q: how much does the federal government spend on healthcare -> in_scope,
+  statcan (a spending total by function, not itemized grants)
 Q: how has rent changed since 2020 -> in_scope, statcan
 Q: what kind of housing data do you have -> explore, warehouse
 Q: how did federal grants to Ontario compare with Ontario's population

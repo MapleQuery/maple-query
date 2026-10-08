@@ -24,7 +24,7 @@ MAX_ROWS = 30_000
 # Date-window reads (newest-first, stop at the window's start).
 WINDOW_PAGE_SIZE = 32_000
 WINDOW_MAX_ROWS = 100_000
-WINDOW_TIME_BUDGET_S = 20.0
+WINDOW_TIME_BUDGET_S = 15.0
 MAX_RETURN_ROWS = 50
 MAX_GROUPS = 50
 
@@ -208,6 +208,21 @@ def run_query(
     # as $99,999.99. Numeric orderings happen here, over the rows read
     # (the window's rows, newest-first, when there is a window).
     local_sort: tuple[str, bool] | None = None
+    group_sort: tuple[str, bool] | None = None
+    if sort:
+        col, _, direction = sort.partition(" ")
+        if col not in known:
+            # "sum_agreement_value desc" names an output of this call,
+            # not a column CKAN has: it orders the groups, here.
+            outputs = {"count", *(f"sum_{c}" for c in sum_columns), *group_by}
+            if aggregate and col in outputs:
+                group_sort = (col, direction.strip().lower() != "asc")
+                sort = None
+            else:
+                raise QueryArgsError(
+                    f"sort column {col!r} is not in this table; sort by a column, or by "
+                    f"an aggregate output ({', '.join(sorted(outputs))}) when grouping"
+                )
     if sort:
         col, _, direction = sort.partition(" ")
         types = {str(c.get("id")): str(c.get("type") or "") for c in columns}
@@ -304,6 +319,12 @@ def run_query(
         out["sorted_by"] = f"{col} ({'largest' if desc else 'smallest'} first, numeric)"
     if aggregate:
         groups = _aggregate(rows, group_keys, sum_columns)
+        if group_sort:
+            gcol, gdesc = group_sort
+            groups.sort(
+                key=lambda g: (_num(g.get(gcol)) is None, _num(g.get(gcol)) or str(g.get(gcol))),
+                reverse=gdesc,
+            )
         out["groups"] = groups[:MAX_GROUPS]
         out["group_count"] = len(groups)
         out["totals"] = {

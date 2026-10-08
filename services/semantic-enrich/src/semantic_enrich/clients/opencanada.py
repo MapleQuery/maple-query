@@ -65,7 +65,7 @@ class RealOpenCanadaClient:
         self,
         *,
         base_url: str = CKAN_BASE,
-        timeout_s: float = 45.0,
+        timeout_s: float = 25.0,
         cache_size: int = 128,
     ) -> None:
         self._base = base_url.rstrip("/")
