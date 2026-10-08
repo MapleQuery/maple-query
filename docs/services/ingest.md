@@ -53,7 +53,7 @@ writes `raw.documents` and `raw.rows`.
 Known limits:
 
 - **No archive extraction.** A resource declared as CSV that is really a
-  ZIP (Elections Canada contributions, the lobbying registry) is sniffed
+  ZIP (e.g. Elections Canada contributions) is sniffed
   as `zip`, fails the requested-format check, and is not landed as CSV.
   warehouse-load only parses `csv`/`tsv` bodies anyway.
 - **No per-package selection.** A run takes everything matching

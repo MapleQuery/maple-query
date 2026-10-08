@@ -10,7 +10,7 @@ Phase 1 answers questions about one record at a time: how an MP
 voted, what they said. The accountability questions people actually
 ask join a *person* across sources:
 
-- who lobbied MP X, who donated to X, and how X then voted;
+- who donated to X, and how X then voted;
 - (context only) grants to organizations located in X's riding while
   X held it;
 - X's office expenses against the median MP's.
@@ -22,6 +22,12 @@ person id with known name variants and terms of office. That is a
 table, built offline, not something the agent can work out at
 question time. This is the "joins across raw rows" exception in
 `ARCHITECTURE.md`'s rule for mirroring sources.
+
+**Sources must be fully automatable.** Every input is fetched and
+refreshed by code, end to end. Anything that needs a person to download
+a file, pass a bot challenge, request access, or buy a licence is out of
+scope, however useful the data. The same goes for linking: nothing
+waits on a human to confirm a match.
 
 ## How it fits the warehouse as built
 
@@ -55,7 +61,7 @@ All live in `curated`. Ids are deterministic so re-runs converge.
   party, riding name (as published for that term; context only, see
   below), province. From openparliament memberships.
 - **`person_links`**: `(source_system, record_key, field, person_id)`
-  with `match_method` (`exact_name_term`, `exact_name`, `manual`),
+  with `match_method` (`exact_name_term`, `exact_name`),
   `confidence`, `status` (`linked` | `ambiguous`), `candidates` (for
   ambiguous), `run_id`, `linked_at`. `record_key` is
   `document_id:row_index` for warehouse rows. Cluster
@@ -64,8 +70,7 @@ All live in `curated`. Ids are deterministic so re-runs converge.
 ### Riding is context, never the join
 
 Links come **only from records that name the person**: contributions to
-a candidate, lobbying communications with an MP, the MP's own expense
-reports, ministers' travel and hospitality claims, and (live) their
+a candidate, the MP's own expense reports, ministers' travel and hospitality claims, and (live) their
 votes and Hansard. Every link is to a record *about that person*.
 
 Riding is an attribute of a term (`person_terms.riding_name`), not a key.
@@ -81,7 +86,8 @@ Why not a key (checked against live data 2026-10-08):
   contributions rows carry `federal_riding_name_en` /
   `federal_riding_number`; grants to individuals (`recipient_type = P`)
   never do. Postal codes are on 92% of rows, but postal-code-to-riding
-  needs StatCan's licensed Postal Code Conversion File.
+  needs StatCan's licensed Postal Code Conversion File, which is out
+  of scope (not automatable without a licence).
 - **Numbers were reused across electoral maps.** In the grants data
   `48018` is *Edmonton Riverbend* (2013 Representation Order); in
   openparliament.ca it is *Edmonton Manning* (2023 order), which the
@@ -150,7 +156,7 @@ Changes needed, all small:
 
 Better than raw SQL for the model: one tool, `person_record(person,
 since, sources)`, that returns a politician's terms, votes (live),
-linked contributions, lobbying contacts and expenses in one call, built
+linked contributions and expenses in one call, built
 on these tables plus the live Parliament client.
 
 ## Inputs, and what each needs
@@ -159,7 +165,6 @@ on these tables plus the live Parliament client.
 |---|---|---|---|
 | MPs, terms, name variants | openparliament.ca API (live, JSON) | The new stage calls it directly (`include=all` + memberships) | Ready |
 | Election contributions | Elections Canada, `od_cntrbtn_de_e.zip` (106 MB), listed on open.canada.ca (org `elections`, subject `government_and_politics`) | Existing ingest, **plus ZIP support**: the file is a ZIP labelled CSV, so the format sniff quarantines it today | Needs a small ingest change |
-| Lobbying registrations + monthly communications | lobbycanada.gc.ca ZIPs (listed on open.canada.ca, org `ocl-cal`) | — | **Blocked**: the files sit behind a Cloudflare bot challenge (HTTP 403 to any script). We do not work around it. Options: a person downloads monthly into `gs://…/raw/` with provenance, or ask the Commissioner's office for an unchallenged URL |
 | MP office expenditures | ourcommons.ca proactive-disclosure pages (HTML, quarterly) | New ingest source kind (`api_kind` is `Literal["ckan"]` today) | Needs a scraper source kind |
 
 Ingest constraints that apply (from `services/ingest`): it queries
@@ -180,8 +185,9 @@ Deterministic first, and nothing silent:
    exactly one person has that name, else `ambiguous`.
 4. Two or more candidates → `ambiguous`, candidates recorded. The
    agent states the ambiguity instead of choosing.
-5. Fuzzy matching (edit distance) only ever proposes; a fuzzy match is
-   `ambiguous` until confirmed (`manual`).
+5. Fuzzy matching (edit distance) never links. A fuzzy-only match is
+   recorded as `ambiguous` with its candidates and stays that way; no
+   human review step.
 
 Re-running with the same inputs produces the same links: ids are
 deterministic, the MERGE key is `(source_system, record_key, field)`, and
@@ -208,30 +214,35 @@ each run's `run_id` records when a link last changed.
 2. **New service: `services/curate`** (decided 2026-10-08). It calls an
    external API, owns a different dataset and gets its own service
    account; warehouse-load does none of those.
-3. **Lobbying data**: still open. This is the federal Registry of
-   Lobbyists, run by the Office of the Commissioner of Lobbying:
-   *registrations* (who is paid to lobby which institutions, on what
-   subjects) and *monthly communication reports* (every arranged
-   communication between a lobbyist and a designated public office
-   holder (an MP, minister or senior official), with the date and
-   subject). It is what makes "who lobbied MP X before the vote"
-   answerable. The files are published, but lobbycanada.gc.ca serves
-   them behind a Cloudflare bot challenge (every scripted request gets a
-   403), and we do not work around that. Options: a person downloads
-   them monthly into `gs://…/raw/` with provenance, or we ask the
-   Commissioner's office for an unchallenged download.
-4. **ZIP reading has to be built.** Nothing in ingest or warehouse-load
+3. **ZIP reading has to be built.** Nothing in ingest or warehouse-load
    opens an archive today: a "CSV" that is really a ZIP is sniffed as
    `zip` and never lands as CSV, and warehouse-load only parses CSV/TSV.
-   Both contribution and lobbying files are ZIPs. Proposed: ingest
+   The Elections Canada contributions file is a ZIP. Proposed: ingest
    extracts CSV members at landing (one GCS object per member, with the
    archive's `document_id` and member name recorded), so everything
    downstream stays CSV-only.
-5. **Order**: people + terms first (no ingest needed, the
+4. **Order**: people + terms first (no ingest needed, the
    openparliament API is enough), then ZIP extraction + contributions,
-   then expenses (needs a scraper), then lobbying once access is sorted.
+   then expenses (needs a scraper).
    Riding context comes free from `person_terms`; no ridings table
    unless it earns one.
+
+## Out of scope: not automatable
+
+Ruled out by the automatable-sources rule (2026-10-08), with the reason,
+so they are not re-proposed:
+
+- **Registry of Lobbyists** (Office of the Commissioner of Lobbying):
+  registrations and monthly communication reports, the data behind "who
+  lobbied MP X". The files on lobbycanada.gc.ca sit behind a Cloudflare
+  bot challenge; every scripted request gets HTTP 403. Getting them
+  would mean a person downloading by hand or asking for access.
+- **Postal code → riding** (StatCan Postal Code Conversion File):
+  licensed.
+- **Human-confirmed name matches**: ambiguous links stay ambiguous.
+
+Revisit only if a source starts serving the data to scripts (e.g. a
+plain download URL or an API).
 
 ## Drift found while mapping (fix alongside)
 
