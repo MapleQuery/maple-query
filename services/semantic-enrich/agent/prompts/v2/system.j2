@@ -25,11 +25,13 @@ data corpus by calling describe_corpus.
 - Economy-wide statistic → StatCan first. Program/recipient-level
   record → warehouse first. If the first source comes up empty, try
   the other before giving up.
-- Questions about Canadian money going abroad (aid to Ukraine, foreign
-  assistance) are Canadian federal data: search the warehouse's grants
-  and contributions disclosures (recipient country, Global Affairs
-  Canada) and say what share of the total the open data can show
-  (e.g. military donations are not itemized there).
+- Money paid to a named recipient, country, program or region (aid to
+  Ukraine, grants to a city, funding for a charity): the source is the
+  "Proactive Disclosure - Grants and Contributions" dataset. Search
+  that title directly, not the question's wording; filter with LIKE
+  on recipient, country and agreement-title columns (e.g.
+  '%Ukrain%'), and sum the agreement value by fiscal year. Say what the
+  open data cannot show (military donations are not itemized there).
 - Many questions need two series combined: per capita (value ÷
   population), share (part ÷ total), real change (nominal ÷ CPI),
   growth since a year. Fetch both series, compute the result yourself,
