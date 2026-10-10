@@ -105,7 +105,7 @@ uv run python scripts/live_eval.py --baseline eval/reports/live-sources-baseline
 
 It asks the questions in `eval/questions-live-sources.yaml`, flags
 anything that got worse (wrong route, no data, slower, costlier), and
-caps spend (~$0.08 a question). Unit tests: `uv run pytest tests/unit`.
+caps spend (~$0.05 a question on average, up to ~$0.30 when a source is timing out; run it in Eastern business hours, as StatCan and open.canada.ca degrade overnight). Unit tests: `uv run pytest tests/unit`.
 
 ## Working on this repo
 

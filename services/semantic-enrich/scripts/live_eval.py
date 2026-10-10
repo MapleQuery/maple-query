@@ -45,8 +45,10 @@ DEFAULT_FIXTURE = SERVICE_DIR / "eval" / "questions-live-sources.yaml"
 REPORTS = SERVICE_DIR / "eval" / "reports"
 DEFAULT_BASE = "https://maple-query.vercel.app/api/mq"
 # Budgeted per question before it runs, so a cap is never overshot by more
-# than the questions already in flight.
-EST_DOLLARS_PER_QUESTION = 0.12
+# than the questions already in flight. Sized for the worst case, not the
+# average (~$0.05): a question whose source is timing out flails for
+# 10+ tool calls (seen: $0.27).
+EST_DOLLARS_PER_QUESTION = 0.30
 
 _DATA_EVENTS = {"source_data", "sql_executed"}
 
