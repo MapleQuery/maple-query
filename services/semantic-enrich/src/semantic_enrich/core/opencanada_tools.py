@@ -140,6 +140,22 @@ INTERNATIONAL_ORGS = frozenset({"dfatd-maecd"})
 IN_COUNTRY = "recipient_in_country"
 NAMED_ABROAD = "project_named_for_country"
 DOMESTIC = "domestic_mention"
+# ISO 3166-1 alpha-2 (plus XK, Kosovo, which departments use).
+_ISO_CODES = (
+    "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG "
+    "BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI "
+    "CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH "
+    "ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ "
+    "GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT "
+    "JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS "
+    "LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU "
+    "MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG "
+    "PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG "
+    "SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK "
+    "TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU "
+    "WF WS YE YT ZA ZM ZW XK "
+)
+COUNTRY_CODES = frozenset(_ISO_CODES.split())
 
 
 def run_query(
@@ -401,10 +417,11 @@ def _country_args(country: dict[str, Any] | None, known: set[str]) -> tuple[str 
         return None, None
     code = str(country.get("code") or "").strip().upper()
     name = str(country.get("name") or "").strip()
-    if not re.fullmatch(r"[A-Z]{2}", code) or not name:
+    if not name or code not in COUNTRY_CODES:
         raise QueryArgsError(
-            "country needs an ISO 3166 two-letter code and an English name, "
-            'e.g. {"code": "IL", "name": "Israel"}'
+            "country needs an ISO 3166 two-letter country code and its English name, e.g. "
+            '{"code": "IL", "name": "Israel"}. For an organisation (the United Nations, the '
+            'World Bank) use text {"recipient_legal_name": "<name>"} instead.'
         )
     missing = [c for c in COUNTRY_COLUMNS if c not in known]
     if missing:

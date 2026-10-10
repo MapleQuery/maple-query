@@ -336,5 +336,10 @@ def test_country_needs_a_code_and_the_grants_columns() -> None:
         opencanada_tools.run_query(
             CountryCkan(), resource_id=RID, country={"code": "Israel", "name": "Israel"}
         )
+    # The UN is an organisation, not a country: a recipient-name search finds it.
+    with pytest.raises(opencanada_tools.QueryArgsError, match="recipient_legal_name"):
+        opencanada_tools.run_query(
+            CountryCkan(), resource_id=RID, country={"code": "UN", "name": "United Nations"}
+        )
     with pytest.raises(opencanada_tools.QueryArgsError, match="Grants and Contributions"):
         opencanada_tools.run_query(FakeCkan(), resource_id=RID, country={"code": "IL", "name": "Israel"})
