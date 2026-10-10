@@ -51,12 +51,15 @@ EST_DOLLARS_PER_QUESTION = 0.12
 _DATA_EVENTS = {"source_data", "sql_executed"}
 
 
-def ask(base: str, token: str, question: str, timeout: float) -> dict[str, Any]:
+def ask(
+    base: str, token: str, question: str, timeout: float, history: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     body = json.dumps(
         {
             "conversation_id": str(uuid.uuid4()),
             "question": question,
-            "history": [],
+            # A follow-up question carries the earlier turns verbatim.
+            "history": history or [],
             # A repeat within the cache TTL would replay, measuring nothing.
             "bypass_cache": True,
         }
@@ -208,7 +211,7 @@ def main() -> int:
             if committed + EST_DOLLARS_PER_QUESTION > args.max_dollars:
                 return None
             committed += EST_DOLLARS_PER_QUESTION
-        result = ask(args.base, token, q["question"], args.timeout)
+        result = ask(args.base, token, q["question"], args.timeout, q.get("history"))
         with lock:
             committed += result["dollars"] - EST_DOLLARS_PER_QUESTION
         keys = ("id", "set", "question", "expected_source", "expected_category")

@@ -243,3 +243,98 @@ def test_sort_by_an_aggregate_output_orders_the_groups() -> None:
 def test_sort_by_an_unknown_column_is_a_fixable_error() -> None:
     with pytest.raises(opencanada_tools.QueryArgsError, match="aggregate output"):
         opencanada_tools.run_query(FakeCkan(), resource_id=RID, sort="value desc")
+
+
+# ── money to a country ──
+
+COUNTRY_FIELDS = [
+    {"id": c, "type": "text"}
+    for c in (
+        "_id",
+        "ref_number",
+        "amendment_number",
+        "agreement_value",
+        "agreement_start_date",
+        "owner_org",
+        "recipient_country",
+        "recipient_legal_name",
+        "agreement_title_en",
+    )
+]
+
+
+def _g(
+    _id: int, ref: str, country: str, org: str, title: str, value: str, amend: str = "0"
+) -> dict[str, Any]:
+    return {
+        "_id": _id,
+        "ref_number": ref,
+        "amendment_number": amend,
+        "agreement_value": value,
+        "agreement_start_date": "2023-05-01",
+        "owner_org": org,
+        "recipient_country": country,
+        "recipient_legal_name": f"recipient {ref}",
+        "agreement_title_en": title,
+    }
+
+
+LOCATED = [
+    _g(1, "L1", "IL", "dfatd-maecd", "", "100"),
+    _g(2, "L1", "IL", "dfatd-maecd", "", "120", amend="1"),
+    _g(3, "L2", "IL", "nserc-crsng", "Postdoctoral Fellowships", "50"),
+]
+NAMED = [
+    _g(3, "L2", "IL", "nserc-crsng", "Israel postdoc", "50"),  # also located: counted once
+    _g(4, "N1", "CH", "dfatd-maecd", "Humanitarian response - Israel", "1000"),
+    _g(5, "N2", "CA", "dfatd-maecd", "Israel water project", "300"),
+    _g(6, "D1", "CA", "esdc-edsc", "CSJ - Camp Gan Israel", "7"),
+]
+
+
+class CountryCkan:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def datastore_search(self, params: dict[str, Any]) -> dict[str, Any]:
+        self.calls.append(params)
+        rows = LOCATED if "recipient_country" in (params.get("filters") or {}) else NAMED
+        off = int(params.get("offset", 0))
+        return {"total": len(rows), "records": rows[off : off + int(params["limit"])]}
+
+    def resource_fields(self, resource_id: str) -> tuple[list[dict[str, Any]], int]:
+        return COUNTRY_FIELDS, 0
+
+    def resource_show(self, resource_id: str) -> dict[str, Any]:
+        return {"name": "Grants", "package_id": "p2"}
+
+
+def test_country_reads_located_and_named_once_and_sets_domestic_apart() -> None:
+    ckan = CountryCkan()
+    out = opencanada_tools.run_query(
+        ckan,
+        resource_id=RID,
+        country={"code": "il", "name": "Israel"},
+        group_by=["match_basis"],
+        sum_columns=["agreement_value"],
+        dedupe={"key": "ref_number", "order": "amendment_number"},
+    )
+    assert ckan.calls[0]["filters"] == {"recipient_country": "IL"}
+    assert ckan.calls[1]["q"] == {"agreement_title_en": "Israel"}
+    c = out["country"]
+    assert c["included"]["recipient_in_country"] == {"agreements": 2, "sum_agreement_value": 170.0}
+    assert c["included"]["project_named_for_country"] == {"agreements": 2, "sum_agreement_value": 1300.0}
+    assert c["excluded_domestic_mentions"]["agreements"] == 1
+    assert c["excluded_domestic_mentions"]["largest"][0]["agreement_title_en"] == "CSJ - Camp Gan Israel"
+    assert c["included"]["largest"][0]["recipient_country"] == "CH"
+    assert out["totals"]["sum_agreement_value"] == 1470.0
+    assert {g["match_basis"] for g in out["groups"]} == {"recipient_in_country", "project_named_for_country"}
+
+
+def test_country_needs_a_code_and_the_grants_columns() -> None:
+    with pytest.raises(opencanada_tools.QueryArgsError, match="two-letter"):
+        opencanada_tools.run_query(
+            CountryCkan(), resource_id=RID, country={"code": "Israel", "name": "Israel"}
+        )
+    with pytest.raises(opencanada_tools.QueryArgsError, match="Grants and Contributions"):
+        opencanada_tools.run_query(FakeCkan(), resource_id=RID, country={"code": "IL", "name": "Israel"})

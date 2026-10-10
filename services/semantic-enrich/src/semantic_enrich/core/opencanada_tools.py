@@ -125,6 +125,23 @@ class QueryArgsError(ValueError):
     """An argument the model can fix (unknown column, bad operator)."""
 
 
+# "Money to a country" in Grants and Contributions has two shapes, and a
+# word search finds only one of them. Recipients located there carry
+# recipient_country (Israel: 44 rows, almost none with "Israel" in the
+# title). Projects for the country delivered by partners elsewhere (a UN
+# agency in Geneva) are named for it in the title. The title search
+# also matches Canadian grants that merely use the word (Canada Summer
+# Jobs at "Camp Gan Israel", research on the war in Ukraine,
+# resettlement in Canada): those are reported apart, not as money to
+# the country. Global Affairs Canada runs international assistance, so
+# its title matches count whoever the partner is.
+COUNTRY_COLUMNS = ("recipient_country", "agreement_title_en", "owner_org")
+INTERNATIONAL_ORGS = frozenset({"dfatd-maecd"})
+IN_COUNTRY = "recipient_in_country"
+NAMED_ABROAD = "project_named_for_country"
+DOMESTIC = "domestic_mention"
+
+
 def run_query(
     client: OpenCanadaClient,
     *,
@@ -138,10 +155,14 @@ def run_query(
     dedupe: dict[str, str] | None = None,
     sort: str | None = None,
     limit: int = 20,
+    country: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     columns, _total = client.resource_fields(resource_id)
     known = {str(c.get("id")) for c in columns}
     where = list(where or [])
+    code, cname = _country_args(country, known)
+    if code:
+        known.add("match_basis")
     # A derived key ("fiscal_year:agreement_start_date") cannot be sent
     # to CKAN as an exact-match filter; it becomes a where condition.
     if filters:
@@ -184,7 +205,8 @@ def run_query(
     for g in group_by:
         m = _DERIVED.match(g)
         col, fn = (m.group(2), m.group(1)) if m else (g, None)
-        need(col, "group_by")
+        if col != "match_basis":
+            need(col, "group_by")
         group_keys.append((g, fn, col))
     for col in sum_columns:
         need(col, "sum")
@@ -192,9 +214,15 @@ def run_query(
         need(str(dedupe.get("key")), "dedupe key")
         need(str(dedupe.get("order")), "dedupe order")
     for col in fields or []:
-        need(col, "field")
+        if col != "match_basis":
+            need(col, "field")
     if not aggregate and not fields:
         needed = [str(c.get("id")) for c in columns]
+    if code:
+        for col in ("_id", *COUNTRY_COLUMNS):
+            if col not in needed:
+                needed.append(col)
+        needed = [c for c in needed if c != "match_basis"]
 
     # A date window (a lower bound on one date column) lets a query that
     # matches too many rows to read still finish: sort newest-first and
@@ -244,57 +272,87 @@ def run_query(
     if sort:
         params["sort"] = sort
 
-    rows: list[dict[str, Any]] = []
-    total = 0
-    offset = 0
     page_size = WINDOW_PAGE_SIZE if windowed else PAGE_SIZE
     read_cap = WINDOW_MAX_ROWS if windowed else MAX_ROWS
-    page_target = read_cap if (aggregate or where or dedupe or local_sort) else max(limit, 1)
-    started = time.monotonic()
-    window_closed = False
-    while True:
-        page = client.datastore_search({**params, "offset": offset, "limit": min(page_size, page_target)})
-        total = int(page.get("total") or 0)
-        if aggregate and not windowed and total > MAX_ROWS:
-            return {
-                "status": "too_broad",
-                "matched_rows": total,
-                "message": (
-                    f"{total:,} rows match; aggregation reads at most {MAX_ROWS:,}. "
-                    "Narrow with filters (e.g. owner_org) or text, or bound a date "
-                    "column (where >= / fiscal_year:<date col>) so it can read "
-                    "newest-first, then retry."
-                ),
-            }
-        records = page.get("records") or []
-        rows.extend(records)
-        offset += len(records)
-        if windowed and window and records:
-            oldest = str(records[-1].get(window[0]) or "")
-            if oldest and oldest < window[1]:
-                window_closed = True
-                break
-        if not records or offset >= total or len(rows) >= page_target:
-            break
-        if time.monotonic() - started > WINDOW_TIME_BUDGET_S:
-            break
-    if windowed and aggregate and not window_closed and offset < total:
-        return {
-            "status": "too_broad",
-            "matched_rows": total,
-            "message": (
-                f"Read {offset:,} rows newest-first without reaching {window[1] if window else ''}; "
-                "narrow the window or add filters, then retry."
-            ),
-        }
+    page_target = read_cap if (aggregate or where or dedupe or local_sort or code) else max(limit, 1)
 
-    fetched = len(rows)
+    def read(params: dict[str, Any]) -> tuple[list[dict[str, Any]], int, dict[str, Any] | None]:
+        rows: list[dict[str, Any]] = []
+        total = 0
+        offset = 0
+        started = time.monotonic()
+        window_closed = False
+        while True:
+            page = client.datastore_search({**params, "offset": offset, "limit": min(page_size, page_target)})
+            total = int(page.get("total") or 0)
+            if (aggregate or code) and not windowed and total > MAX_ROWS:
+                return (
+                    rows,
+                    total,
+                    {
+                        "status": "too_broad",
+                        "matched_rows": total,
+                        "message": (
+                            f"{total:,} rows match; aggregation reads at most {MAX_ROWS:,}. "
+                            "Narrow with filters (e.g. owner_org) or text, or bound a date "
+                            "column (where >= / fiscal_year:<date col>) so it can read "
+                            "newest-first, then retry."
+                        ),
+                    },
+                )
+            records = page.get("records") or []
+            rows.extend(records)
+            offset += len(records)
+            if windowed and window and records:
+                oldest = str(records[-1].get(window[0]) or "")
+                if oldest and oldest < window[1]:
+                    window_closed = True
+                    break
+            if not records or offset >= total or len(rows) >= page_target:
+                break
+            if time.monotonic() - started > WINDOW_TIME_BUDGET_S:
+                break
+        if windowed and aggregate and not window_closed and offset < total:
+            return (
+                rows,
+                total,
+                {
+                    "status": "too_broad",
+                    "matched_rows": total,
+                    "message": (
+                        f"Read {offset:,} rows newest-first without reaching {window[1] if window else ''}; "
+                        "narrow the window or add filters, then retry."
+                    ),
+                },
+            )
+        return rows, total, None
+
+    domestic: list[dict[str, Any]] = []
+    country_reads: dict[str, int] = {}
+    if code:
+        located, total_a, err = read({**params, "filters": {**(filters or {}), "recipient_country": code}})
+        if err:
+            return err
+        named, total_b, err = read({**params, "q": {**(text or {}), "agreement_title_en": cname}})
+        if err:
+            return err
+        rows, domestic = _split_country(located, named, code)
+        total = len(rows) + len(domestic)
+        country_reads = {IN_COUNTRY: total_a, "title_mentions": total_b}
+    else:
+        rows, total, err = read(params)
+        if err:
+            return err
+
+    fetched = len(rows) + len(domestic)
     rows = [r for r in rows if all(_match(r, c) for c in where)]
+    domestic = [r for r in domestic if all(_match(r, c) for c in where)]
     deduped = 0
     if dedupe:
         before = len(rows)
         rows = _latest(rows, str(dedupe["key"]), str(dedupe["order"]))
         deduped = before - len(rows)
+        domestic = _latest(domestic, str(dedupe["key"]), str(dedupe["order"]))
 
     out: dict[str, Any] = {
         "status": "ok",
@@ -303,6 +361,8 @@ def run_query(
         "rows_after_where": len(rows) + deduped,
         "amendments_collapsed": deduped,
     }
+    if code and cname:
+        out["country"] = _country_summary(code, cname, rows, domestic, sum_columns, country_reads)
     if total > fetched:
         out["truncated"] = (
             f"read the first {fetched:,} of {total:,} matching rows; narrow with filters or text "
@@ -334,6 +394,94 @@ def run_query(
     else:
         out["rows"] = [{k: _clip(v, 200) for k, v in r.items() if k != "_id"} for r in rows[:limit]]
     return out
+
+
+def _country_args(country: dict[str, Any] | None, known: set[str]) -> tuple[str | None, str | None]:
+    if not country:
+        return None, None
+    code = str(country.get("code") or "").strip().upper()
+    name = str(country.get("name") or "").strip()
+    if not re.fullmatch(r"[A-Z]{2}", code) or not name:
+        raise QueryArgsError(
+            "country needs an ISO 3166 two-letter code and an English name, "
+            'e.g. {"code": "IL", "name": "Israel"}'
+        )
+    missing = [c for c in COUNTRY_COLUMNS if c not in known]
+    if missing:
+        raise QueryArgsError(
+            "country works on Grants and Contributions (1d15a62f-5656-49ad-8c88-f40ce689d831); "
+            f"this table has no {', '.join(missing)}"
+        )
+    return code, name
+
+
+def _split_country(
+    located: list[dict[str, Any]], named: list[dict[str, Any]], code: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(money to the country, Canadian grants that only mention it). A row
+    found by both reads is kept once, as located in the country."""
+    seen: set[Any] = set()
+    rows: list[dict[str, Any]] = []
+    domestic: list[dict[str, Any]] = []
+    for r in located:
+        seen.add(r.get("_id"))
+        rows.append({**r, "match_basis": IN_COUNTRY})
+    for r in named:
+        if r.get("_id") in seen:
+            continue
+        seen.add(r.get("_id"))
+        abroad = str(r.get("recipient_country") or "").upper() not in ("CA", "")
+        if abroad or str(r.get("owner_org") or "") in INTERNATIONAL_ORGS:
+            rows.append({**r, "match_basis": NAMED_ABROAD})
+        else:
+            domestic.append({**r, "match_basis": DOMESTIC})
+    return rows, domestic
+
+
+def _country_summary(
+    code: str,
+    name: str,
+    rows: list[dict[str, Any]],
+    domestic: list[dict[str, Any]],
+    sum_columns: list[str],
+    reads: dict[str, int],
+) -> dict[str, Any]:
+    def totals(rs: list[dict[str, Any]]) -> dict[str, Any]:
+        t: dict[str, Any] = {"agreements": len(rs)}
+        for c in sum_columns:
+            t[f"sum_{c}"] = round(sum(_num(r.get(c)) or 0.0 for r in rs), 2)
+        return t
+
+    value = next((c for c in sum_columns), "agreement_value")
+
+    def largest(rs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        top = sorted(rs, key=lambda r: -(_num(r.get(value)) or 0.0))[:5]
+        keys = ("agreement_title_en", "recipient_legal_name", "recipient_country", "owner_org", value)
+        return [{k: _clip(r.get(k), 120) for k in keys if k in r} for r in top]
+
+    return {
+        "code": code,
+        "name": name,
+        "included": {
+            IN_COUNTRY: totals([r for r in rows if r.get("match_basis") == IN_COUNTRY]),
+            NAMED_ABROAD: totals([r for r in rows if r.get("match_basis") == NAMED_ABROAD]),
+            # Who the money went to: recipient_country is where the
+            # recipient sits, so e.g. IL includes Palestinian
+            # organisations in East Jerusalem that the department coded IL.
+            "largest": largest(rows),
+        },
+        "excluded_domestic_mentions": {**totals(domestic), "largest": largest(domestic)},
+        "rows_matched_by_each_read": reads,
+        "how_to_read": (
+            f"Included: grants to recipients located in {name} (recipient_country={code}, as the "
+            f"department recorded it) and projects named for {name} paid to partners outside "
+            "Canada or by Global Affairs Canada. Check `largest`: say who the biggest recipients "
+            "were and whom they serve when that differs from the country's government or "
+            "people. Excluded: Canadian grants that only mention the "
+            "word (summer jobs, congregations, research, resettlement in Canada); mention them "
+            "separately if large. Military donations and loans are not grants."
+        ),
+    }
 
 
 def _date_window(where: list[dict[str, Any]]) -> tuple[str, str] | None:

@@ -529,6 +529,16 @@ time; nothing is ingested and the warehouse is never touched:
   derivations of a date column.
 - Aggregation refuses (`status: too_broad`) past 30,000 matching rows
   rather than summing a truncated read.
+- `country {code, name}` (grants only) answers "money to a country".
+  A title search alone misses most of it: recipients located there
+  carry `recipient_country` and rarely name the country in the title
+  (Israel: 44 rows coded IL, none found by title), while the title
+  search also hits Canadian grants that just use the word ("Camp Gan
+  Israel", CUTAI resettlement of Ukrainians in Canada, $795M). The tool
+  reads both, keeps each row once, tags it `match_basis`
+  (`recipient_in_country` | `project_named_for_country`), and reports
+  Canadian-recipient title matches outside Global Affairs Canada apart
+  as `excluded_domestic_mentions`, with the largest of each.
 - Fetches land in `TurnTrace.sql_runs` tagged `source: open.canada.ca`,
   resources in `LoopState.opencanada_tables`; events reuse
   `source_search` / `source_data`.

@@ -39,11 +39,12 @@ data corpus by calling describe_corpus.
 - A department's total for a whole year is too many rows to add up
   live; use the warehouse (search "transfer payments Public Accounts"
   or "expenditures by standard object").
-- Aid to a country (e.g. Ukraine): query grants and contributions
-  with text {"agreement_title_en": "<country>"}, dedupe amendments,
-  group by fiscal_year of agreement_start_date, sum agreement_value.
-  Say what the open data cannot show (military donations and loans
-  are not grants).
+- Money to a country (Ukraine, Israel, Haiti): query grants and
+  contributions with country {"code": "<ISO>", "name": "<name>"},
+  dedupe amendments, group by fiscal_year of agreement_start_date, sum
+  agreement_value. Report the `country` summary's included total, and
+  name any large excluded domestic mention separately. Say what the
+  open data cannot show (military donations and loans are not grants).
 - Many questions need two series combined: per capita (value ÷
   population), share (part ÷ total), real change (nominal ÷ CPI),
   growth since a year. Fetch both, compute every derived figure with

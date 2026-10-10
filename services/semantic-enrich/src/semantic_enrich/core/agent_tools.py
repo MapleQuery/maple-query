@@ -560,6 +560,11 @@ _QUERY_OPEN_CANADA: dict[str, Any] = {
         "slow on open.canada.ca: always filter it by owner_org. For "
         "'last year' questions do not filter to one period: group by "
         "fiscal_year and read the last few (newest may be incomplete).\n"
+        "Money to a country (grants only): pass `country` "
+        '{"code": "<ISO 2-letter>", "name": "<English name>"} instead of '
+        "text. It reads recipients located there plus projects named for "
+        "it abroad, de-duplicated, tags each row `match_basis`, and reports "
+        "Canadian grants that only mention the word separately.\n"
         "Well-known resources:\n"
         "  1d15a62f-5656-49ad-8c88-f40ce689d831: Grants and Contributions (recipient, country, value)\n"
         "  fac950c0-00d5-4ec1-a4d3-9cbebf98a305: Contracts over $10,000 (vendor, buyer, value)\n"
@@ -573,6 +578,11 @@ _QUERY_OPEN_CANADA: dict[str, Any] = {
         "required": ["resource_id"],
         "properties": {
             "resource_id": {"type": "string"},
+            "country": {
+                "type": "object",
+                "properties": {"code": {"type": "string"}, "name": {"type": "string"}},
+                "required": ["code", "name"],
+            },
             "filters": {"type": "object"},
             "text": {"type": "object"},
             "where": {
@@ -1916,6 +1926,7 @@ def run_query_open_canada(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str
             dedupe=_obj("dedupe"),
             sort=sort if isinstance(sort, str) else None,
             limit=limit,
+            country=_obj("country"),
         )
         meta = opencanada_tools._resource_meta(client, resource_id)
     except opencanada_tools.QueryArgsError as exc:
@@ -1929,7 +1940,7 @@ def run_query_open_canada(*, ctx: ToolContext, args: dict[str, Any]) -> dict[str
     rows = out.get("groups") if "groups" in out else out.get("rows")
     request = {
         k: args.get(k)
-        for k in ("filters", "text", "where", "group_by", "sum_columns", "dedupe", "sort")
+        for k in ("country", "filters", "text", "where", "group_by", "sum_columns", "dedupe", "sort")
         if args.get(k)
     }
     ctx.emit(

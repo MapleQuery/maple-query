@@ -65,6 +65,27 @@
   set: get_better
   expected_source: payments
   question: "How much did Canada give to the United Nations in grants and contributions in 2024-25?"
+- id: israel-ever-funded
+  set: get_better
+  expected_source: payments
+  question: "has canada ever given money to israel?"
+  note: >-
+    Recipients in Israel carry recipient_country IL and rarely name it in
+    the title; a title search found only Canadian camps and synagogues and
+    answered "no records". Expect the IL total, its largest recipients
+    (several serve Palestinians), and the domestic mentions set apart.
+- id: israel-claim-followup
+  set: get_better
+  expected_source: payments
+  history:
+    - {role: user, content: "has canada ever given money to israel?"}
+    - {role: assistant, content: "The grants data did not show any records of financial contributions to Israel."}
+  question: >-
+    Canada has provided direct humanitarian aid to Israel (such as $10
+    million in emergency humanitarian assistance following the October
+    2023 attacks), though Canada does not provide direct military aid or
+    donations of weapons to the Israeli state. ???
+  note: Was refused as another country's affairs (non_canada); must check the claim against the grants.
 - id: debt-holders
   set: get_better
   expected_source: statcan
