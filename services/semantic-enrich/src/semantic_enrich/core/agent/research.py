@@ -93,6 +93,9 @@ def run(
     messages.append({"role": "user", "content": ctx.request.question})
 
     budget_forced = False
+    # Live sources that failed outright this turn (StatCan's API returns
+    # 503s for hours at a time), so a fallback answer says so.
+    unavailable: set[str] = set()
 
     while True:
         over = ctx.check_wallclock()
@@ -144,16 +147,19 @@ def run(
             ctx.route_widened = True
             ctx.trace.route_widened = True
             _LOG.info("route_widened", route=ctx.route)
-            messages.append(
-                {
-                    "role": "user",
-                    "content": (
-                        "The routed source did not answer this. Every source "
-                        "is now available (Statistics Canada, open.canada.ca, "
-                        "the warehouse); try the others before answering."
-                    ),
-                }
+            content = (
+                "The routed source did not answer this. Every source "
+                "is now available (Statistics Canada, open.canada.ca, "
+                "the warehouse); try the others before answering."
             )
+            if unavailable:
+                down = ", ".join(sorted(_UNAVAILABLE_LABELS.get(r, r) for r in unavailable))
+                content += (
+                    f" {down} could not be reached just now. If you answer "
+                    "from another source, open by saying so and give that "
+                    "source's period; it may be older or narrower."
+                )
+            messages.append({"role": "user", "content": content})
             continue
 
         # Terminal — model returned final text.
@@ -249,6 +255,12 @@ def run(
             yield from tool_events
             messages.append(tool_msg)
             _record_trace(ctx, tc=tc, result=result_payload)
+            if (
+                isinstance(result_payload, dict)
+                and result_payload.get("status") == "source_error"
+                and str(result_payload.get("reason", "")).endswith("_unavailable")
+            ):
+                unavailable.add(str(result_payload["reason"]))
         for tc in refused:
             messages.append(_budget_refusal_msg(tc))
         ctx.charge_tool_calls(billable)
@@ -262,6 +274,11 @@ def run(
 _PARLIAMENT_TOOLS = frozenset(
     {"find_politician", "parliament_votes", "find_bills", "politician_speeches"}
 )
+
+_UNAVAILABLE_LABELS = {
+    "statcan_unavailable": "Statistics Canada's API",
+    "parliament_unavailable": "openparliament.ca",
+}
 
 _ROUTE_LABELS = {
     "parliament": "Parliament (votes, bills, Hansard)",

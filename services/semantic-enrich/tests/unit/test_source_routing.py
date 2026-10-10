@@ -130,3 +130,23 @@ def test_bypass_cache_never_consults_the_replay_cache() -> None:
         deps=deps,
     )
     assert outcome.final_message.startswith("answer.")
+
+
+def test_widening_after_an_outage_tells_the_model_to_say_so(monkeypatch: Any) -> None:
+    from semantic_enrich.clients.statcan import StatCanError
+
+    class DownStatCan:
+        def cube_metadata(self, product_id: int) -> dict[str, Any]:
+            raise StatCanError("WDS 503")
+
+    monkeypatch.setattr(agent_tools, "_statcan", lambda ctx: DownStatCan())
+    call = {"id": "s1", "name": "describe_statcan_table", "arguments": {"product_id": "10-10-0024-01"}}
+    openai = FakeOpenAIClient(
+        chat_script=[{"tool_calls": [call]}, {"content": "cannot answer."}, {"content": "final."}]
+    )
+    run_turn_collected(
+        request=ChatRequest(conversation_id="c", history=[], question="q?"),
+        deps=_deps(openai, FixedTriage("statcan", 0.9)),
+    )
+    widen = openai.chat_calls[2]["messages"][-1]["content"]
+    assert "Statistics Canada's API could not be reached" in widen
